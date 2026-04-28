@@ -1,7 +1,9 @@
 import { startTransition, useEffect, useMemo, useState, type ReactNode } from 'react';
 
-type ScreenId = 'overview' | 'providers' | 'messages' | 'store' | 'wallet' | 'settings';
+type ScreenId = 'overview' | 'providers' | 'messages' | 'settings';
+type ProviderSectionId = 'config' | 'store' | 'wallet';
 type MessageFilter = 'all' | 'received' | 'waiting' | 'failed';
+type SelectorKind = 'service' | 'country';
 
 type ProviderSummary = {
   id: string;
@@ -96,15 +98,33 @@ type SidebarItem = {
   subtitle: string;
 };
 
+type OptionItem = {
+  value: string;
+  label: string;
+  hint: string;
+};
+
+type SelectorState = {
+  providerId: string;
+  kind: SelectorKind;
+  title: string;
+  options: OptionItem[];
+};
+
 const API_BASE = 'http://127.0.0.1:7822';
 const SOCKET_PATH = '/tmp/madao-sms.sock';
+
 const sidebarItems: SidebarItem[] = [
   { id: 'overview', title: 'Overview', subtitle: 'Dashboard' },
   { id: 'providers', title: 'Providers', subtitle: 'Single provider' },
   { id: 'messages', title: 'Messages', subtitle: 'Activations' },
-  { id: 'store', title: 'Store', subtitle: 'Provider catalog' },
-  { id: 'wallet', title: 'Wallet', subtitle: 'Balances' },
   { id: 'settings', title: 'Settings', subtitle: 'Runtime preferences' },
+];
+
+const providerSections: Array<{ id: ProviderSectionId; label: string }> = [
+  { id: 'config', label: 'Settings' },
+  { id: 'store', label: 'Store' },
+  { id: 'wallet', label: 'Wallet' },
 ];
 
 const messageFilters: Array<{ id: MessageFilter; label: string }> = [
@@ -114,22 +134,59 @@ const messageFilters: Array<{ id: MessageFilter; label: string }> = [
   { id: 'failed', label: 'Failed' },
 ];
 
+const handlerApiServices: OptionItem[] = [
+  { value: 'dr', label: 'OpenAI / ChatGPT', hint: 'dr' },
+  { value: 'tg', label: 'Telegram', hint: 'tg' },
+  { value: 'wa', label: 'WhatsApp', hint: 'wa' },
+  { value: 'fb', label: 'Facebook', hint: 'fb' },
+  { value: 'ds', label: 'Discord', hint: 'ds' },
+];
+
+const fiveSimServices: OptionItem[] = [
+  { value: 'openai', label: 'OpenAI', hint: 'openai' },
+  { value: 'telegram', label: 'Telegram', hint: 'telegram' },
+  { value: 'whatsapp', label: 'WhatsApp', hint: 'whatsapp' },
+  { value: 'facebook', label: 'Facebook', hint: 'facebook' },
+  { value: 'discord', label: 'Discord', hint: 'discord' },
+];
+
+const handlerApiCountries: OptionItem[] = [
+  { value: '0', label: 'Russia', hint: '0' },
+  { value: '1', label: 'Ukraine', hint: '1' },
+  { value: '2', label: 'Kazakhstan', hint: '2' },
+  { value: '50', label: 'United States', hint: '50' },
+  { value: '86', label: 'China', hint: '86' },
+  { value: '44', label: 'United Kingdom', hint: '44' },
+];
+
+const fiveSimCountries: OptionItem[] = [
+  { value: 'any', label: 'Any Country', hint: 'any' },
+  { value: 'usa', label: 'United States', hint: 'usa' },
+  { value: 'england', label: 'United Kingdom', hint: 'england' },
+  { value: 'canada', label: 'Canada', hint: 'canada' },
+  { value: 'germany', label: 'Germany', hint: 'germany' },
+  { value: 'japan', label: 'Japan', hint: 'japan' },
+];
+
 export function App() {
   const [snapshot, setSnapshot] = useState<Snapshot | null>(null);
   const [manifests, setManifests] = useState<Record<string, ProviderManifest>>({});
   const [rawEditors, setRawEditors] = useState<Record<string, string>>({});
-  const [selectedProvider, setSelectedProvider] = useState<string>('mock');
-  const [storeSelection, setStoreSelection] = useState<string>('mock');
+  const [selectedProvider, setSelectedProvider] = useState<string>('');
   const [balances, setBalances] = useState<Record<string, string>>({});
   const [pricePanels, setPricePanels] = useState<Record<string, ProviderPriceResponse>>({});
   const [statusMessage, setStatusMessage] = useState<string>('控制台已就绪，等待操作。');
   const [busyAction, setBusyAction] = useState<string>('');
   const [activeScreen, setActiveScreen] = useState<ScreenId>('overview');
+  const [activeProviderSection, setActiveProviderSection] = useState<ProviderSectionId>('config');
   const [autoRefresh, setAutoRefresh] = useState(true);
   const [showAdvancedEditor, setShowAdvancedEditor] = useState(true);
   const [compactTables, setCompactTables] = useState(false);
   const [messageFilter, setMessageFilter] = useState<MessageFilter>('all');
-  const [storeSearch, setStoreSearch] = useState('');
+  const [providerSearch, setProviderSearch] = useState('');
+  const [selectorState, setSelectorState] = useState<SelectorState | null>(null);
+  const [selectorSearch, setSelectorSearch] = useState('');
+  const [showManifestModal, setShowManifestModal] = useState(false);
 
   useEffect(() => {
     void Promise.all([loadSnapshot(), loadManifests()]);
@@ -141,35 +198,44 @@ export function App() {
     return () => window.clearInterval(timer);
   }, [autoRefresh]);
 
+  const visibleProviders = useMemo(
+    () => Object.values(manifests).filter((manifest) => manifest.id !== 'mock' && manifest.kind !== 'mock'),
+    [manifests],
+  );
+
   useEffect(() => {
-    const ids = Object.keys(manifests);
-    if (ids.length > 0 && !manifests[selectedProvider]) {
-      setSelectedProvider(ids[0]);
+    if (visibleProviders.length === 0) return;
+    if (!visibleProviders.some((item) => item.id === selectedProvider)) {
+      setSelectedProvider(visibleProviders[0].id);
     }
-    if (ids.length > 0 && !manifests[storeSelection]) {
-      setStoreSelection(ids[0]);
-    }
-  }, [manifests, selectedProvider, storeSelection]);
+  }, [visibleProviders, selectedProvider]);
 
   const selectedManifest = manifests[selectedProvider];
   const selectedSummary = snapshot?.providers.find((provider) => provider.id === selectedProvider);
   const selectedPrices = pricePanels[selectedProvider];
-  const storeManifest = manifests[storeSelection];
-  const storeSummary = snapshot?.providers.find((provider) => provider.id === storeSelection);
-  const filteredStoreProviders = useMemo(() => {
-    const items = Object.values(manifests);
-    if (!storeSearch.trim()) return items;
-    const term = storeSearch.trim().toLowerCase();
-    return items.filter((manifest) =>
-      [manifest.name, manifest.id, manifest.description ?? ''].some((value) =>
+
+  const filteredProviderList = useMemo(() => {
+    if (!providerSearch.trim()) return visibleProviders;
+    const term = providerSearch.trim().toLowerCase();
+    return visibleProviders.filter((provider) =>
+      [provider.name, provider.id, provider.description ?? ''].some((value) =>
         value.toLowerCase().includes(term),
       ),
     );
-  }, [manifests, storeSearch]);
+  }, [providerSearch, visibleProviders]);
+
+  const filteredSelectorOptions = useMemo(() => {
+    if (!selectorState) return [];
+    if (!selectorSearch.trim()) return selectorState.options;
+    const term = selectorSearch.trim().toLowerCase();
+    return selectorState.options.filter((item) =>
+      [item.label, item.value, item.hint].some((value) => value.toLowerCase().includes(term)),
+    );
+  }, [selectorSearch, selectorState]);
 
   const overviewStats = useMemo(() => {
-    const providers = snapshot?.providers ?? [];
-    const tickets = snapshot?.tickets ?? [];
+    const providers = (snapshot?.providers ?? []).filter((item) => item.id !== 'mock');
+    const tickets = (snapshot?.tickets ?? []).filter((item) => item.provider !== 'mock');
     const logs = snapshot?.logs ?? [];
     return {
       totalMessages: tickets.length.toLocaleString(),
@@ -180,23 +246,26 @@ export function App() {
   }, [snapshot]);
 
   const recentActivity = useMemo(() => {
-    const tickets = snapshot?.tickets ?? [];
+    const tickets = (snapshot?.tickets ?? []).filter((item) => item.provider !== 'mock');
     if (tickets.length > 0) return tickets.slice(0, 6);
-    return (snapshot?.providers ?? []).slice(0, 3).map((provider, index) => ({
-      id: provider.id,
-      provider: provider.name,
-      service: provider.default_service,
-      country: provider.default_country,
-      phone_number: provider.primary_endpoint ?? 'No endpoint',
-      status: provider.enabled ? 'Connected' : 'Standby',
-      price: null,
-      code: null,
-      message: `Auto-generated overview row ${index + 1}`,
-    }));
+    return (snapshot?.providers ?? [])
+      .filter((provider) => provider.id !== 'mock')
+      .slice(0, 3)
+      .map((provider, index) => ({
+        id: provider.id,
+        provider: provider.name,
+        service: provider.default_service,
+        country: provider.default_country,
+        phone_number: provider.primary_endpoint ?? 'No endpoint',
+        status: provider.enabled ? 'Connected' : 'Standby',
+        price: null,
+        code: null,
+        message: `Auto-generated overview row ${index + 1}`,
+      }));
   }, [snapshot]);
 
   const filteredMessages = useMemo(() => {
-    const tickets = snapshot?.tickets ?? [];
+    const tickets = (snapshot?.tickets ?? []).filter((item) => item.provider !== 'mock');
     if (messageFilter === 'all') return tickets;
     return tickets.filter((ticket) => {
       const status = ticket.status.toLowerCase();
@@ -338,6 +407,47 @@ export function App() {
     }
   }
 
+  function serviceOptionsFor(manifest: ProviderManifest): OptionItem[] {
+    return manifest.kind === 'five_sim' ? fiveSimServices : handlerApiServices;
+  }
+
+  function countryOptionsFor(manifest: ProviderManifest): OptionItem[] {
+    return manifest.kind === 'five_sim' ? fiveSimCountries : handlerApiCountries;
+  }
+
+  function openSelector(kind: SelectorKind) {
+    if (!selectedManifest) return;
+    const options = kind === 'service' ? serviceOptionsFor(selectedManifest) : countryOptionsFor(selectedManifest);
+    setSelectorSearch('');
+    setSelectorState({
+      providerId: selectedManifest.id,
+      kind,
+      title: kind === 'service' ? 'Select Default Service' : 'Select Default Country',
+      options,
+    });
+  }
+
+  function applySelectorOption(option: OptionItem) {
+    if (!selectorState) return;
+    updateManifestField(selectorState.providerId, 'defaults', selectorState.kind, option.value);
+    setSelectorState(null);
+  }
+
+  function setApiKey(providerId: string, value: string) {
+    const manifest = manifests[providerId];
+    if (!manifest) return;
+    if (manifest.handler_api) {
+      updateManifestField(providerId, 'handler_api', 'api_key', value);
+    }
+    if (manifest.five_sim) {
+      updateManifestField(providerId, 'five_sim', 'api_key', value);
+    }
+  }
+
+  function apiKeyValue(manifest: ProviderManifest) {
+    return String(manifest.handler_api?.api_key ?? manifest.five_sim?.api_key ?? '');
+  }
+
   return (
     <main className="mac-shell">
       <div className="mac-window">
@@ -346,7 +456,6 @@ export function App() {
             <strong>MaDao</strong>
             <span>Internal protocol console</span>
           </div>
-
           <nav className="sidebar-nav">
             {sidebarItems.map((item) => (
               <button
@@ -381,58 +490,39 @@ export function App() {
             {activeScreen === 'overview' && (
               <OverviewScreen stats={overviewStats} activity={recentActivity} statusMessage={statusMessage} />
             )}
+
             {activeScreen === 'providers' && selectedManifest && (
-              <ProvidersScreen
-                providers={Object.values(manifests)}
-                manifest={selectedManifest}
-                summary={selectedSummary}
+              <ProviderWorkspaceScreen
+                providers={filteredProviderList}
+                selectedProvider={selectedProvider}
+                selectedManifest={selectedManifest}
+                selectedSummary={selectedSummary}
+                selectedPrices={selectedPrices}
+                selectedSection={activeProviderSection}
+                providerSearch={providerSearch}
+                showAdvancedEditor={showAdvancedEditor}
+                busyAction={busyAction}
                 rawEditor={rawEditors[selectedProvider] ?? ''}
                 balanceLabel={balances[selectedProvider] ?? '未查询'}
-                busyAction={busyAction}
-                showAdvancedEditor={showAdvancedEditor}
-                selectedProvider={selectedProvider}
-                onSelectProvider={(providerId) => {
-                  setSelectedProvider(providerId);
-                  setStoreSelection(providerId);
-                }}
+                onProviderSearch={setProviderSearch}
+                onSelectProvider={(providerId) => setSelectedProvider(providerId)}
+                onSelectSection={setActiveProviderSection}
+                onOpenSelector={openSelector}
                 onManifestFieldChange={(section, field, value) =>
                   updateManifestField(selectedProvider, section, field, value)
                 }
-                onRawChange={(value) =>
-                  setRawEditors((current) => ({
-                    ...current,
-                    [selectedProvider]: value,
-                  }))
-                }
-                onSave={() => void saveProvider(selectedProvider)}
+                onApiKeyChange={(value) => setApiKey(selectedProvider, value)}
+                apiKeyValue={apiKeyValue(selectedManifest)}
                 onFetchBalance={() => void fetchBalance(selectedProvider)}
+                onFetchPrices={() => void fetchPrices(selectedProvider)}
+                onOpenAdvancedEditor={() => setShowManifestModal(true)}
               />
             )}
+
             {activeScreen === 'messages' && (
               <MessagesScreen tickets={filteredMessages} filter={messageFilter} setFilter={setMessageFilter} />
             )}
-            {activeScreen === 'store' && (
-              <StoreScreen
-                providers={filteredStoreProviders}
-                selectedManifest={storeManifest}
-                selectedSummary={storeSummary}
-                search={storeSearch}
-                onSearch={setStoreSearch}
-                onSelect={(providerId) => {
-                  setStoreSelection(providerId);
-                  setSelectedProvider(providerId);
-                }}
-              />
-            )}
-            {activeScreen === 'wallet' && (
-              <WalletScreen
-                selectedProvider={selectedProvider}
-                balanceLabel={balances[selectedProvider] ?? '未查询'}
-                logs={snapshot?.logs ?? []}
-                onFetchBalance={() => void fetchBalance(selectedProvider)}
-                isBusy={busyAction === `balance-${selectedProvider}`}
-              />
-            )}
+
             {activeScreen === 'settings' && (
               <SettingsScreen
                 autoRefresh={autoRefresh}
@@ -446,6 +536,33 @@ export function App() {
           </div>
         </section>
       </div>
+
+      {showAdvancedEditor && showManifestModal && selectedManifest && (
+        <ManifestModal
+          providerName={selectedManifest.name}
+          rawEditor={rawEditors[selectedProvider] ?? ''}
+          busy={busyAction.includes('save')}
+          onClose={() => setShowManifestModal(false)}
+          onChange={(value) =>
+            setRawEditors((current) => ({
+              ...current,
+              [selectedProvider]: value,
+            }))
+          }
+          onSave={() => void saveProvider(selectedProvider)}
+        />
+      )}
+
+      {selectorState && (
+        <SearchSelectorModal
+          title={selectorState.title}
+          search={selectorSearch}
+          options={filteredSelectorOptions}
+          onClose={() => setSelectorState(null)}
+          onSearch={setSelectorSearch}
+          onSelect={applySelectorOption}
+        />
+      )}
     </main>
   );
 }
@@ -495,106 +612,215 @@ function OverviewScreen(props: {
   );
 }
 
-function ProvidersScreen(props: {
+function ProviderWorkspaceScreen(props: {
   providers: ProviderManifest[];
-  manifest: ProviderManifest;
-  summary?: ProviderSummary;
+  selectedProvider: string;
+  selectedManifest: ProviderManifest;
+  selectedSummary?: ProviderSummary;
+  selectedPrices?: ProviderPriceResponse;
+  selectedSection: ProviderSectionId;
+  providerSearch: string;
+  showAdvancedEditor: boolean;
+  busyAction: string;
   rawEditor: string;
   balanceLabel: string;
-  busyAction: string;
-  showAdvancedEditor: boolean;
-  selectedProvider: string;
+  onProviderSearch: (value: string) => void;
   onSelectProvider: (providerId: string) => void;
+  onSelectSection: (section: ProviderSectionId) => void;
+  onOpenSelector: (kind: SelectorKind) => void;
   onManifestFieldChange: (
     section: 'root' | 'defaults' | 'handler_api' | 'five_sim' | 'mock',
     field: string,
     value: string | number | boolean,
   ) => void;
-  onRawChange: (value: string) => void;
-  onSave: () => void;
+  onApiKeyChange: (value: string) => void;
+  apiKeyValue: string;
   onFetchBalance: () => void;
+  onFetchPrices: () => void;
+  onOpenAdvancedEditor: () => void;
 }) {
   return (
-    <section className="screen-stack">
-      <div className="screen-header">
-        <div>
-          <h1>{props.manifest.name}</h1>
-          <p>Manage a single provider route, protocol endpoint and activation defaults.</p>
+    <section className="store-shell">
+      <aside className="store-pane">
+        <div className="store-search-wrap">
+          <span className="provider-search-icon">🔍</span>
+          <input value={props.providerSearch} onChange={(event) => props.onProviderSearch(event.target.value)} placeholder="Search providers..." />
         </div>
-        <div className="header-actions">
-          <button className="toolbar-button" onClick={props.onFetchBalance} disabled={props.busyAction.includes('balance')}>
-            Balance
-          </button>
-          <button className="toolbar-button primary" onClick={props.onSave} disabled={props.busyAction.includes('save')}>
-            Save
-          </button>
+        <div className="store-list">
+          {props.providers.map((provider) => (
+            <button
+              key={provider.id}
+              className={props.selectedProvider === provider.id ? 'store-list-item active' : 'store-list-item'}
+              onClick={() => props.onSelectProvider(provider.id)}
+            >
+              <div className="store-list-item-left">
+                <div className="provider-glyph" />
+                <strong>{provider.name}</strong>
+              </div>
+              <span className="store-chevron">›</span>
+            </button>
+          ))}
         </div>
-      </div>
+      </aside>
 
-      <section className="provider-switcher">
-        {props.providers.map((provider) => (
-          <button
-            key={provider.id}
-            className={props.selectedProvider === provider.id ? 'provider-chip active' : 'provider-chip'}
-            onClick={() => props.onSelectProvider(provider.id)}
-          >
-            <strong>{provider.name}</strong>
-            <span>{provider.kind}</span>
-          </button>
-        ))}
-      </section>
-
-      <section className="panel-card">
-        <div className="panel-headline">
-          <h2>Provider Settings</h2>
-          <span>Balance: {props.balanceLabel}</span>
-        </div>
-        <div className="config-grid">
-          <Field label="Provider Name">
-            <input value={props.manifest.name} onChange={(event) => props.onManifestFieldChange('root', 'name', event.target.value)} />
-          </Field>
-          <Field label="Enabled">
-            <label className="switch-row">
-              <input
-                type="checkbox"
-                checked={props.manifest.enabled}
-                onChange={(event) => props.onManifestFieldChange('root', 'enabled', event.target.checked)}
-              />
-              <span>{props.manifest.enabled ? 'Enabled' : 'Disabled'}</span>
-            </label>
-          </Field>
-          <Field label="Default Service">
-            <input value={props.manifest.defaults.service} onChange={(event) => props.onManifestFieldChange('defaults', 'service', event.target.value)} />
-          </Field>
-          <Field label="Default Country">
-            <input value={props.manifest.defaults.country} onChange={(event) => props.onManifestFieldChange('defaults', 'country', event.target.value)} />
-          </Field>
-          <Field label="Primary Endpoint">
-            <input
-              value={String(props.manifest.handler_api?.base_url ?? props.manifest.five_sim?.base_url ?? '')}
-              onChange={(event) => {
-                if (props.manifest.handler_api) props.onManifestFieldChange('handler_api', 'base_url', event.target.value);
-                if (props.manifest.five_sim) props.onManifestFieldChange('five_sim', 'base_url', event.target.value);
-              }}
-            />
-          </Field>
-          <Field label="Summary">
-            <input value={props.summary?.description ?? props.manifest.description ?? ''} onChange={(event) => props.onManifestFieldChange('root', 'description', event.target.value)} />
-          </Field>
-        </div>
-      </section>
-
-      {props.showAdvancedEditor && (
-        <section className="panel-card">
-          <div className="panel-headline">
-            <h2>Advanced Manifest</h2>
-            <span>JSON source of truth</span>
+      <section className="store-detail">
+        <div className="screen-header">
+          <div>
+            <h1>{props.selectedManifest.name}</h1>
+            <p>{props.selectedManifest.description ?? 'Manage provider configuration, inventory and wallet details.'}</p>
           </div>
-          <div className="advanced-editor">
-            <textarea value={props.rawEditor} onChange={(event) => props.onRawChange(event.target.value)} />
+          <div className="header-actions">
+            {props.showAdvancedEditor && (
+              <button className="toolbar-button" onClick={props.onOpenAdvancedEditor}>
+                Edit Raw Manifest
+              </button>
+            )}
+            <button className="toolbar-button" onClick={props.onFetchBalance} disabled={props.busyAction.includes('balance')}>
+              Balance
+            </button>
+            <button className="toolbar-button primary" onClick={() => props.onManifestFieldChange('root', 'enabled', !props.selectedManifest.enabled)}>
+              {props.selectedManifest.enabled ? 'Disable' : 'Enable'}
+            </button>
           </div>
-        </section>
-      )}
+        </div>
+
+        <div className="provider-subnav">
+          {providerSections.map((item) => (
+            <button
+              key={item.id}
+              className={props.selectedSection === item.id ? 'provider-tab active' : 'provider-tab'}
+              onClick={() => props.onSelectSection(item.id)}
+            >
+              {item.label}
+            </button>
+          ))}
+        </div>
+
+        {props.selectedSection === 'config' && (
+          <section className="screen-stack">
+            <div className="provider-cards">
+              <article className="provider-card">
+                <div className="provider-card-head">
+                  <div className="provider-glyph" />
+                  <StatusBadge status={props.selectedManifest.enabled ? 'Connected' : 'Standby'} />
+                </div>
+                <h3>Provider</h3>
+                <p>{props.selectedSummary?.protocol ?? props.selectedManifest.kind}</p>
+              </article>
+              <article className="provider-card">
+                <div className="provider-card-head">
+                  <div className="provider-glyph" />
+                  <StatusBadge status="Balance" />
+                </div>
+                <h3>Wallet</h3>
+                <p>{props.balanceLabel}</p>
+              </article>
+              <article className="provider-card">
+                <div className="provider-card-head">
+                  <div className="provider-glyph" />
+                  <StatusBadge status="Route" />
+                </div>
+                <h3>Default Route</h3>
+                <p>{props.selectedManifest.defaults.service} · {props.selectedManifest.defaults.country}</p>
+              </article>
+            </div>
+
+            <section className="panel-card">
+              <div className="panel-headline">
+                <h2>Provider Settings</h2>
+                <span>Daily controls</span>
+              </div>
+              <div className="config-grid">
+                <Field label="Provider Name">
+                  <input value={props.selectedManifest.name} onChange={(event) => props.onManifestFieldChange('root', 'name', event.target.value)} />
+                </Field>
+                <Field label="Enabled">
+                  <label className="switch-row">
+                    <input type="checkbox" checked={props.selectedManifest.enabled} onChange={(event) => props.onManifestFieldChange('root', 'enabled', event.target.checked)} />
+                    <span>{props.selectedManifest.enabled ? 'Enabled' : 'Disabled'}</span>
+                  </label>
+                </Field>
+                <Field label="API Key">
+                  <input value={props.apiKeyValue} onChange={(event) => props.onApiKeyChange(event.target.value)} placeholder="Paste provider key" />
+                </Field>
+                <Field label="Summary">
+                  <input value={props.selectedSummary?.description ?? props.selectedManifest.description ?? ''} onChange={(event) => props.onManifestFieldChange('root', 'description', event.target.value)} />
+                </Field>
+                <Field label="Default Service">
+                  <button className="selector-button" onClick={() => props.onOpenSelector('service')}>
+                    <span>{props.selectedManifest.defaults.service}</span>
+                    <strong>Select</strong>
+                  </button>
+                </Field>
+                <Field label="Default Country">
+                  <button className="selector-button" onClick={() => props.onOpenSelector('country')}>
+                    <span>{props.selectedManifest.defaults.country}</span>
+                    <strong>Select</strong>
+                  </button>
+                </Field>
+                <Field label="Max Price">
+                  <input type="number" value={props.selectedManifest.defaults.max_price} onChange={(event) => props.onManifestFieldChange('defaults', 'max_price', Number(event.target.value))} />
+                </Field>
+                <Field label="Min Balance">
+                  <input type="number" value={props.selectedManifest.defaults.min_balance} onChange={(event) => props.onManifestFieldChange('defaults', 'min_balance', Number(event.target.value))} />
+                </Field>
+                <Field label="Poll Timeout">
+                  <input type="number" value={props.selectedManifest.defaults.poll_timeout_sec} onChange={(event) => props.onManifestFieldChange('defaults', 'poll_timeout_sec', Number(event.target.value))} />
+                </Field>
+                <Field label="Reuse Max">
+                  <input type="number" value={props.selectedManifest.defaults.reuse_max} onChange={(event) => props.onManifestFieldChange('defaults', 'reuse_max', Number(event.target.value))} />
+                </Field>
+              </div>
+            </section>
+          </section>
+        )}
+
+        {props.selectedSection === 'store' && (
+          <section className="screen-stack">
+            <section className="panel-card">
+              <div className="panel-headline">
+                <h2>Price Inventory</h2>
+                <div className="header-actions">
+                  <span>{props.selectedPrices ? `${props.selectedPrices.items.length} rows` : 'Not loaded'}</span>
+                  <button className="toolbar-button primary" onClick={props.onFetchPrices} disabled={props.busyAction.includes('prices')}>
+                    Load Prices
+                  </button>
+                </div>
+              </div>
+              {props.selectedPrices ? (
+                <div className="table-grid">
+                  <div className="table-row head four-col">
+                    <span>Country</span>
+                    <span>Price</span>
+                    <span>Stock</span>
+                    <span>Service</span>
+                  </div>
+                  {props.selectedPrices.items.slice(0, 10).map((item) => (
+                    <div className="table-row four-col" key={`${item.country}-${item.display_name}`}>
+                      <span>{item.display_name}</span>
+                      <span>${item.price.toFixed(3)}</span>
+                      <span>{item.stock}</span>
+                      <span>{props.selectedPrices?.service}</span>
+                    </div>
+                  ))}
+                </div>
+              ) : (
+                <div className="empty-state">点击 Load Prices 后展示当前 provider 的库存与价格面板。</div>
+              )}
+            </section>
+          </section>
+        )}
+
+        {props.selectedSection === 'wallet' && (
+          <WalletInnerSection
+            providerName={props.selectedManifest.name}
+            providerId={props.selectedManifest.id}
+            balanceLabel={props.balanceLabel}
+            onFetchBalance={props.onFetchBalance}
+            isBusy={props.busyAction.includes('balance')}
+          />
+        )}
+      </section>
     </section>
   );
 }
@@ -626,31 +852,69 @@ function MessagesScreen(props: {
 
       <div className="message-cards">
         {props.tickets.length > 0 ? (
-          props.tickets.slice(0, 8).map((ticket) => (
-            <article className="message-card" key={ticket.id}>
-              <div className="message-card-top">
-                <div>
-                  <strong>{ticket.provider}</strong>
-                  <p>{ticket.phone_number}</p>
+          props.tickets.slice(0, 8).map((ticket) => {
+            const status = ticket.status.toLowerCase();
+            const isReceived = status.includes('received') || status.includes('code');
+            const isWaiting = status.includes('wait') || status.includes('pending');
+            const isFailed = status.includes('fail') || status.includes('cancel');
+
+            let cardClass = 'activation-card';
+            if (isWaiting) cardClass += ' waiting';
+            else if (isFailed) cardClass += ' failed';
+
+            return (
+              <article className={cardClass} key={ticket.id}>
+                <div className="act-header">
+                  <div className="act-service">
+                    <div className="provider-glyph" />
+                    <strong>{ticket.service}</strong>
+                  </div>
+                  <div className="act-meta">
+                    <div className="act-phone">
+                      {ticket.country} {ticket.phone_number}
+                    </div>
+                    {ticket.price && <span className="act-price">${ticket.price}</span>}
+                    {isFailed && <span className="act-status error">Refunded</span>}
+                  </div>
                 </div>
-                <StatusBadge status={ticket.status} />
-              </div>
-              <div className="message-meta">
-                <span>Service: {ticket.service}</span>
-                <span>Country: {ticket.country}</span>
-              </div>
-              <div className="message-body">
-                <div>
-                  <label>Message</label>
-                  <p>{ticket.message ?? 'Waiting for provider payload...'}</p>
+
+                <div className="act-body">
+                  {isReceived && (
+                    <div className="act-code-box received">
+                      <strong className="code-text">{ticket.code ?? '---'}</strong>
+                      <div className="code-caption">SMS received successfully</div>
+                    </div>
+                  )}
+                  {isWaiting && (
+                    <div className="act-code-box waiting">
+                      <strong className="waiting-text">Waiting for SMS...</strong>
+                      <div className="code-caption">{ticket.message ?? 'Check provider dashboard'}</div>
+                    </div>
+                  )}
+                  {isFailed && (
+                    <div className="act-code-box failed">
+                      <strong className="failed-text">Activation canceled or expired</strong>
+                      <div className="code-caption">{ticket.message ?? 'You were not charged for this request.'}</div>
+                    </div>
+                  )}
                 </div>
-                <div>
-                  <label>Code</label>
-                  <p>{ticket.code ?? '—'}</p>
+
+                <div className="act-footer">
+                  <span className="act-provider-label">Provider: {ticket.provider}</span>
+                  <div className="act-actions">
+                    {isReceived && <button className="toolbar-button primary">Finish Activation</button>}
+                    {isWaiting && (
+                      <>
+                        <button className="toolbar-button danger-outline">Cancel & Refund</button>
+                        <button className="toolbar-button success">Buy Another</button>
+                      </>
+                    )}
+                    {isFailed && <button className="toolbar-button">Try Again</button>}
+                  </div>
                 </div>
-              </div>
-            </article>
-          ))
+              </article>
+            );
+          })
         ) : (
           <div className="empty-state">当前没有 activations。等 provider 流量进入后，这里会按卡片流展示。</div>
         )}
@@ -659,102 +923,10 @@ function MessagesScreen(props: {
   );
 }
 
-function StoreScreen(props: {
-  providers: ProviderManifest[];
-  selectedManifest?: ProviderManifest;
-  selectedSummary?: ProviderSummary;
-  search: string;
-  onSearch: (value: string) => void;
-  onSelect: (providerId: string) => void;
-}) {
-  return (
-    <section className="store-shell">
-      <aside className="store-pane">
-        <div className="store-search">
-          <label>Search Providers</label>
-          <input value={props.search} onChange={(event) => props.onSearch(event.target.value)} placeholder="Search by id, name or description" />
-        </div>
-        <div className="store-list">
-          {props.providers.map((provider) => (
-            <button key={provider.id} className="store-list-item" onClick={() => props.onSelect(provider.id)}>
-              <strong>{provider.name}</strong>
-              <span>{provider.description ?? provider.kind}</span>
-            </button>
-          ))}
-        </div>
-      </aside>
-
-      <section className="store-detail">
-        {props.selectedManifest ? (
-          <>
-            <div className="screen-header">
-              <div>
-                <h1>{props.selectedManifest.name}</h1>
-                <p>{props.selectedManifest.description ?? 'Provider detail view'}</p>
-              </div>
-              <StatusBadge status={props.selectedManifest.enabled ? 'Connected' : 'Standby'} />
-            </div>
-
-            <div className="provider-cards">
-              <article className="provider-card">
-                <div className="provider-card-head">
-                  <div className="provider-glyph" />
-                  <StatusBadge status={props.selectedManifest.kind} />
-                </div>
-                <h3>Protocol</h3>
-                <p>{props.selectedSummary?.protocol ?? props.selectedManifest.kind}</p>
-              </article>
-              <article className="provider-card">
-                <div className="provider-card-head">
-                  <div className="provider-glyph" />
-                  <StatusBadge status="Default Route" />
-                </div>
-                <h3>Default Route</h3>
-                <p>{props.selectedManifest.defaults.service} · {props.selectedManifest.defaults.country}</p>
-              </article>
-              <article className="provider-card">
-                <div className="provider-card-head">
-                  <div className="provider-glyph" />
-                  <StatusBadge status="Endpoint" />
-                </div>
-                <h3>Endpoint</h3>
-                <p>{props.selectedSummary?.primary_endpoint ?? 'No endpoint configured'}</p>
-              </article>
-            </div>
-
-            <section className="panel-card">
-              <div className="panel-headline">
-                <h2>Provider Details</h2>
-                <span>Catalog detail pane</span>
-              </div>
-              <div className="details-stack">
-                <div className="detail-row">
-                  <span>Description</span>
-                  <strong>{props.selectedManifest.description ?? 'No description'}</strong>
-                </div>
-                <div className="detail-row">
-                  <span>Service Aliases</span>
-                  <strong>{Object.keys(props.selectedManifest.service_aliases).length > 0 ? Object.entries(props.selectedManifest.service_aliases).map(([key, value]) => `${key} → ${value}`).join(', ') : 'No aliases configured'}</strong>
-                </div>
-                <div className="detail-row">
-                  <span>Reuse Policy</span>
-                  <strong>{props.selectedManifest.defaults.reuse_phone ? `Reuse up to ${props.selectedManifest.defaults.reuse_max} times` : 'Reuse disabled'}</strong>
-                </div>
-              </div>
-            </section>
-          </>
-        ) : (
-          <div className="empty-state">选择左侧 provider 查看详情。</div>
-        )}
-      </section>
-    </section>
-  );
-}
-
-function WalletScreen(props: {
-  selectedProvider: string;
+function WalletInnerSection(props: {
+  providerName: string;
+  providerId: string;
   balanceLabel: string;
-  logs: LogEntry[];
   onFetchBalance: () => void;
   isBusy: boolean;
 }) {
@@ -763,7 +935,7 @@ function WalletScreen(props: {
       <div className="screen-header">
         <div>
           <h1>Current Balance</h1>
-          <p>Track internal protocol provider balance snapshots and runtime events.</p>
+          <p>Track {props.providerName} balance and provider-side transaction state.</p>
         </div>
         <div className="header-actions">
           <button className="toolbar-button primary" onClick={props.onFetchBalance} disabled={props.isBusy}>
@@ -774,7 +946,7 @@ function WalletScreen(props: {
       <section className="wallet-hero">
         <div>
           <span>Selected Provider</span>
-          <strong>{props.selectedProvider}</strong>
+          <strong>{props.providerName}</strong>
         </div>
         <div>
           <span>Current Balance</span>
@@ -783,25 +955,22 @@ function WalletScreen(props: {
       </section>
       <section className="panel-card">
         <div className="panel-headline">
-          <h2>Transaction History</h2>
-          <span>{props.logs.length} log entries</span>
+          <h2>Provider Wallet</h2>
+          <span>{props.providerId}</span>
         </div>
-        <div className="table-grid">
-          <div className="table-row head four-col">
-            <span>Time</span>
-            <span>Scope</span>
-            <span>Message</span>
-            <span>Level</span>
+        <div className="details-stack">
+          <div className="detail-row">
+            <span>Runtime source</span>
+            <strong>Live provider balance API</strong>
           </div>
-          {props.logs.slice(0, 8).map((entry, index) => (
-            <div className="table-row four-col" key={`${entry.timestamp}-${index}`}>
-              <span>{new Date(entry.timestamp).toLocaleString()}</span>
-              <span>{entry.scope}</span>
-              <span>{entry.message}</span>
-              <span>{entry.level}</span>
-            </div>
-          ))}
-          {props.logs.length === 0 && <div className="empty-state">当前还没有账务或运行记录。</div>}
+          <div className="detail-row">
+            <span>Usage</span>
+            <strong>Activation purchases and refunds</strong>
+          </div>
+          <div className="detail-row">
+            <span>Balance</span>
+            <strong>{props.balanceLabel}</strong>
+          </div>
         </div>
       </section>
     </section>
@@ -828,7 +997,7 @@ function SettingsScreen(props: {
         <div className="settings-group">
           <h2>General</h2>
           <ToggleSetting title="Auto Refresh" description="Refresh runtime snapshot every 4 seconds." checked={props.autoRefresh} onChange={props.setAutoRefresh} />
-          <ToggleSetting title="Advanced Manifest Editor" description="Show full manifest JSON editor." checked={props.showAdvancedEditor} onChange={props.setShowAdvancedEditor} />
+          <ToggleSetting title="Advanced Manifest Access" description="Allow opening the raw manifest editor modal." checked={props.showAdvancedEditor} onChange={props.setShowAdvancedEditor} />
           <ToggleSetting title="Compact Tables" description="Tighten spacing for activity and history tables." checked={props.compactTables} onChange={props.setCompactTables} />
         </div>
         <div className="settings-group">
@@ -888,6 +1057,75 @@ function ToggleSetting(props: {
         <input type="checkbox" checked={props.checked} onChange={(event) => props.onChange(event.target.checked)} />
         <span>{props.checked ? 'On' : 'Off'}</span>
       </label>
+    </div>
+  );
+}
+
+function SearchSelectorModal(props: {
+  title: string;
+  search: string;
+  options: OptionItem[];
+  onClose: () => void;
+  onSearch: (value: string) => void;
+  onSelect: (option: OptionItem) => void;
+}) {
+  return (
+    <div className="modal-backdrop" onClick={props.onClose}>
+      <div className="modal-card selector-modal" onClick={(event) => event.stopPropagation()}>
+        <div className="modal-header">
+          <div>
+            <h2>{props.title}</h2>
+            <p>Search and pick a predefined compatible option.</p>
+          </div>
+          <button className="toolbar-button" onClick={props.onClose}>
+            Close
+          </button>
+        </div>
+        <div className="selector-search-row">
+          <input value={props.search} onChange={(event) => props.onSearch(event.target.value)} placeholder="Search options..." />
+        </div>
+        <div className="selector-list">
+          {props.options.map((option) => (
+            <button key={`${option.value}-${option.label}`} className="selector-item" onClick={() => props.onSelect(option)}>
+              <strong>{option.label}</strong>
+              <span>{option.hint}</span>
+            </button>
+          ))}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function ManifestModal(props: {
+  providerName: string;
+  rawEditor: string;
+  busy: boolean;
+  onClose: () => void;
+  onChange: (value: string) => void;
+  onSave: () => void;
+}) {
+  return (
+    <div className="modal-backdrop" onClick={props.onClose}>
+      <div className="modal-card" onClick={(event) => event.stopPropagation()}>
+        <div className="modal-header">
+          <div>
+            <h2>Advanced Manifest</h2>
+            <p>{props.providerName} · JSON source of truth</p>
+          </div>
+          <div className="header-actions">
+            <button className="toolbar-button" onClick={props.onClose}>
+              Close
+            </button>
+            <button className="toolbar-button primary" onClick={props.onSave} disabled={props.busy}>
+              Save
+            </button>
+          </div>
+        </div>
+        <div className="advanced-editor modal-editor">
+          <textarea value={props.rawEditor} onChange={(event) => props.onChange(event.target.value)} />
+        </div>
+      </div>
     </div>
   );
 }
