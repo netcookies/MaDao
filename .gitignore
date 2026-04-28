@@ -7,3 +7,4 @@ target/
 *.log
 dist/
 node_modules/
+.workflow/
