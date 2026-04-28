@@ -3,12 +3,15 @@ use axum::http::StatusCode;
 use axum::routing::{get, post};
 use axum::{Json, Router};
 use serde::Serialize;
+use sms_core::config::ServerConfig;
 use sms_core::models::{
     AcquireCodeRequest, PollCodeRequest, ProviderManifestList, ProviderPriceQuery, ReleaseCodeRequest,
     RuntimeSnapshot,
 };
 use sms_core::service::SmsService;
+use std::net::SocketAddr;
 use std::sync::Arc;
+use tokio::net::TcpListener;
 use tower_http::cors::CorsLayer;
 use tower_http::trace::TraceLayer;
 
@@ -37,6 +40,27 @@ pub fn build_router(service: Arc<SmsService>) -> Router {
         .layer(CorsLayer::permissive())
         .layer(TraceLayer::new_for_http())
         .with_state(ApiState { service })
+}
+
+pub async fn serve_http(service: Arc<SmsService>, bind: &str) -> anyhow::Result<()> {
+    let listener = TcpListener::bind(bind).await?;
+    axum::serve(listener, build_router(service)).await?;
+    Ok(())
+}
+
+pub async fn spawn_http_server(
+    service: Arc<SmsService>,
+    config: &ServerConfig,
+) -> anyhow::Result<(SocketAddr, tokio::task::JoinHandle<()>)> {
+    let listener = TcpListener::bind(&config.http_bind).await?;
+    let local_addr = listener.local_addr()?;
+    let router = build_router(service);
+    let handle = tokio::spawn(async move {
+        if let Err(error) = axum::serve(listener, router).await {
+            eprintln!("embedded http server failed: {error}");
+        }
+    });
+    Ok((local_addr, handle))
 }
 
 async fn health() -> Json<serde_json::Value> {

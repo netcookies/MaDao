@@ -6,12 +6,12 @@ use sms_core::models::{
 };
 use sms_core::registry::ProviderRegistry;
 use sms_core::service::SmsService;
-use sms_server::build_router;
+use sms_server::spawn_http_server;
 use serde::Deserialize;
 use std::path::PathBuf;
 use std::sync::Arc;
 use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
-use tokio::net::{TcpListener, UnixListener};
+use tokio::net::UnixListener;
 
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
@@ -20,11 +20,9 @@ async fn main() -> anyhow::Result<()> {
     let registry = ProviderRegistry::load_from_dir(cwd.join(&config.provider_dir))?;
     let service = Arc::new(SmsService::new(registry, config.log_buffer));
 
-    let router = build_router(Arc::clone(&service));
-    let http_addr = config.http_bind.clone();
-    let http_listener = TcpListener::bind(&http_addr)
+    let (http_addr, _http_handle) = spawn_http_server(Arc::clone(&service), &config)
         .await
-        .with_context(|| format!("bind http listener failed: {http_addr}"))?;
+        .with_context(|| format!("bind http listener failed: {}", config.http_bind))?;
 
     let socket_path = normalize_socket_path(&cwd, &config.socket_path);
     if socket_path.exists() {
@@ -52,12 +50,10 @@ async fn main() -> anyhow::Result<()> {
         }
     });
 
-    println!("http listening on {}", config.http_bind);
+    println!("http listening on {}", http_addr);
     println!("socket listening on {}", socket_path.display());
 
-    axum::serve(http_listener, router)
-        .await
-        .context("axum server failed")
+    tokio::signal::ctrl_c().await.context("wait for shutdown signal failed")
 }
 
 async fn handle_socket_command(service: &SmsService, line: &str) -> String {

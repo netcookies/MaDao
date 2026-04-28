@@ -177,8 +177,9 @@ export function App() {
       let manifest: ProviderManifest;
       try {
         manifest = JSON.parse(rawEditors[providerId] ?? '{}') as ProviderManifest;
-      } catch {
-        manifest = manifests[providerId];
+      } catch (error) {
+        setStatusMessage(`保存 ${providerId} 失败：高级配置 JSON 解析错误，${String(error)}`);
+        return;
       }
       const response = await fetch(`${API_BASE}/api/providers/${providerId}/manifest`, {
         method: 'PUT',

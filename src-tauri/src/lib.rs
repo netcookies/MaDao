@@ -2,7 +2,9 @@ use plugin_sdk::ProviderManifest;
 use sms_core::config::ServerConfig;
 use sms_core::registry::ProviderRegistry;
 use sms_core::service::SmsService;
+use sms_server::spawn_http_server;
 use std::sync::Arc;
+use tauri::Emitter;
 use tauri::Manager;
 
 #[tauri::command]
@@ -53,7 +55,21 @@ pub fn run() {
             save_provider_manifest,
             reload_provider_registry
         ])
-        .setup(|app| {
+        .setup(move |app| {
+            let app_handle = app.handle().clone();
+            let service = app.state::<Arc<SmsService>>().inner().clone();
+            let config = config.clone();
+            tauri::async_runtime::spawn(async move {
+                match spawn_http_server(service, &config).await {
+                    Ok((addr, _handle)) => {
+                        eprintln!("embedded http server listening on {addr}");
+                    }
+                    Err(error) => {
+                        eprintln!("embedded http server failed to start: {error}");
+                        let _ = app_handle.emit("runtime-error", error.to_string());
+                    }
+                }
+            });
             if let Some(window) = app.get_webview_window("main") {
                 let _ = window.set_title("MaDao SMS Platform");
             }
