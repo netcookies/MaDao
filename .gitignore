@@ -8,3 +8,7 @@ target/
 dist/
 node_modules/
 .workflow/
+.claude/
+*.bak
+*.patch
+patch.js
