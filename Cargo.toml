@@ -1,0 +1,30 @@
+[workspace]
+members = [
+  "crates/plugin-sdk",
+  "crates/sms-core",
+  "crates/sms-server",
+  "apps/daemon",
+  "src-tauri",
+]
+resolver = "2"
+
+[workspace.package]
+edition = "2024"
+license = "MIT"
+version = "0.1.0"
+
+[workspace.dependencies]
+anyhow = "1.0.100"
+async-trait = "0.1.89"
+axum = { version = "0.8.6", features = ["json", "macros"] }
+chrono = { version = "0.4.42", features = ["serde"] }
+parking_lot = "0.12.5"
+reqwest = { version = "0.12.24", default-features = false, features = ["json", "rustls-tls"] }
+serde = { version = "1.0.228", features = ["derive"] }
+serde_json = "1.0.145"
+thiserror = "2.0.17"
+tokio = { version = "1.48.0", features = ["full"] }
+toml = "0.8.23"
+tower-http = { version = "0.6.6", features = ["cors", "trace"] }
+tracing = "0.1.41"
+uuid = { version = "1.18.1", features = ["serde", "v7"] }

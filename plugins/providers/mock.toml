@@ -1,0 +1,29 @@
+id = "mock"
+name = "Mock Provider"
+kind = "mock"
+enabled = true
+description = "本地联调 provider，可编辑并支持热重载。"
+
+[service_aliases]
+
+[defaults]
+service = "openai"
+country = "local"
+auto_pick_country = false
+verify_on_register = false
+reuse_phone = true
+max_price = 0.0
+min_price = 0.0
+min_balance = 0.0
+max_tries = 1
+poll_timeout_sec = 15
+reuse_max = 3
+
+[mock]
+balance = 999.0
+phone_number = "+15550001234"
+codes = [
+    "123456",
+    "654321",
+    "888888",
+]

@@ -1,0 +1,22 @@
+[package]
+name = "madao-tauri"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[lib]
+name = "madao_tauri_lib"
+crate-type = ["staticlib", "cdylib", "rlib"]
+
+[build-dependencies]
+tauri-build = { version = "2.5.1" }
+
+[dependencies]
+anyhow.workspace = true
+plugin-sdk = { path = "../crates/plugin-sdk" }
+serde.workspace = true
+serde_json.workspace = true
+sms-core = { path = "../crates/sms-core" }
+sms-server = { path = "../crates/sms-server" }
+tauri = { version = "2.10.3", features = [] }
+tokio.workspace = true

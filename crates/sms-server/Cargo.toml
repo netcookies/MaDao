@@ -1,0 +1,16 @@
+[package]
+name = "sms-server"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+anyhow.workspace = true
+axum.workspace = true
+plugin-sdk = { path = "../plugin-sdk" }
+serde.workspace = true
+serde_json.workspace = true
+sms-core = { path = "../sms-core" }
+tokio.workspace = true
+tower-http.workspace = true
+tracing.workspace = true

@@ -1,0 +1,35 @@
+id = "fivesim"
+name = "5SIM"
+kind = "five_sim"
+enabled = false
+homepage = "https://5sim.net/"
+description = "兼容 5SIM REST API 的 provider。"
+
+[defaults]
+service = "openai"
+country = "any"
+auto_pick_country = true
+verify_on_register = false
+reuse_phone = true
+max_price = 50.0
+min_price = 0.0
+min_balance = 10.0
+max_tries = 3
+poll_timeout_sec = 180
+reuse_max = 2
+
+[five_sim]
+base_url = "https://5sim.net/v1"
+api_key = ""
+buy_operator = "any"
+profile_endpoint = "user/profile"
+prices_endpoint = "guest/prices"
+buy_endpoint_prefix = "user/buy/activation"
+check_endpoint_prefix = "user/check"
+finish_action = "finish"
+cancel_action = "cancel"
+ban_action = "ban"
+balance_json_pointer = "/balance"
+status_json_pointer = "/status"
+code_json_pointers = ["/sms/0/code", "/sms/code", "/code", "/data/code"]
+failure_statuses = ["CANCELED", "BANNED", "TIMEOUT"]
