@@ -138,10 +138,10 @@ Apple 风格设计规范已通过以下命令导入：
 npx getdesign@latest add apple --out ./DESIGN.md
 ```
 
-后续任何 UI 调整都应先参考 [DESIGN.md](/Users/isulewli/Projects/MaDao/DESIGN.md)。
+后续任何 UI 调整都应先参考 `DESIGN.md`。
 
 ## 文档
 
-- [架构说明](/Users/isulewli/Projects/MaDao/docs/architecture.md)
-- [Provider 协议兼容说明](/Users/isulewli/Projects/MaDao/docs/providers.md)
-- [开发与验证说明](/Users/isulewli/Projects/MaDao/docs/development.md)
+- [架构说明](docs/architecture.md)
+- [Provider 协议兼容说明](docs/providers.md)
+- [开发与验证说明](docs/development.md)

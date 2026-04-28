@@ -8,6 +8,23 @@ use reqwest::Client;
 use serde_json::Value;
 use std::collections::BTreeMap;
 use std::sync::Arc;
+use std::time::Duration;
+
+/// 兼容 JSON number 和 string 两种格式的 f64 解析（如 `0.14` 与 `"0.14"` 均可处理）。
+fn coerce_f64(value: &Value) -> Option<f64> {
+    value
+        .as_f64()
+        .or_else(|| value.as_str().and_then(|s| s.trim().parse().ok()))
+}
+
+/// 兼容 JSON string 和 integer/number 两种格式的字符串提取（如手机号可能是整数 79129001234）。
+fn coerce_str_value(value: &Value) -> Option<String> {
+    value
+        .as_str()
+        .map(ToOwned::to_owned)
+        .or_else(|| value.as_i64().map(|n| n.to_string()))
+        .or_else(|| value.as_u64().map(|n| n.to_string()))
+}
 
 #[async_trait]
 pub trait SmsProvider: Send + Sync {
@@ -109,9 +126,13 @@ impl HandlerApiProvider {
             .handler_api
             .clone()
             .ok_or_else(|| SmsError::Config(format!("provider `{}` missing handler_api config", manifest.id)))?;
+        let client = Client::builder()
+            .timeout(Duration::from_secs(30))
+            .build()
+            .map_err(|e| SmsError::Config(e.to_string()))?;
         Ok(Self {
             manifest,
-            client: Client::new(),
+            client,
             config,
         })
     }
@@ -150,7 +171,7 @@ impl HandlerApiProvider {
         }
         if let Some(json) = json {
             for pointer in &self.config.balance_json_pointers {
-                if let Some(number) = json.pointer(pointer).and_then(Value::as_f64) {
+                if let Some(number) = json.pointer(pointer).and_then(coerce_f64) {
                     return Ok(number);
                 }
             }
@@ -171,10 +192,13 @@ impl HandlerApiProvider {
             let Some(price_obj) = price_node.as_object() else {
                 continue;
             };
-            let Some(price) = price_obj.get("cost").and_then(Value::as_f64) else {
+            let Some(price) = price_obj.get("cost").and_then(coerce_f64) else {
                 continue;
             };
-            let stock = price_obj.get("count").and_then(Value::as_u64).unwrap_or(0);
+            let stock = price_obj
+                .get("count")
+                .and_then(|v| v.as_u64().or_else(|| v.as_str().and_then(|s| s.parse().ok())))
+                .unwrap_or(0);
             if stock == 0 {
                 continue;
             }
@@ -206,31 +230,32 @@ impl HandlerApiProvider {
             }
         }
         if let Some(json) = json {
+            // activationId 可能是 string 或 integer（兼容不同版本的 handler_api）
             let upstream_id = self
                 .config
                 .id_json_pointers
                 .iter()
-                .find_map(|pointer| json.pointer(pointer).and_then(Value::as_str))
-                .unwrap_or_default()
-                .to_string();
-            let phone = self
+                .find_map(|pointer| json.pointer(pointer).and_then(coerce_str_value))
+                .unwrap_or_default();
+            // phoneNumber 在 SmsBower getNumberV2 中是 integer（如 79129001234），需强制转 string
+            let phone_raw = self
                 .config
                 .phone_json_pointers
                 .iter()
-                .find_map(|pointer| json.pointer(pointer).and_then(Value::as_str))
-                .unwrap_or_default()
-                .to_string();
-            if !upstream_id.is_empty() && !phone.is_empty() {
-                let normalized = if phone.starts_with('+') {
-                    phone
+                .find_map(|pointer| json.pointer(pointer).and_then(coerce_str_value))
+                .unwrap_or_default();
+            if !upstream_id.is_empty() && !phone_raw.is_empty() {
+                let normalized = if phone_raw.starts_with('+') {
+                    phone_raw
                 } else {
-                    format!("+{phone}")
+                    format!("+{phone_raw}")
                 };
+                // activationCost 在 SmsBower getNumberV2 中是 string "0.14"，需强制转 f64
                 let price = self
                     .config
                     .price_json_pointers
                     .iter()
-                    .find_map(|pointer| json.pointer(pointer).and_then(Value::as_f64));
+                    .find_map(|pointer| json.pointer(pointer).and_then(coerce_f64));
                 return Ok((upstream_id, normalized, price));
             }
         }
@@ -279,21 +304,18 @@ impl SmsProvider for HandlerApiProvider {
             .await?;
         let upper = text.to_ascii_uppercase();
         let success_prefix = self.config.success_status_prefix.to_ascii_uppercase();
-        if upper.starts_with(&success_prefix) {
+        let code_from_json = json.as_ref().and_then(|value| {
+            self.config
+                .code_json_pointers
+                .iter()
+                .find_map(|pointer| value.pointer(pointer).and_then(Value::as_str))
+        });
+        if upper.starts_with(&success_prefix) || code_from_json.is_some() {
             let code = text
                 .split_once(':')
                 .map(|(_, value)| value.trim().to_string())
                 .filter(|value| !value.is_empty())
-                .or_else(|| {
-                    json.as_ref()
-                        .and_then(|value| {
-                            self.config
-                                .code_json_pointers
-                                .iter()
-                                .find_map(|pointer| value.pointer(pointer).and_then(Value::as_str))
-                        })
-                        .map(ToOwned::to_owned)
-                });
+                .or_else(|| code_from_json.map(ToOwned::to_owned));
             return Ok(PollCodeResponse {
                 ticket_id: ticket.id.clone(),
                 provider: ticket.provider.clone(),
@@ -318,13 +340,28 @@ impl SmsProvider for HandlerApiProvider {
                 next_retry_after_ms: None,
             });
         }
+        if self
+            .config
+            .wait_status_tokens
+            .iter()
+            .any(|token| upper.contains(&token.to_ascii_uppercase()))
+        {
+            return Ok(PollCodeResponse {
+                ticket_id: ticket.id.clone(),
+                provider: ticket.provider.clone(),
+                status: crate::models::TicketStatus::WaitingCode,
+                code: None,
+                message: Some(text),
+                next_retry_after_ms: Some(3000),
+            });
+        }
         Ok(PollCodeResponse {
             ticket_id: ticket.id.clone(),
             provider: ticket.provider.clone(),
-            status: crate::models::TicketStatus::WaitingCode,
+            status: crate::models::TicketStatus::Failed,
             code: None,
             message: Some(text),
-            next_retry_after_ms: Some(3000),
+            next_retry_after_ms: None,
         })
     }
 
@@ -378,9 +415,13 @@ impl FiveSimProvider {
             .five_sim
             .clone()
             .ok_or_else(|| SmsError::Config(format!("provider `{}` missing five_sim config", manifest.id)))?;
+        let client = Client::builder()
+            .timeout(Duration::from_secs(30))
+            .build()
+            .map_err(|e| SmsError::Config(e.to_string()))?;
         Ok(Self {
             manifest,
-            client: Client::new(),
+            client,
             config,
         })
     }
@@ -412,8 +453,10 @@ impl FiveSimProvider {
         if !status.is_success() {
             return Err(SmsError::Upstream(text));
         }
+        // 5SIM 部分端点在 HTTP 200 时会以纯文本返回错误（如 "no free phones"），
+        // 直接将原文回传比 "invalid json: ..." 更利于排查问题。
         let json = serde_json::from_str::<Value>(&text)
-            .map_err(|err| SmsError::Upstream(format!("invalid json: {err}")))?;
+            .map_err(|_| SmsError::Upstream(text.trim().to_string()))?;
         Ok((text, json))
     }
 
@@ -430,7 +473,9 @@ impl FiveSimProvider {
             .find_map(|pointer| json.pointer(pointer).and_then(Value::as_str))
             .map(ToOwned::to_owned);
         let mapped = match status.as_str() {
-            "RECEIVED" | "PENDING" if sms_code.is_some() => crate::models::TicketStatus::CodeReceived,
+            // RECEIVED = 号码活跃，等待 SMS；PENDING = 初始化；FINISHED = 完成
+            // 只要 sms 数组中有验证码，均视为 CodeReceived
+            "RECEIVED" | "PENDING" | "FINISHED" if sms_code.is_some() => crate::models::TicketStatus::CodeReceived,
             _ if self
                 .config
                 .failure_statuses
@@ -469,17 +514,29 @@ impl SmsProvider for FiveSimProvider {
             params.push(("reuse", "1".to_string()));
         }
         let (_text, json) = self.request_get(&endpoint, &params).await?;
-        let upstream_id = json
-            .pointer("/id")
-            .and_then(Value::as_i64)
-            .map(|value| value.to_string())
+        let upstream_id = self
+            .config
+            .id_json_pointers
+            .iter()
+            .find_map(|pointer| json.pointer(pointer).and_then(coerce_str_value))
             .ok_or_else(|| SmsError::Upstream("missing 5SIM order id".to_string()))?;
-        let phone = json
-            .pointer("/phone")
-            .and_then(Value::as_str)
-            .map(ToOwned::to_owned)
+        // 兼容内部 5SIM 风格实现返回 string/int 号码字段
+        let raw_phone = self
+            .config
+            .phone_json_pointers
+            .iter()
+            .find_map(|pointer| json.pointer(pointer).and_then(coerce_str_value))
             .ok_or_else(|| SmsError::Upstream("missing 5SIM phone".to_string()))?;
-        let price = json.pointer("/price").and_then(Value::as_f64);
+        let phone = if raw_phone.starts_with('+') {
+            raw_phone
+        } else {
+            format!("+{raw_phone}")
+        };
+        let price = self
+            .config
+            .price_json_pointers
+            .iter()
+            .find_map(|pointer| json.pointer(pointer).and_then(coerce_f64));
         let mut ticket = TicketRecord::new(
             self.manifest.id.clone(),
             service,
@@ -524,7 +581,12 @@ impl SmsProvider for FiveSimProvider {
         let verb = match action {
             ReleaseAction::Finish => self.config.finish_action.as_str(),
             ReleaseAction::Cancel => self.config.cancel_action.as_str(),
-            ReleaseAction::Retry => self.config.cancel_action.as_str(),
+            ReleaseAction::Retry => {
+                return Err(SmsError::InvalidRequest(
+                    "five_sim protocol does not support release retry; continue polling or create a new order"
+                        .to_string(),
+                ))
+            }
             ReleaseAction::Ban => self.config.ban_action.as_str(),
         };
         let endpoint = format!("user/{verb}/{upstream_id}");
@@ -547,8 +609,9 @@ impl SmsProvider for FiveSimProvider {
 
     async fn get_prices(&self, service: Option<&str>) -> Result<Vec<ProviderPriceItem>, SmsError> {
         let service = self.manifest.resolve_service_alias(service);
-        let endpoint = format!("{}?product={service}", self.config.prices_endpoint);
-        let (_text, json) = self.request_get(&endpoint, &[]).await?;
+        let (_text, json) = self
+            .request_get(&self.config.prices_endpoint, &[("product", service.clone())])
+            .await?;
         let mut items = Vec::new();
         let root = json
             .get(&service)
@@ -669,6 +732,9 @@ mod tests {
                 status_json_pointer: "/data/state".to_string(),
                 code_json_pointers: vec!["/data/messages/0/pin".to_string()],
                 failure_statuses: vec!["DENIED".to_string()],
+                id_json_pointers: vec!["/payload/order_id".to_string()],
+                phone_json_pointers: vec!["/payload/phone_number".to_string()],
+                price_json_pointers: vec!["/payload/amount".to_string()],
             }),
             mock: None,
         }
@@ -700,6 +766,37 @@ mod tests {
     }
 
     #[test]
+    fn handler_api_unknown_status_does_not_silently_wait() {
+        let provider = HandlerApiProvider::new(handler_manifest()).unwrap();
+        let ticket = TicketRecord::new(
+            "internal-handler".to_string(),
+            "openai".to_string(),
+            "uk".to_string(),
+            "+447700900000".to_string(),
+            Some("abc".to_string()),
+            None,
+        );
+        let json = json!({"payload": {}});
+        let upper = "SERVER_DOWN";
+        let success_prefix = provider.config.success_status_prefix.to_ascii_uppercase();
+        let code_from_json = Some(&json).and_then(|value| {
+            provider
+                .config
+                .code_json_pointers
+                .iter()
+                .find_map(|pointer| value.pointer(pointer).and_then(Value::as_str))
+        });
+        assert!(!upper.starts_with(&success_prefix));
+        assert!(code_from_json.is_none());
+        assert!(provider
+            .config
+            .wait_status_tokens
+            .iter()
+            .all(|token| !upper.contains(&token.to_ascii_uppercase())));
+        assert_eq!(ticket.status, crate::models::TicketStatus::Pending);
+    }
+
+    #[test]
     fn fivesim_poll_mapping_follows_manifest_pointers() {
         let provider = FiveSimProvider::new(five_sim_manifest()).unwrap();
         let (status, code, mapped) = provider.map_poll_payload(&json!({
@@ -719,5 +816,35 @@ mod tests {
             }
         }));
         assert_eq!(failed, crate::models::TicketStatus::Failed);
+    }
+
+    #[test]
+    fn fivesim_acquire_fields_follow_manifest_pointers() {
+        let provider = FiveSimProvider::new(five_sim_manifest()).unwrap();
+        let json = json!({
+            "payload": {
+                "order_id": 884422,
+                "phone_number": 447700900123u64,
+                "amount": "7.25"
+            }
+        });
+        let upstream_id = provider
+            .config
+            .id_json_pointers
+            .iter()
+            .find_map(|pointer| json.pointer(pointer).and_then(coerce_str_value));
+        let phone = provider
+            .config
+            .phone_json_pointers
+            .iter()
+            .find_map(|pointer| json.pointer(pointer).and_then(coerce_str_value));
+        let price = provider
+            .config
+            .price_json_pointers
+            .iter()
+            .find_map(|pointer| json.pointer(pointer).and_then(coerce_f64));
+        assert_eq!(upstream_id.as_deref(), Some("884422"));
+        assert_eq!(phone.as_deref(), Some("447700900123"));
+        assert_eq!(price, Some(7.25));
     }
 }

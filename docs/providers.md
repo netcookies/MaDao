@@ -10,6 +10,16 @@
 - `SmsBower` 风格 `handler_api`
 - `5SIM` 风格 REST
 
+## API 详细文档
+
+每个 provider 的完整 API 参考（端点、字段类型、错误码、TOML 配置对照）：
+
+| Provider | 文档 |
+|----------|------|
+| 5SIM REST API | [docs/providers/5sim.md](providers/5sim.md) |
+| handler_api（HeroSMS / SmsBower） | [docs/providers/handler-api.md](providers/handler-api.md) |
+| Mock（本地联调） | [docs/providers/mock.md](providers/mock.md) |
+
 ## Provider Manifest
 
 provider manifests 位于：
@@ -76,6 +86,9 @@ plugins/providers/*.toml
 - `status_json_pointer`
 - `code_json_pointers`
 - `failure_statuses`
+- `id_json_pointers`
+- `phone_json_pointers`
+- `price_json_pointers`
 
 ## 当前统一能力
 
@@ -87,7 +100,7 @@ plugins/providers/*.toml
 - `get_balance`
 - `get_prices`
 
-这套统一能力由 [crates/sms-core/src/provider.rs](/Users/isulewli/Projects/MaDao/crates/sms-core/src/provider.rs) 中的 `SmsProvider` trait 定义。
+这套统一能力由 `crates/sms-core/src/provider.rs` 中的 `SmsProvider` trait 定义。
 
 ## 如何对接你们内部平台
 

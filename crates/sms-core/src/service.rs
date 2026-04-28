@@ -207,6 +207,14 @@ mod tests {
     use std::path::PathBuf;
     use std::time::{SystemTime, UNIX_EPOCH};
 
+    fn repo_root() -> PathBuf {
+        PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+            .join("..")
+            .join("..")
+            .canonicalize()
+            .unwrap()
+    }
+
     fn fixture_provider_dir() -> PathBuf {
         let base = std::env::temp_dir().join(format!(
             "madao-sms-test-{}",
@@ -218,7 +226,7 @@ mod tests {
         fs::create_dir_all(&base).unwrap();
         for name in ["mock.toml", "herosms.toml", "smsbower.toml", "fivesim.toml"] {
             fs::copy(
-                PathBuf::from("/Users/isulewli/Projects/MaDao/plugins/providers").join(name),
+                repo_root().join("plugins/providers").join(name),
                 base.join(name),
             )
             .unwrap();
@@ -269,5 +277,19 @@ mod tests {
         assert_eq!(saved.description.as_deref(), Some("updated manifest"));
         let reloaded = service.provider_manifest("mock").unwrap();
         assert_eq!(reloaded.description.as_deref(), Some("updated manifest"));
+    }
+
+    #[test]
+    fn invalid_manifest_save_rolls_back_previous_content() {
+        let service = make_service();
+        let before = service.provider_manifest("herosms").unwrap();
+        let mut broken = before.clone();
+        broken.handler_api = None;
+
+        let result = service.save_provider_manifest("herosms", broken);
+        assert!(result.is_err());
+
+        let after = service.provider_manifest("herosms").unwrap();
+        assert_eq!(after.handler_api.as_ref().map(|cfg| cfg.base_url.clone()), before.handler_api.as_ref().map(|cfg| cfg.base_url.clone()));
     }
 }

@@ -80,16 +80,34 @@ impl ProviderRegistry {
                 manifest.id
             )));
         }
+        let mut next_manifests = self.manifests.clone();
+        next_manifests.insert(id.to_string(), manifest.clone());
+        for manifest in next_manifests.values() {
+            let _ = build_provider(manifest.clone())?;
+        }
         let path = self
             .manifest_paths
             .get(id)
             .cloned()
             .unwrap_or_else(|| self.root_dir.join(format!("{id}.toml")));
+        let previous = fs::read_to_string(&path).ok();
         let content = toml::to_string_pretty(&manifest)
             .map_err(|err| SmsError::Config(format!("serialize provider manifest failed: {err}")))?;
-        fs::write(&path, content)
+        fs::write(&path, &content)
             .map_err(|err| SmsError::Io(format!("write provider manifest failed: {err}")))?;
-        self.reload()?;
+        if let Err(err) = self.reload() {
+            match previous {
+                Some(previous_content) => {
+                    let _ = fs::write(&path, previous_content);
+                    let _ = self.reload();
+                }
+                None => {
+                    let _ = fs::remove_file(&path);
+                    let _ = self.reload();
+                }
+            }
+            return Err(err);
+        }
         self.manifest(id)
     }
 }

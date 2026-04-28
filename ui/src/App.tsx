@@ -151,6 +151,10 @@ export function App() {
           target[field] = value;
         }
       }
+      setRawEditors((rawCurrent) => ({
+        ...rawCurrent,
+        [providerId]: JSON.stringify(nextManifest, null, 2),
+      }));
       return {
         ...current,
         [providerId]: nextManifest,
@@ -162,7 +166,7 @@ export function App() {
     const manifest = manifests[providerId];
     if (!manifest) return;
     setRawEditors((current) => ({
-      ...current,
+        ...current,
       [providerId]: JSON.stringify(manifest, null, 2),
     }));
   }

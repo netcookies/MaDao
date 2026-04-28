@@ -188,6 +188,12 @@ pub struct FiveSimConfig {
     pub code_json_pointers: Vec<String>,
     #[serde(default = "default_five_sim_failure_statuses")]
     pub failure_statuses: Vec<String>,
+    #[serde(default = "default_five_sim_id_json_pointers")]
+    pub id_json_pointers: Vec<String>,
+    #[serde(default = "default_five_sim_phone_json_pointers")]
+    pub phone_json_pointers: Vec<String>,
+    #[serde(default = "default_five_sim_price_json_pointers")]
+    pub price_json_pointers: Vec<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -381,6 +387,18 @@ fn default_five_sim_failure_statuses() -> Vec<String> {
         "BANNED".to_string(),
         "TIMEOUT".to_string(),
     ]
+}
+
+fn default_five_sim_id_json_pointers() -> Vec<String> {
+    vec!["/id".to_string()]
+}
+
+fn default_five_sim_phone_json_pointers() -> Vec<String> {
+    vec!["/phone".to_string()]
+}
+
+fn default_five_sim_price_json_pointers() -> Vec<String> {
+    vec!["/price".to_string()]
 }
 
 fn default_mock_balance() -> f64 {

@@ -33,3 +33,6 @@ balance_json_pointer = "/balance"
 status_json_pointer = "/status"
 code_json_pointers = ["/sms/0/code", "/sms/code", "/code", "/data/code"]
 failure_statuses = ["CANCELED", "BANNED", "TIMEOUT"]
+id_json_pointers = ["/id"]
+phone_json_pointers = ["/phone"]
+price_json_pointers = ["/price"]
