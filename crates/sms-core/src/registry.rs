@@ -60,6 +60,30 @@ impl ProviderRegistry {
         self.manifests.values().cloned().collect()
     }
 
+    pub fn list_manifests_by_priority(&self) -> Vec<ProviderManifest> {
+        let mut manifests: Vec<ProviderManifest> = self.manifests.values().cloned().collect();
+        manifests.sort_by(|a, b| a.priority.cmp(&b.priority).then(a.id.cmp(&b.id)));
+        manifests
+    }
+
+    pub fn set_priorities(&mut self, priorities: &[(String, u32)]) -> Result<(), SmsError> {
+        for (id, priority) in priorities {
+            if let Some(manifest) = self.manifests.get_mut(id) {
+                manifest.priority = *priority;
+                let path = self
+                    .manifest_paths
+                    .get(id)
+                    .cloned()
+                    .unwrap_or_else(|| self.root_dir.join(format!("{id}.toml")));
+                let content = toml::to_string_pretty(manifest)
+                    .map_err(|err| SmsError::Config(format!("serialize manifest failed: {err}")))?;
+                fs::write(&path, &content)
+                    .map_err(|err| SmsError::Io(format!("write manifest failed: {err}")))?;
+            }
+        }
+        self.reload()
+    }
+
     pub fn manifest(&self, id: &str) -> Result<ProviderManifest, SmsError> {
         self.manifests
             .get(id)

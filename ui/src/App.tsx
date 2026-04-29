@@ -1,4 +1,4 @@
-import { startTransition, useEffect, useMemo, useState, type ReactNode } from 'react';
+import { startTransition, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 
 type ScreenId = 'overview' | 'providers' | 'messages' | 'settings';
 type ProviderSectionId = 'config' | 'store' | 'wallet';
@@ -16,6 +16,16 @@ type ProviderSummary = {
   default_country: string;
   homepage?: string | null;
   description?: string | null;
+  priority: number;
+};
+
+type ActivationFormState = {
+  service: string;
+  country: string;
+  provider: string;
+  min_price: string;
+  max_price: string;
+  operator: string;
 };
 
 type TicketRecord = {
@@ -48,6 +58,7 @@ type ProviderManifest = {
   name: string;
   kind: string;
   enabled: boolean;
+  priority: number;
   homepage?: string | null;
   description?: string | null;
   service_aliases: Record<string, string>;
@@ -187,6 +198,18 @@ export function App() {
   const [selectorState, setSelectorState] = useState<SelectorState | null>(null);
   const [selectorSearch, setSelectorSearch] = useState('');
   const [showManifestModal, setShowManifestModal] = useState(false);
+  const [showActivationModal, setShowActivationModal] = useState(false);
+  const [activationForm, setActivationForm] = useState<ActivationFormState>({
+    service: 'openai',
+    country: 'any',
+    provider: 'auto',
+    min_price: '',
+    max_price: '',
+    operator: 'any',
+  });
+  const [activationBusy, setActivationBusy] = useState(false);
+  const [activationError, setActivationError] = useState('');
+  const [providerOrder, setProviderOrder] = useState<string[]>([]);
 
   useEffect(() => {
     void Promise.all([loadSnapshot(), loadManifests()]);
@@ -290,10 +313,64 @@ export function App() {
       next[manifest.id] = manifest;
       editors[manifest.id] = JSON.stringify(manifest, null, 2);
     }
+    const sorted = [...data.manifests]
+      .filter((m) => m.kind !== 'mock')
+      .sort((a, b) => (a.priority ?? 100) - (b.priority ?? 100) || a.id.localeCompare(b.id))
+      .map((m) => m.id);
     startTransition(() => {
       setManifests(next);
       setRawEditors(editors);
+      setProviderOrder((prev) => (prev.length === 0 ? sorted : prev));
     });
+  }
+
+  async function reorderProviders(orderedIds: string[]) {
+    const order = orderedIds.map((id, index) => ({ id, priority: (index + 1) * 10 }));
+    try {
+      const response = await fetch(`${API_BASE}/api/providers/reorder`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ order }),
+      });
+      if (!response.ok) throw new Error(await response.text());
+      setStatusMessage('Provider 优先级顺序已保存。');
+      await loadManifests();
+    } catch (error) {
+      setStatusMessage(`保存顺序失败：${String(error)}`);
+    }
+  }
+
+  async function submitActivation() {
+    setActivationBusy(true);
+    setActivationError('');
+    try {
+      const body: Record<string, unknown> = {
+        provider: activationForm.provider,
+        service: activationForm.service || undefined,
+        country: activationForm.country || undefined,
+      };
+      if (activationForm.min_price !== '') body.min_price = Number(activationForm.min_price);
+      if (activationForm.max_price !== '') body.max_price = Number(activationForm.max_price);
+      if (activationForm.provider === 'fivesim' && activationForm.operator) {
+        body.metadata = { operator: activationForm.operator };
+      }
+      const response = await fetch(`${API_BASE}/api/acquire`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body),
+      });
+      if (!response.ok) {
+        const err = (await response.json()) as { message?: string };
+        throw new Error(err.message ?? response.statusText);
+      }
+      setShowActivationModal(false);
+      setStatusMessage('Activation 已创建，等待验证码。');
+      void loadSnapshot();
+    } catch (error) {
+      setActivationError(String(error));
+    } finally {
+      setActivationBusy(false);
+    }
   }
 
   function updateManifestField(
@@ -480,8 +557,11 @@ export function App() {
               <button className="toolbar-button" onClick={() => void loadSnapshot()}>
                 Refresh
               </button>
-              <button className="toolbar-button primary" onClick={() => void reloadProviders()} disabled={busyAction === 'reload'}>
+              <button className="toolbar-button" onClick={() => void reloadProviders()} disabled={busyAction === 'reload'}>
                 Reload
+              </button>
+              <button className="toolbar-button primary" onClick={() => setShowActivationModal(true)}>
+                + New Activation
               </button>
             </div>
           </header>
@@ -494,6 +574,7 @@ export function App() {
             {activeScreen === 'providers' && selectedManifest && (
               <ProviderWorkspaceScreen
                 providers={filteredProviderList}
+                providerOrder={providerOrder}
                 selectedProvider={selectedProvider}
                 selectedManifest={selectedManifest}
                 selectedSummary={selectedSummary}
@@ -516,6 +597,10 @@ export function App() {
                 onFetchBalance={() => void fetchBalance(selectedProvider)}
                 onFetchPrices={() => void fetchPrices(selectedProvider)}
                 onOpenAdvancedEditor={() => setShowManifestModal(true)}
+                onReorder={(ids) => {
+                  setProviderOrder(ids);
+                  void reorderProviders(ids);
+                }}
               />
             )}
 
@@ -536,6 +621,18 @@ export function App() {
           </div>
         </section>
       </div>
+
+      {showActivationModal && (
+        <NewActivationModal
+          providers={visibleProviders}
+          form={activationForm}
+          busy={activationBusy}
+          error={activationError}
+          onChange={(field, value) => setActivationForm((prev) => ({ ...prev, [field]: value }))}
+          onClose={() => { setShowActivationModal(false); setActivationError(''); }}
+          onSubmit={() => void submitActivation()}
+        />
+      )}
 
       {showAdvancedEditor && showManifestModal && selectedManifest && (
         <ManifestModal
@@ -614,6 +711,7 @@ function OverviewScreen(props: {
 
 function ProviderWorkspaceScreen(props: {
   providers: ProviderManifest[];
+  providerOrder: string[];
   selectedProvider: string;
   selectedManifest: ProviderManifest;
   selectedSummary?: ProviderSummary;
@@ -638,7 +736,43 @@ function ProviderWorkspaceScreen(props: {
   onFetchBalance: () => void;
   onFetchPrices: () => void;
   onOpenAdvancedEditor: () => void;
+  onReorder: (orderedIds: string[]) => void;
 }) {
+  const dragIndex = useRef<number | null>(null);
+
+  const orderedProviders = useMemo(() => {
+    const byId = Object.fromEntries(props.providers.map((p) => [p.id, p]));
+    const ordered = props.providerOrder.map((id) => byId[id]).filter(Boolean) as ProviderManifest[];
+    const extra = props.providers.filter((p) => !props.providerOrder.includes(p.id));
+    return [...ordered, ...extra];
+  }, [props.providers, props.providerOrder]);
+
+  const filteredOrdered = useMemo(() => {
+    if (!props.providerSearch.trim()) return orderedProviders;
+    const term = props.providerSearch.trim().toLowerCase();
+    return orderedProviders.filter((p) =>
+      [p.name, p.id, p.description ?? ''].some((v) => v.toLowerCase().includes(term)),
+    );
+  }, [orderedProviders, props.providerSearch]);
+
+  function handleDragStart(index: number) {
+    dragIndex.current = index;
+  }
+
+  function handleDragOver(event: React.DragEvent, index: number) {
+    event.preventDefault();
+    if (dragIndex.current === null || dragIndex.current === index) return;
+    const next = [...filteredOrdered];
+    const [moved] = next.splice(dragIndex.current, 1);
+    next.splice(index, 0, moved);
+    dragIndex.current = index;
+    props.onReorder(next.map((p) => p.id));
+  }
+
+  function handleDrop() {
+    dragIndex.current = null;
+  }
+
   return (
     <section className="store-shell">
       <aside className="store-pane">
@@ -647,19 +781,41 @@ function ProviderWorkspaceScreen(props: {
           <input value={props.providerSearch} onChange={(event) => props.onProviderSearch(event.target.value)} placeholder="Search providers..." />
         </div>
         <div className="store-list">
-          {props.providers.map((provider) => (
-            <button
+          <div className="provider-list-header">
+            <span>Priority</span>
+            <span>Provider</span>
+          </div>
+          {filteredOrdered.map((provider, index) => (
+            <div
               key={provider.id}
-              className={props.selectedProvider === provider.id ? 'store-list-item active' : 'store-list-item'}
+              draggable
+              onDragStart={() => handleDragStart(index)}
+              onDragOver={(e) => handleDragOver(e, index)}
+              onDrop={handleDrop}
+              className={`store-list-item draggable${props.selectedProvider === provider.id ? ' active' : ''}`}
               onClick={() => props.onSelectProvider(provider.id)}
             >
               <div className="store-list-item-left">
+                <span className="drag-handle">⠿</span>
+                <span className="priority-badge">{index + 1}</span>
                 <div className="provider-glyph" />
                 <strong>{provider.name}</strong>
               </div>
-              <span className="store-chevron">›</span>
-            </button>
+              <StatusBadge status={provider.enabled ? 'Connected' : 'Standby'} />
+            </div>
           ))}
+        </div>
+        <div className="routing-rules-section">
+          <h4>Routing Rules</h4>
+          <div className="routing-row">
+            <span>Strategy</span>
+            <span className="routing-value">Priority Fallback</span>
+          </div>
+          <div className="routing-row">
+            <span>Auto-fallback</span>
+            <span className="routing-value">Enabled</span>
+          </div>
+          <p className="routing-hint">Drag providers above to set priority. Auto mode tries each in order.</p>
         </div>
       </aside>
 
@@ -1124,6 +1280,102 @@ function ManifestModal(props: {
         </div>
         <div className="advanced-editor modal-editor">
           <textarea value={props.rawEditor} onChange={(event) => props.onChange(event.target.value)} />
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function NewActivationModal(props: {
+  providers: ProviderManifest[];
+  form: ActivationFormState;
+  busy: boolean;
+  error: string;
+  onChange: (field: keyof ActivationFormState, value: string) => void;
+  onClose: () => void;
+  onSubmit: () => void;
+}) {
+  const isFiveSim = props.form.provider === 'fivesim';
+
+  return (
+    <div className="modal-backdrop" onClick={props.onClose}>
+      <div className="modal-card activation-modal" onClick={(e) => e.stopPropagation()}>
+        <div className="modal-header">
+          <div>
+            <h2>New Activation</h2>
+            <p>Request a phone number from a provider to receive a verification code.</p>
+          </div>
+          <button className="toolbar-button" onClick={props.onClose}>
+            Close
+          </button>
+        </div>
+
+        <div className="activation-form">
+          <Field label="Service">
+            <input
+              value={props.form.service}
+              onChange={(e) => props.onChange('service', e.target.value)}
+              placeholder="openai"
+            />
+          </Field>
+          <Field label="Country">
+            <input
+              value={props.form.country}
+              onChange={(e) => props.onChange('country', e.target.value)}
+              placeholder="any"
+            />
+          </Field>
+          <Field label="Provider">
+            <select value={props.form.provider} onChange={(e) => props.onChange('provider', e.target.value)}>
+              <option value="auto">Auto (Priority Routing)</option>
+              {props.providers.map((p) => (
+                <option key={p.id} value={p.id}>
+                  {p.name}
+                </option>
+              ))}
+            </select>
+          </Field>
+          <Field label="Min Price (USD)">
+            <input
+              type="number"
+              value={props.form.min_price}
+              onChange={(e) => props.onChange('min_price', e.target.value)}
+              placeholder="0.00"
+              min="0"
+              step="0.01"
+            />
+          </Field>
+          <Field label="Max Price (USD)">
+            <input
+              type="number"
+              value={props.form.max_price}
+              onChange={(e) => props.onChange('max_price', e.target.value)}
+              placeholder="0.00"
+              min="0"
+              step="0.01"
+            />
+          </Field>
+          {isFiveSim && (
+            <Field label="Operator (FiveSim)">
+              <select value={props.form.operator} onChange={(e) => props.onChange('operator', e.target.value)}>
+                <option value="any">any</option>
+                <option value="virtual1">virtual1</option>
+                <option value="virtual2">virtual2</option>
+                <option value="virtual3">virtual3</option>
+              </select>
+            </Field>
+          )}
+        </div>
+
+        {props.error && <div className="activation-error">{props.error}</div>}
+
+        <div className="modal-footer">
+          <button className="toolbar-button" onClick={props.onClose} disabled={props.busy}>
+            Cancel
+          </button>
+          <button className="toolbar-button primary" onClick={props.onSubmit} disabled={props.busy}>
+            {props.busy ? 'Requesting…' : 'Request Number'}
+          </button>
         </div>
       </div>
     </div>

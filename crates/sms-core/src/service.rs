@@ -1,8 +1,8 @@
 use crate::error::SmsError;
 use crate::models::{
     AcquireCodeRequest, AcquireCodeResponse, LogEntry, PollCodeRequest, PollCodeResponse, ProviderBalance,
-    ProviderManifestList, ProviderPriceQuery, ProviderPriceResponse, ProviderSummary, ReleaseCodeRequest,
-    ReleaseCodeResponse, RuntimeSnapshot, TicketRecord, TicketStatus,
+    ProviderManifestList, ProviderPriceQuery, ProviderPriceResponse, ProviderReorderRequest, ProviderSummary,
+    ReleaseCodeRequest, ReleaseCodeResponse, RuntimeSnapshot, TicketRecord, TicketStatus,
 };
 use crate::registry::ProviderRegistry;
 use chrono::Utc;
@@ -33,6 +33,9 @@ impl SmsService {
     }
 
     pub async fn acquire_code(&self, request: AcquireCodeRequest) -> Result<AcquireCodeResponse, SmsError> {
+        if request.provider == "auto" {
+            return self.acquire_code_auto(request).await;
+        }
         let provider = {
             let registry = self.registry.read();
             registry.get(&request.provider)?
@@ -55,6 +58,66 @@ impl SmsService {
         self.log("system", "info", format!("ticket {} acquired by {}", ticket.id, ticket.provider));
         self.tickets.write().insert(ticket.id.clone(), ticket);
         Ok(response)
+    }
+
+    async fn acquire_code_auto(&self, request: AcquireCodeRequest) -> Result<AcquireCodeResponse, SmsError> {
+        let candidates = {
+            let registry = self.registry.read();
+            registry
+                .list_manifests_by_priority()
+                .into_iter()
+                .filter(|m| m.enabled && m.kind != plugin_sdk::ProviderKind::Mock)
+                .map(|m| m.id.clone())
+                .collect::<Vec<_>>()
+        };
+        if candidates.is_empty() {
+            return Err(SmsError::InvalidRequest("no enabled providers available for auto-routing".into()));
+        }
+        let mut last_error = SmsError::InvalidRequest("no providers tried".into());
+        for provider_id in candidates {
+            let provider = {
+                let registry = self.registry.read();
+                match registry.get(&provider_id) {
+                    Ok(p) => p,
+                    Err(_) => continue,
+                }
+            };
+            let manifest = provider.manifest();
+            if let Some(max) = request.max_price {
+                if manifest.defaults.max_price > 0.0 && manifest.defaults.max_price < max {
+                    continue;
+                }
+            }
+            let mut routed = request.clone();
+            routed.provider = provider_id.clone();
+            match provider.acquire(&routed).await {
+                Ok(ticket) => {
+                    let response = AcquireCodeResponse {
+                        ticket_id: ticket.id.clone(),
+                        provider: ticket.provider.clone(),
+                        service: ticket.service.clone(),
+                        country: ticket.country.clone(),
+                        phone_number: ticket.phone_number.clone(),
+                        upstream_id: ticket.upstream_id.clone(),
+                        price: ticket.price,
+                        status: ticket.status.clone(),
+                        created_at: ticket.created_at,
+                    };
+                    self.log(
+                        "router",
+                        "info",
+                        format!("auto-routed ticket {} → {}", ticket.id, provider_id),
+                    );
+                    self.tickets.write().insert(ticket.id.clone(), ticket);
+                    return Ok(response);
+                }
+                Err(err) => {
+                    self.log("router", "warn", format!("auto-route skipped {provider_id}: {err}"));
+                    last_error = err;
+                }
+            }
+        }
+        Err(last_error)
     }
 
     pub async fn poll_code(&self, request: PollCodeRequest) -> Result<PollCodeResponse, SmsError> {
@@ -163,6 +226,13 @@ impl SmsService {
         Ok(self.list_provider_manifests())
     }
 
+    pub fn reorder_providers(&self, req: ProviderReorderRequest) -> Result<ProviderManifestList, SmsError> {
+        let pairs: Vec<(String, u32)> = req.order.into_iter().map(|e| (e.id, e.priority)).collect();
+        self.registry.write().set_priorities(&pairs)?;
+        self.log("config", "info", "provider priority order saved");
+        Ok(self.list_provider_manifests())
+    }
+
     pub fn runtime_snapshot(&self) -> RuntimeSnapshot {
         let registry = self.registry.read();
         let providers = registry
@@ -178,6 +248,7 @@ impl SmsService {
                 default_country: manifest.defaults.country.clone(),
                 homepage: manifest.homepage.clone(),
                 description: manifest.description.clone(),
+                priority: manifest.priority,
             })
             .collect();
         let tickets = self.tickets.read().values().cloned().collect();

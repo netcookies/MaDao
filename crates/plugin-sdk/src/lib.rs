@@ -16,6 +16,8 @@ pub struct ProviderManifest {
     pub kind: ProviderKind,
     #[serde(default)]
     pub enabled: bool,
+    #[serde(default = "default_priority")]
+    pub priority: u32,
     #[serde(default)]
     pub homepage: Option<String>,
     #[serde(default)]
@@ -214,6 +216,10 @@ impl Default for MockConfig {
             codes: default_mock_codes(),
         }
     }
+}
+
+fn default_priority() -> u32 {
+    100
 }
 
 fn default_service() -> String {

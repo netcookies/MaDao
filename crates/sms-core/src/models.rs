@@ -123,6 +123,18 @@ pub struct ProviderSummary {
     pub default_country: String,
     pub homepage: Option<String>,
     pub description: Option<String>,
+    pub priority: u32,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ProviderPriorityEntry {
+    pub id: String,
+    pub priority: u32,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ProviderReorderRequest {
+    pub order: Vec<ProviderPriorityEntry>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

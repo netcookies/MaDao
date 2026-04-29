@@ -5,8 +5,8 @@ use axum::{Json, Router};
 use serde::Serialize;
 use sms_core::config::ServerConfig;
 use sms_core::models::{
-    AcquireCodeRequest, PollCodeRequest, ProviderManifestList, ProviderPriceQuery, ReleaseCodeRequest,
-    RuntimeSnapshot,
+    AcquireCodeRequest, PollCodeRequest, ProviderManifestList, ProviderPriceQuery, ProviderReorderRequest,
+    ReleaseCodeRequest, RuntimeSnapshot,
 };
 use sms_core::service::SmsService;
 use std::net::SocketAddr;
@@ -31,6 +31,7 @@ pub fn build_router(service: Arc<SmsService>) -> Router {
         .route("/api/providers", get(list_runtime))
         .route("/api/provider-manifests", get(list_provider_manifests))
         .route("/api/provider-manifests/reload", post(reload_provider_manifests))
+        .route("/api/providers/reorder", post(reorder_providers))
         .route("/api/acquire", post(acquire_code))
         .route("/api/poll", post(poll_code))
         .route("/api/release", post(release_code))
@@ -83,6 +84,17 @@ async fn reload_provider_manifests(
     state
         .service
         .reload_provider_registry()
+        .map(|value| Json(serde_json::json!(value)))
+        .map_err(to_api_error)
+}
+
+async fn reorder_providers(
+    State(state): State<ApiState>,
+    Json(request): Json<ProviderReorderRequest>,
+) -> Result<Json<serde_json::Value>, (StatusCode, Json<ApiError>)> {
+    state
+        .service
+        .reorder_providers(request)
         .map(|value| Json(serde_json::json!(value)))
         .map_err(to_api_error)
 }
