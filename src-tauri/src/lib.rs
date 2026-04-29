@@ -6,6 +6,7 @@ use sms_server::spawn_http_server;
 use std::sync::Arc;
 use tauri::Emitter;
 use tauri::Manager;
+use tauri::WebviewWindow;
 
 #[tauri::command]
 async fn runtime_snapshot(app: tauri::AppHandle) -> Result<serde_json::Value, String> {
@@ -41,6 +42,23 @@ async fn reload_provider_registry(app: tauri::AppHandle) -> Result<serde_json::V
         .and_then(|value| serde_json::to_value(value).map_err(|err| err.to_string()))
 }
 
+#[tauri::command]
+async fn window_action(window: WebviewWindow, action: String) -> Result<(), String> {
+    match action.as_str() {
+        "minimize" => window.minimize().map_err(|err| err.to_string()),
+        "maximize_toggle" => {
+            let maximized = window.is_maximized().map_err(|err| err.to_string())?;
+            if maximized {
+                window.unmaximize().map_err(|err| err.to_string())
+            } else {
+                window.maximize().map_err(|err| err.to_string())
+            }
+        }
+        "close" => window.close().map_err(|err| err.to_string()),
+        other => Err(format!("unsupported window action: {other}")),
+    }
+}
+
 pub fn run() {
     let cwd = std::env::current_dir().expect("read current dir");
     let config = ServerConfig::load_from_file(cwd.join("config/server.toml")).expect("load config");
@@ -53,7 +71,8 @@ pub fn run() {
             runtime_snapshot,
             list_provider_manifests,
             save_provider_manifest,
-            reload_provider_registry
+            reload_provider_registry,
+            window_action
         ])
         .setup(move |app| {
             let app_handle = app.handle().clone();

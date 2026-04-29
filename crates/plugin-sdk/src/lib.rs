@@ -172,6 +172,8 @@ pub struct FiveSimConfig {
     pub profile_endpoint: String,
     #[serde(default = "default_prices_endpoint")]
     pub prices_endpoint: String,
+    #[serde(default = "default_products_endpoint")]
+    pub products_endpoint: String,
     #[serde(default = "default_buy_endpoint_prefix")]
     pub buy_endpoint_prefix: String,
     #[serde(default = "default_check_endpoint_prefix")]
@@ -357,6 +359,10 @@ fn default_profile_endpoint() -> String {
 
 fn default_prices_endpoint() -> String {
     "guest/prices".to_string()
+}
+
+fn default_products_endpoint() -> String {
+    "guest/products".to_string()
 }
 
 fn default_buy_endpoint_prefix() -> String {

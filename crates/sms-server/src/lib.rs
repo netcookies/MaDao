@@ -5,8 +5,9 @@ use axum::{Json, Router};
 use serde::Serialize;
 use sms_core::config::ServerConfig;
 use sms_core::models::{
-    AcquireCodeRequest, PollCodeRequest, ProviderManifestList, ProviderPriceQuery, ProviderReorderRequest,
-    ReleaseCodeRequest, RuntimeSnapshot,
+    AcquireCodeRequest, NotificationFeed, PollCodeRequest, ProviderDynamicOptions, ProviderManifestList,
+    ProviderPriceQuery, ProviderReorderRequest, ReleaseCodeRequest, RuntimeSettings, RuntimeSettingsUpdate,
+    RuntimeSnapshot,
 };
 use sms_core::service::SmsService;
 use std::net::SocketAddr;
@@ -32,11 +33,14 @@ pub fn build_router(service: Arc<SmsService>) -> Router {
         .route("/api/provider-manifests", get(list_provider_manifests))
         .route("/api/provider-manifests/reload", post(reload_provider_manifests))
         .route("/api/providers/reorder", post(reorder_providers))
+        .route("/api/notifications", get(get_notifications))
+        .route("/api/settings/runtime", get(get_runtime_settings).post(update_runtime_settings))
         .route("/api/acquire", post(acquire_code))
         .route("/api/poll", post(poll_code))
         .route("/api/release", post(release_code))
         .route("/api/providers/{provider}/balance", get(get_balance))
         .route("/api/providers/{provider}/prices", post(get_prices))
+        .route("/api/providers/{provider}/options", get(get_provider_options))
         .route("/api/providers/{provider}/manifest", get(get_manifest).put(put_manifest))
         .layer(CorsLayer::permissive())
         .layer(TraceLayer::new_for_http())
@@ -76,6 +80,21 @@ async fn list_runtime(State(state): State<ApiState>) -> Json<RuntimeSnapshot> {
 
 async fn list_provider_manifests(State(state): State<ApiState>) -> Json<ProviderManifestList> {
     Json(state.service.list_provider_manifests())
+}
+
+async fn get_notifications(State(state): State<ApiState>) -> Json<NotificationFeed> {
+    Json(state.service.notification_feed())
+}
+
+async fn get_runtime_settings(State(state): State<ApiState>) -> Json<RuntimeSettings> {
+    Json(state.service.runtime_settings())
+}
+
+async fn update_runtime_settings(
+    State(state): State<ApiState>,
+    Json(update): Json<RuntimeSettingsUpdate>,
+) -> Json<RuntimeSettings> {
+    Json(state.service.update_runtime_settings(update))
 }
 
 async fn reload_provider_manifests(
@@ -158,6 +177,18 @@ async fn get_prices(
         .get_prices(request)
         .await
         .map(|value| Json(serde_json::json!(value)))
+        .map_err(to_api_error)
+}
+
+async fn get_provider_options(
+    State(state): State<ApiState>,
+    Path(provider): Path<String>,
+) -> Result<Json<ProviderDynamicOptions>, (StatusCode, Json<ApiError>)> {
+    state
+        .service
+        .provider_dynamic_options(&provider)
+        .await
+        .map(Json)
         .map_err(to_api_error)
 }
 

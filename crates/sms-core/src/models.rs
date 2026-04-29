@@ -100,6 +100,7 @@ pub struct ProviderPriceQuery {
 pub struct ProviderPriceItem {
     pub country: String,
     pub display_name: String,
+    pub operator: String,
     pub price: f64,
     pub stock: u64,
 }
@@ -109,6 +110,21 @@ pub struct ProviderPriceResponse {
     pub provider: String,
     pub service: String,
     pub items: Vec<ProviderPriceItem>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct OptionItem {
+    pub value: String,
+    pub label: String,
+    pub hint: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ProviderDynamicOptions {
+    pub provider: String,
+    pub services: Vec<OptionItem>,
+    pub countries: Vec<OptionItem>,
+    pub operators: Vec<OptionItem>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -140,6 +156,28 @@ pub struct ProviderReorderRequest {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ProviderManifestList {
     pub manifests: Vec<ProviderManifest>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct NotificationFeed {
+    pub items: Vec<LogEntry>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct WindowActionRequest {
+    pub action: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct RuntimeSettings {
+    pub routing_strategy: String,
+    pub auto_fallback: bool,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct RuntimeSettingsUpdate {
+    pub routing_strategy: String,
+    pub auto_fallback: bool,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

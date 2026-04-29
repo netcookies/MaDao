@@ -1,8 +1,9 @@
 use crate::error::SmsError;
 use crate::models::{
     AcquireCodeRequest, AcquireCodeResponse, LogEntry, PollCodeRequest, PollCodeResponse, ProviderBalance,
-    ProviderManifestList, ProviderPriceQuery, ProviderPriceResponse, ProviderReorderRequest, ProviderSummary,
-    ReleaseCodeRequest, ReleaseCodeResponse, RuntimeSnapshot, TicketRecord, TicketStatus,
+    NotificationFeed, ProviderDynamicOptions, ProviderManifestList, ProviderPriceQuery,
+    ProviderPriceResponse, ProviderReorderRequest, ProviderSummary, ReleaseCodeRequest,
+    ReleaseCodeResponse, RuntimeSettings, RuntimeSettingsUpdate, RuntimeSnapshot, TicketRecord, TicketStatus,
 };
 use crate::registry::ProviderRegistry;
 use chrono::Utc;
@@ -15,6 +16,7 @@ pub struct SmsService {
     registry: Arc<RwLock<ProviderRegistry>>,
     tickets: RwLock<BTreeMap<String, TicketRecord>>,
     logs: RwLock<VecDeque<LogEntry>>,
+    runtime_settings: RwLock<RuntimeSettings>,
     log_buffer: usize,
 }
 
@@ -24,6 +26,10 @@ impl SmsService {
             registry: Arc::new(RwLock::new(registry)),
             tickets: RwLock::new(BTreeMap::new()),
             logs: RwLock::new(VecDeque::with_capacity(log_buffer)),
+            runtime_settings: RwLock::new(RuntimeSettings {
+                routing_strategy: "ordered_priority".to_string(),
+                auto_fallback: true,
+            }),
             log_buffer,
         }
     }
@@ -202,6 +208,14 @@ impl SmsService {
         ProviderManifestList { manifests }
     }
 
+    pub async fn provider_dynamic_options(&self, provider_id: &str) -> Result<ProviderDynamicOptions, SmsError> {
+        let provider = {
+            let registry = self.registry.read();
+            registry.get(provider_id)?
+        };
+        provider.get_options().await
+    }
+
     pub fn provider_manifest(&self, provider_id: &str) -> Result<ProviderManifest, SmsError> {
         self.registry.read().manifest(provider_id)
     }
@@ -231,6 +245,30 @@ impl SmsService {
         self.registry.write().set_priorities(&pairs)?;
         self.log("config", "info", "provider priority order saved");
         Ok(self.list_provider_manifests())
+    }
+
+    pub fn notification_feed(&self) -> NotificationFeed {
+        NotificationFeed {
+            items: self
+                .logs
+                .read()
+                .iter()
+                .take(20)
+                .cloned()
+                .collect(),
+        }
+    }
+
+    pub fn runtime_settings(&self) -> RuntimeSettings {
+        self.runtime_settings.read().clone()
+    }
+
+    pub fn update_runtime_settings(&self, update: RuntimeSettingsUpdate) -> RuntimeSettings {
+        let mut current = self.runtime_settings.write();
+        current.routing_strategy = update.routing_strategy;
+        current.auto_fallback = update.auto_fallback;
+        self.log("config", "info", "runtime routing settings updated");
+        current.clone()
     }
 
     pub fn runtime_snapshot(&self) -> RuntimeSnapshot {

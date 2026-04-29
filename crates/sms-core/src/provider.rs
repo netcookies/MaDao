@@ -1,6 +1,7 @@
 use crate::error::SmsError;
 use crate::models::{
-    AcquireCodeRequest, PollCodeResponse, ProviderBalance, ProviderPriceItem, ReleaseAction, TicketRecord,
+    AcquireCodeRequest, OptionItem, PollCodeResponse, ProviderBalance, ProviderDynamicOptions,
+    ProviderPriceItem, ReleaseAction, TicketRecord,
 };
 use async_trait::async_trait;
 use plugin_sdk::{FiveSimConfig, HandlerApiConfig, MockConfig, ProviderKind, ProviderManifest};
@@ -37,6 +38,8 @@ pub trait SmsProvider: Send + Sync {
     async fn release(&self, ticket: &TicketRecord, action: ReleaseAction) -> Result<String, SmsError>;
 
     async fn get_balance(&self) -> Result<ProviderBalance, SmsError>;
+
+    async fn get_options(&self) -> Result<ProviderDynamicOptions, SmsError>;
 
     async fn get_prices(&self, service: Option<&str>) -> Result<Vec<ProviderPriceItem>, SmsError>;
 }
@@ -99,11 +102,33 @@ impl SmsProvider for MockProvider {
         })
     }
 
+    async fn get_options(&self) -> Result<ProviderDynamicOptions, SmsError> {
+        Ok(ProviderDynamicOptions {
+            provider: self.manifest.id.clone(),
+            services: vec![OptionItem {
+                value: "openai".into(),
+                label: "OpenAI".into(),
+                hint: "openai".into(),
+            }],
+            countries: vec![OptionItem {
+                value: "local".into(),
+                label: "Local".into(),
+                hint: "local".into(),
+            }],
+            operators: vec![OptionItem {
+                value: "mock".into(),
+                label: "Mock".into(),
+                hint: "mock".into(),
+            }],
+        })
+    }
+
     async fn get_prices(&self, service: Option<&str>) -> Result<Vec<ProviderPriceItem>, SmsError> {
         let resolved = self.manifest.resolve_service_alias(service);
         Ok(vec![ProviderPriceItem {
             country: self.manifest.defaults.country.clone(),
             display_name: "Mock Country".to_string(),
+            operator: "mock".to_string(),
             price: 0.0,
             stock: 99,
         }])
@@ -162,6 +187,68 @@ impl HandlerApiProvider {
         Ok((text, json))
     }
 
+    async fn request_countries(&self) -> Result<Vec<OptionItem>, SmsError> {
+        let (_text, json) = self.request(&self.config.get_countries_action, &[]).await?;
+        let Some(json) = json else {
+            return Ok(Vec::new());
+        };
+        let values: Vec<Value> = if let Some(array) = json.as_array() {
+            array.clone()
+        } else if let Some(object) = json.as_object() {
+            object.values().cloned().collect()
+        } else {
+            Vec::new()
+        };
+        Ok(values
+            .into_iter()
+            .filter_map(|item| {
+                let value = item.pointer("/id").and_then(coerce_str_value)?;
+                let label = item.pointer("/chn")
+                    .and_then(Value::as_str)
+                    .or_else(|| item.pointer("/eng").and_then(Value::as_str))
+                    .or_else(|| item.pointer("/rus").and_then(Value::as_str))
+                    .unwrap_or(&value)
+                    .to_string();
+                let hint = item.pointer("/eng").and_then(Value::as_str).unwrap_or(&value).to_string();
+                Some(OptionItem { value, label, hint })
+            })
+            .collect())
+    }
+
+    async fn request_services(&self) -> Result<Vec<OptionItem>, SmsError> {
+        for action in ["getServicesList", "getServices"] {
+            if let Ok((_text, json)) = self.request(action, &[]).await {
+                if let Some(json) = json {
+                    let items = json
+                        .pointer("/services")
+                        .and_then(Value::as_array)
+                        .cloned()
+                        .or_else(|| json.as_array().cloned())
+                        .unwrap_or_default();
+                    let services = items
+                        .into_iter()
+                        .filter_map(|item| {
+                            let value = item.pointer("/code").and_then(Value::as_str)
+                                .or_else(|| item.pointer("/id").and_then(Value::as_str))?;
+                            let label = item.pointer("/name").and_then(Value::as_str)
+                                .or_else(|| item.pointer("/title").and_then(Value::as_str))
+                                .unwrap_or(value);
+                            Some(OptionItem {
+                                value: value.to_string(),
+                                label: label.to_string(),
+                                hint: value.to_string(),
+                            })
+                        })
+                        .collect::<Vec<_>>();
+                    if !services.is_empty() {
+                        return Ok(services);
+                    }
+                }
+            }
+        }
+        Ok(Vec::new())
+    }
+
     fn parse_balance(&self, text: &str, json: Option<&Value>) -> Result<f64, SmsError> {
         if let Some(value) = text.strip_prefix(&self.config.balance_prefix) {
             return value
@@ -205,6 +292,7 @@ impl HandlerApiProvider {
             items.push(ProviderPriceItem {
                 country: country_id.to_string(),
                 display_name: format!("Country {country_id}"),
+                operator: "default".to_string(),
                 price,
                 stock,
             });
@@ -401,6 +489,37 @@ impl SmsProvider for HandlerApiProvider {
             .await?;
         Ok(self.parse_prices(&service, json.as_ref()))
     }
+
+    async fn get_options(&self) -> Result<ProviderDynamicOptions, SmsError> {
+        let services = self.request_services().await?;
+        let countries = self.request_countries().await?;
+        Ok(ProviderDynamicOptions {
+            provider: self.manifest.id.clone(),
+            services: if services.is_empty() {
+                vec![OptionItem {
+                    value: self.manifest.defaults.service.clone(),
+                    label: self.manifest.defaults.service.clone(),
+                    hint: self.manifest.defaults.service.clone(),
+                }]
+            } else {
+                services
+            },
+            countries: if countries.is_empty() {
+                vec![OptionItem {
+                    value: self.manifest.defaults.country.clone(),
+                    label: self.manifest.defaults.country.clone(),
+                    hint: self.manifest.defaults.country.clone(),
+                }]
+            } else {
+                countries
+            },
+            operators: vec![OptionItem {
+                value: "any".into(),
+                label: "Any Operator".into(),
+                hint: "any".into(),
+            }],
+        })
+    }
 }
 
 pub struct FiveSimProvider {
@@ -458,6 +577,31 @@ impl FiveSimProvider {
         let json = serde_json::from_str::<Value>(&text)
             .map_err(|_| SmsError::Upstream(text.trim().to_string()))?;
         Ok((text, json))
+    }
+
+    async fn request_products(&self, country: &str, operator: &str) -> Result<Vec<OptionItem>, SmsError> {
+        let path = format!(
+            "{}/{}/{}",
+            self.config.products_endpoint.trim_end_matches('/'),
+            country,
+            operator,
+        );
+        let (_text, json) = self.request_get(&path, &[]).await?;
+        let items = json.as_array().cloned().unwrap_or_default();
+        Ok(items
+            .into_iter()
+            .filter_map(|item| {
+                let value = item.pointer("/name").and_then(Value::as_str)
+                    .or_else(|| item.pointer("/product").and_then(Value::as_str))?;
+                let qty = item.pointer("/Qty").or_else(|| item.pointer("/qty")).and_then(|v| v.as_u64().or_else(|| v.as_str().and_then(|s| s.parse().ok()))).unwrap_or(0);
+                let price = item.pointer("/Price").or_else(|| item.pointer("/price")).and_then(coerce_f64).unwrap_or(0.0);
+                Some(OptionItem {
+                    value: value.to_string(),
+                    label: value.to_string(),
+                    hint: format!("qty={qty}, price={price:.3}"),
+                })
+            })
+            .collect())
     }
 
     fn map_poll_payload(&self, json: &Value) -> (String, Option<String>, crate::models::TicketStatus) {
@@ -621,30 +765,87 @@ impl SmsProvider for FiveSimProvider {
             let Some(operators_map) = operators.as_object() else {
                 continue;
             };
-            let mut min_price = None::<f64>;
-            let mut stock_total = 0u64;
-            for operator in operators_map.values() {
-                let price = operator.get("cost").and_then(Value::as_f64);
-                let stock = operator.get("count").and_then(Value::as_u64).unwrap_or(0);
-                if stock > 0 {
-                    stock_total += stock;
-                    min_price = Some(match min_price {
-                        Some(current) => current.min(price.unwrap_or(current)),
-                        None => price.unwrap_or(0.0),
+            for (operator_name, operator) in operators_map {
+                let price = operator.get("cost").and_then(coerce_f64);
+                let stock = operator
+                    .get("count")
+                    .and_then(|value| value.as_u64().or_else(|| value.as_str().and_then(|text| text.parse().ok())))
+                    .unwrap_or(0);
+                if stock == 0 {
+                    continue;
+                }
+                if let Some(price) = price {
+                    items.push(ProviderPriceItem {
+                        country: country.clone(),
+                        display_name: country.clone(),
+                        operator: operator_name.clone(),
+                        price,
+                        stock,
                     });
                 }
             }
-            if let Some(price) = min_price {
-                items.push(ProviderPriceItem {
-                    country: country.clone(),
-                    display_name: country.clone(),
-                    price,
-                    stock: stock_total,
+        }
+        items.sort_by(|left, right| {
+            left.country
+                .cmp(&right.country)
+                .then_with(|| left.operator.cmp(&right.operator))
+                .then_with(|| left.price.total_cmp(&right.price))
+        });
+        Ok(items)
+    }
+
+    async fn get_options(&self) -> Result<ProviderDynamicOptions, SmsError> {
+        let prices = self.get_prices(Some(&self.manifest.defaults.service)).await?;
+        let mut countries = Vec::<OptionItem>::new();
+        let mut operators = Vec::<OptionItem>::new();
+        for item in &prices {
+            if !countries.iter().any(|entry| entry.value == item.country) {
+                countries.push(OptionItem {
+                    value: item.country.clone(),
+                    label: item.display_name.clone(),
+                    hint: item.country.clone(),
+                });
+            }
+            if !operators.iter().any(|entry| entry.value == item.operator) {
+                operators.push(OptionItem {
+                    value: item.operator.clone(),
+                    label: item.operator.clone(),
+                    hint: item.operator.clone(),
                 });
             }
         }
-        items.sort_by(|left, right| left.price.total_cmp(&right.price));
-        Ok(items)
+        let services = self
+            .request_products(&self.manifest.defaults.country, &self.config.buy_operator)
+            .await
+            .unwrap_or_else(|_| {
+                vec![OptionItem {
+                    value: self.manifest.defaults.service.clone(),
+                    label: self.manifest.defaults.service.clone(),
+                    hint: self.manifest.defaults.service.clone(),
+                }]
+            });
+        Ok(ProviderDynamicOptions {
+            provider: self.manifest.id.clone(),
+            services,
+            countries: if countries.is_empty() {
+                vec![OptionItem {
+                    value: self.manifest.defaults.country.clone(),
+                    label: self.manifest.defaults.country.clone(),
+                    hint: self.manifest.defaults.country.clone(),
+                }]
+            } else {
+                countries
+            },
+            operators: if operators.is_empty() {
+                vec![OptionItem {
+                    value: self.config.buy_operator.clone(),
+                    label: self.config.buy_operator.clone(),
+                    hint: self.config.buy_operator.clone(),
+                }]
+            } else {
+                operators
+            },
+        })
     }
 }
 
@@ -725,6 +926,7 @@ mod tests {
                 buy_operator: "any".to_string(),
                 profile_endpoint: "profile".to_string(),
                 prices_endpoint: "prices".to_string(),
+                products_endpoint: "products".to_string(),
                 buy_endpoint_prefix: "buy".to_string(),
                 check_endpoint_prefix: "check".to_string(),
                 finish_action: "finish".to_string(),

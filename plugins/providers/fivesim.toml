@@ -2,8 +2,11 @@ id = "fivesim"
 name = "5SIM"
 kind = "five_sim"
 enabled = false
+priority = 10
 homepage = "https://5sim.net/"
 description = "兼容 5SIM REST API 的 provider。"
+
+[service_aliases]
 
 [defaults]
 service = "openai"
@@ -24,6 +27,7 @@ api_key = ""
 buy_operator = "any"
 profile_endpoint = "user/profile"
 prices_endpoint = "guest/prices"
+products_endpoint = "guest/products"
 buy_endpoint_prefix = "user/buy/activation"
 check_endpoint_prefix = "user/check"
 finish_action = "finish"
@@ -31,8 +35,17 @@ cancel_action = "cancel"
 ban_action = "ban"
 balance_json_pointer = "/balance"
 status_json_pointer = "/status"
-code_json_pointers = ["/sms/0/code", "/sms/code", "/code", "/data/code"]
-failure_statuses = ["CANCELED", "BANNED", "TIMEOUT"]
+code_json_pointers = [
+    "/sms/0/code",
+    "/sms/code",
+    "/code",
+    "/data/code",
+]
+failure_statuses = [
+    "CANCELED",
+    "BANNED",
+    "TIMEOUT",
+]
 id_json_pointers = ["/id"]
 phone_json_pointers = ["/phone"]
 price_json_pointers = ["/price"]
