@@ -1,0 +1,81 @@
+.root {
+  display: flex;
+  flex-direction: column;
+  background: var(--ds-color-sidebar-bg);
+  border-right: 1px solid var(--ds-color-border-default);
+}
+
+.traffic {
+  display: flex;
+  align-items: center;
+  gap: var(--ds-space-xs);
+  padding: 18px 12px 12px;
+}
+
+.trafficDot {
+  width: 12px;
+  height: 12px;
+  border: none;
+  border-radius: 50%;
+  cursor: pointer;
+}
+
+.trafficDotRed {
+  background: #ff5f57;
+}
+
+.trafficDotYellow {
+  background: #febc2e;
+}
+
+.trafficDotGreen {
+  background: #28c840;
+}
+
+.nav {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 8px 12px;
+}
+
+.item {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 12px;
+  border: none;
+  border-radius: var(--ds-radius-sm);
+  background: transparent;
+  color: var(--ds-color-text-primary);
+  text-align: left;
+  cursor: pointer;
+  font-family: var(--ds-font-family-text);
+  font-size: 12px;
+  font-weight: 400;
+  line-height: 1;
+  letter-spacing: -0.12px;
+  transition: background-color var(--ds-motion-transition-fast);
+}
+
+.item:hover {
+  background: rgba(0, 0, 0, 0.03);
+}
+
+.itemActive {
+  background: #e7e7ea;
+  font-weight: 600;
+}
+
+.item:focus-visible {
+  outline: 2px solid var(--ds-color-accent-blue-focus);
+  outline-offset: 2px;
+}
+
+.itemIcon {
+  opacity: 0.6;
+}
+
+.itemActive .itemIcon {
+  opacity: 1;
+}

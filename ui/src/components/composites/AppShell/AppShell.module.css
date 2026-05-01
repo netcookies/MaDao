@@ -1,0 +1,27 @@
+.root {
+  min-height: 100vh;
+}
+
+.window {
+  display: grid;
+  grid-template-columns: var(--ds-size-sidebar-width) 1fr;
+  min-height: 100vh;
+  background: var(--ds-color-content-bg);
+}
+
+.main {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  background: var(--ds-color-content-bg);
+}
+
+.content {
+  flex: 1;
+  padding: 28px 36px 36px;
+  background: var(--ds-color-content-bg);
+}
+
+.compact .content {
+  padding: 24px 28px 28px;
+}
