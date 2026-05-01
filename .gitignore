@@ -9,6 +9,9 @@ dist/
 node_modules/
 .workflow/
 .claude/
+.artifacts/
+plugins/providers/herosms.toml
+plugins/providers/smsbower.toml
 *.bak
 *.patch
 patch.js
