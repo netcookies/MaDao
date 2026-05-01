@@ -7,6 +7,7 @@ import {
   Shield, ShoppingCart, Sliders, Smartphone, Square, Terminal, User, Wallet, X,
 } from 'lucide-react';
 import { invoke } from '@tauri-apps/api/core';
+import { getScreenshotMeasureSelector, getScreenshotScenario, isIsolatedScreenshotTarget, type ScreenshotTarget } from './screenshot-mode';
 
 type ScreenId = 'overview' | 'providers' | 'messages' | 'settings' | 'logs';
 type ProviderSectionId = 'config' | 'store' | 'wallet';
@@ -108,6 +109,7 @@ type RuntimeSettingsUpdate = { routing_strategy: RoutingStrategy; auto_fallback:
 type ProviderDynamicOptions = { provider: string; services: OptionItem[]; countries: OptionItem[]; operators: OptionItem[] };
 type SidebarItem = { id: ScreenId; label: string; Icon: typeof LayoutDashboard };
 type StoreQueryState = { service: string; country: string; operator: string; search: string };
+type ScreenshotScenario = ReturnType<typeof getScreenshotScenario>;
 
 type ActivationFormState = {
   service: string;
@@ -120,6 +122,9 @@ type ActivationFormState = {
 
 const API_BASE = 'http://127.0.0.1:7822';
 const SOCKET_PATH = '/tmp/madao-sms.sock';
+const screenshotTarget = (window as Window & {
+  __MA_DAO_SCREENSHOT_TARGET__?: ScreenshotTarget;
+}).__MA_DAO_SCREENSHOT_TARGET__ ?? null;
 
 const NAV_ITEMS: SidebarItem[] = [
   { id: 'overview', label: 'Overview', Icon: LayoutDashboard },
@@ -142,10 +147,10 @@ const WORKSPACE_SECTIONS: Array<{ id: ProviderSectionId; label: string; Icon: ty
   { id: 'wallet', label: 'Wallet Balance', Icon: Wallet },
 ];
 
-const ROUTING_STRATEGIES: Array<{ value: RoutingStrategy; label: string }> = [
-  { value: 'ordered_priority', label: 'Ordered Priority' },
-  { value: 'lowest_price', label: 'Lowest Price' },
-  { value: 'highest_stock', label: 'Highest Stock' },
+const ROUTING_STRATEGIES: Array<{ id: RoutingStrategy; label: string }> = [
+  { id: 'ordered_priority', label: 'Ordered Priority' },
+  { id: 'lowest_price', label: 'Lowest Price' },
+  { id: 'highest_stock', label: 'Highest Stock' },
 ];
 
 const LOG_FILTERS: Array<{ id: LogFilter; label: string }> = [
@@ -296,10 +301,15 @@ export function App() {
   const [language, setLanguage] = useState<LanguageCode>('en');
   const [providerOptions, setProviderOptions] = useState<Record<string, ProviderDynamicOptions>>({});
   const [storeQueries, setStoreQueries] = useState<Record<string, StoreQueryState>>({});
+  const [isScreenshotMode] = useState(Boolean(screenshotTarget));
 
   useEffect(() => {
+    if (isScreenshotMode && screenshotTarget) {
+      applyScreenshotScenario(getScreenshotScenario(screenshotTarget));
+      return;
+    }
     void Promise.all([loadSnapshot(), loadManifests(), loadNotifications(), loadRuntimeSettings()]);
-  }, []);
+  }, [isScreenshotMode]);
 
   useEffect(() => {
     if (!autoRefresh) return;
@@ -441,6 +451,7 @@ export function App() {
   }, [priceSort, selectedPrices, selectedProvider, selectedStoreQuery]);
 
   async function loadSnapshot() {
+    if (isScreenshotMode) return;
     try {
       const response = await fetch(`${API_BASE}/api/providers`);
       const data = (await response.json()) as Snapshot;
@@ -451,6 +462,7 @@ export function App() {
   }
 
   async function loadManifests() {
+    if (isScreenshotMode) return;
     try {
       const response = await fetch(`${API_BASE}/api/provider-manifests`);
       const data = (await response.json()) as ProviderManifestList;
@@ -503,6 +515,7 @@ export function App() {
   }
 
   async function loadProviderOptions(providerId: string) {
+    if (isScreenshotMode) return;
     try {
       const data = await fetchProviderOptions(providerId);
       setProviderOptions((current) => ({
@@ -515,6 +528,7 @@ export function App() {
   }
 
   async function loadNotifications() {
+    if (isScreenshotMode) return;
     try {
       const response = await fetch(`${API_BASE}/api/notifications`);
       const data = (await response.json()) as NotificationFeed;
@@ -530,6 +544,7 @@ export function App() {
   }
 
   async function loadRuntimeSettings() {
+    if (isScreenshotMode) return;
     try {
       const response = await fetch(`${API_BASE}/api/settings/runtime`);
       const data = (await response.json()) as RuntimeSettings;
@@ -567,6 +582,7 @@ export function App() {
   }
 
   async function saveProvider(providerId: string) {
+    if (isScreenshotMode) return;
     try {
       setBusyAction(`save-${providerId}`);
       const manifest = JSON.parse(rawEditors[providerId] ?? '{}') as ProviderManifest;
@@ -590,6 +606,7 @@ export function App() {
   }
 
   async function reloadProviders() {
+    if (isScreenshotMode) return;
     try {
       setBusyAction('reload');
       const response = await fetch(`${API_BASE}/api/provider-manifests/reload`, { method: 'POST' });
@@ -604,6 +621,7 @@ export function App() {
   }
 
   async function updateRuntimeSettings(next: RuntimeSettingsUpdate) {
+    if (isScreenshotMode) return;
     try {
       setBusyAction('routing-settings');
       const response = await fetch(`${API_BASE}/api/settings/runtime`, {
@@ -624,6 +642,7 @@ export function App() {
   }
 
   async function fetchBalance(providerId: string) {
+    if (isScreenshotMode) return;
     try {
       setBusyAction(`balance-${providerId}`);
       const response = await fetch(`${API_BASE}/api/providers/${providerId}/balance`);
@@ -642,6 +661,7 @@ export function App() {
   }
 
   async function fetchPrices(providerId: string) {
+    if (isScreenshotMode) return;
     const query = storeQueries[providerId];
     const service = query?.service || manifests[providerId]?.defaults.service;
     if (!service) return;
@@ -667,6 +687,7 @@ export function App() {
   }
 
   async function pollTicket(ticketId: string) {
+    if (isScreenshotMode) return;
     try {
       setBusyAction(`poll-${ticketId}`);
       const response = await fetch(`${API_BASE}/api/poll`, {
@@ -685,6 +706,7 @@ export function App() {
   }
 
   async function releaseTicket(ticketId: string, action: 'finish' | 'cancel' | 'retry') {
+    if (isScreenshotMode) return;
     try {
       setBusyAction(`${action}-${ticketId}`);
       const response = await fetch(`${API_BASE}/api/release`, {
@@ -703,6 +725,7 @@ export function App() {
   }
 
   async function copyToClipboard(value: string, label: string) {
+    if (isScreenshotMode) return;
     try {
       await navigator.clipboard.writeText(value);
       setStatusMessage(`${label} copied.`);
@@ -725,6 +748,7 @@ export function App() {
   }
 
   async function reorderProviders(ids: string[]) {
+    if (isScreenshotMode) return;
     const order = ids.map((id, index) => ({ id, priority: (index + 1) * 10 }));
     try {
       const response = await fetch(`${API_BASE}/api/providers/reorder`, {
@@ -741,6 +765,7 @@ export function App() {
   }
 
   async function submitActivation() {
+    if (isScreenshotMode) return;
     setActivationBusy(true);
     setActivationError('');
     try {
@@ -863,6 +888,7 @@ export function App() {
   }
 
   async function handleWindowAction(action: 'minimize' | 'maximize_toggle' | 'close') {
+    if (isScreenshotMode) return;
     try {
       await invoke('window_action', { action });
     } catch (error) {
@@ -874,8 +900,48 @@ export function App() {
     ? `Providers › ${manifests[selectedProvider]?.name ?? selectedProvider}`
     : NAV_ITEMS.find((item) => item.id === activeScreen)?.label ?? '';
 
+  function applyScreenshotScenario(scenario: ScreenshotScenario) {
+    const manifestMap = Object.fromEntries(
+      scenario.manifests.map((manifest) => [manifest.id, manifest as ProviderManifest]),
+    );
+    setSnapshot(scenario.snapshot);
+    setManifests(manifestMap);
+    setRawEditors(
+      Object.fromEntries(
+        scenario.manifests.map((manifest) => [manifest.id, JSON.stringify(manifest, null, 2)]),
+      ),
+    );
+    setProviderOrder(
+      scenario.manifests
+        .filter((manifest) => manifest.kind !== 'mock')
+        .map((manifest) => manifest.id),
+    );
+    setProviderOptions(scenario.providerOptions);
+    setPricePanels(scenario.pricePanels);
+    setBalances(scenario.balances);
+    setRuntimeSettings(scenario.runtimeSettings);
+    setSelectedProvider(scenario.selectedProvider);
+    setActiveScreen(scenario.activeScreen as ScreenId);
+    setProviderView(scenario.providerView as 'list' | 'workspace');
+    setActiveProviderSection(scenario.activeProviderSection as ProviderSectionId);
+    setNotifications(scenario.notifications);
+    setShowNotifications(Boolean(scenario.showNotifications));
+    setShowActivationModal(Boolean(scenario.showActivationModal));
+    setActivationForm(scenario.activationForm);
+    setStoreQueries(scenario.storeQueries);
+    setMessageFilter(scenario.messageFilter as MessageFilter);
+    setLogsFilter(scenario.logsFilter as LogFilter);
+    setLogsSearch(scenario.logsSearch);
+    setStatusMessage(scenario.statusMessage);
+    setNotificationCursor(scenario.notificationCursor);
+    setAppearanceTheme(scenario.appearanceTheme as AppearanceTheme);
+    setLanguage(scenario.language as LanguageCode);
+    setCompactTables(Boolean(scenario.compactTables));
+    setAutoRefresh(false);
+  }
+
   return (
-    <div className={`app-root${compactTables ? ' compact' : ''}`}>
+    <div className={cx(`app-root${compactTables ? ' compact' : ''}`, isScreenshotMode && screenshotTarget && isIsolatedScreenshotTarget(screenshotTarget) && 'is-screenshot-isolated')}>
       <div className="mac-window">
         <aside className="d-sidebar">
           <div className="d-traffic">
@@ -921,7 +987,7 @@ export function App() {
             </div>
             <div className="d-toolbar-right">
               <div className="d-notification-wrap">
-                <button className="d-icon-btn" onClick={() => setShowNotifications((current) => !current)}>
+                <button className="d-icon-btn d-icon-btn-toolbar" onClick={() => setShowNotifications((current) => !current)}>
                   <Bell size={16} style={{ opacity: 0.6 }} />
                 </button>
                 {showNotifications && (
@@ -969,8 +1035,6 @@ export function App() {
             {activeScreen === 'providers' && providerView === 'list' && (
               <ProvidersListScreen
                 providers={orderedProviders}
-                routingStrategy={runtimeSettings.routing_strategy}
-                autoFallback={runtimeSettings.auto_fallback}
                 onConfigure={(id) => {
                   setSelectedProvider(id);
                   setProviderView('workspace');
@@ -980,16 +1044,6 @@ export function App() {
                   setProviderOrder(ids);
                   void reorderProviders(ids);
                 }}
-                onStrategyChange={(strategy) =>
-                  void updateRuntimeSettings({
-                    routing_strategy: strategy,
-                    auto_fallback: runtimeSettings.auto_fallback,
-                  })}
-                onAutoFallbackChange={(enabled) =>
-                  void updateRuntimeSettings({
-                    routing_strategy: runtimeSettings.routing_strategy,
-                    auto_fallback: enabled,
-                  })}
               />
             )}
 
@@ -1145,7 +1199,7 @@ function AppButton(props: ButtonHTMLAttributes<HTMLButtonElement> & {
 }) {
   const {
     variant = 'primary',
-    size = 'default',
+    size = variant === 'primary' ? 'default' : 'utility',
     className,
     type = 'button',
     ...rest
@@ -1220,14 +1274,15 @@ function SegmentedControl<T extends string>(props: {
   items: Array<{ id: T; label: string }>;
   value: T;
   onChange: (value: T) => void;
+  appearance?: 'pill' | 'rail';
   className?: string;
 }) {
   return (
-    <div className={cx('d-seg-tabs', props.className)}>
+    <div className={cx('d-seg-tabs', props.appearance === 'rail' && 'is-rail', props.className)}>
       {props.items.map((item) => (
         <button
           key={item.id}
-          className={`d-seg-tab${props.value === item.id ? ' active' : ''}`}
+          className={cx('d-seg-tab', props.appearance === 'rail' && 'is-rail', props.value === item.id && 'active')}
           onClick={() => props.onChange(item.id)}
         >
           {item.label}
@@ -1255,13 +1310,14 @@ function SelectTrigger(props: {
   placeholder?: string;
   onClick: () => void;
   compact?: boolean;
+  prominent?: boolean;
   muted?: boolean;
   disabled?: boolean;
   className?: string;
 }) {
   return (
     <button
-      className={cx('d-select-display d-select-button', props.compact && 'is-compact', props.className)}
+      className={cx('d-select-display d-select-button', props.compact && 'is-compact', props.prominent && 'is-prominent', props.className)}
       onClick={props.onClick}
       disabled={props.disabled}
     >
@@ -1367,12 +1423,8 @@ function StatCard(props: { title: string; value: string; caption: string; positi
 
 function ProvidersListScreen(props: {
   providers: ProviderManifest[];
-  routingStrategy: RoutingStrategy;
-  autoFallback: boolean;
   onConfigure: (id: string) => void;
   onReorder: (ids: string[]) => void;
-  onStrategyChange: (value: RoutingStrategy) => void;
-  onAutoFallbackChange: (enabled: boolean) => void;
 }) {
   const dragIndex = useRef<number | null>(null);
 
@@ -1441,24 +1493,6 @@ function ProvidersListScreen(props: {
             </div>
           ))}
         </DataTable>
-      </div>
-
-      <div className="d-card" style={{ gap: 12 }}>
-        <h3 className="d-section-title">Routing Rules</h3>
-        <div className="d-detail-row">
-          <span className="d-detail-label">Strategy</span>
-          <div className="d-select-display">
-            <span>{ROUTING_STRATEGIES.find((item) => item.value === props.routingStrategy)?.label ?? props.routingStrategy}</span>
-          </div>
-        </div>
-        <SegmentedControl items={ROUTING_STRATEGIES} value={props.routingStrategy} onChange={props.onStrategyChange} className="d-routing-pills" />
-        <div className="d-detail-row">
-          <span className="d-detail-label">Auto-fallback</span>
-          <ToggleSwitch checked={props.autoFallback} onChange={props.onAutoFallbackChange} ariaLabel="Toggle auto-fallback" />
-        </div>
-        <p className="d-page-note">
-          Try providers in priority order. Skip to next if insufficient stock or request fails.
-        </p>
       </div>
     </div>
   );
@@ -1746,7 +1780,7 @@ function MessagesScreen(props: {
       <PageHeader
         title="Activations"
         align="center"
-        actions={<SegmentedControl items={MESSAGE_FILTERS} value={props.filter} onChange={props.setFilter} />}
+        actions={<SegmentedControl items={MESSAGE_FILTERS} value={props.filter} onChange={props.setFilter} appearance="rail" />}
       />
 
       <div className="d-cards-list">
@@ -1879,7 +1913,7 @@ function LogsScreen(props: {
       />
 
       <div className="d-detail-row d-detail-row-wrap">
-        <SegmentedControl items={LOG_FILTERS} value={props.filter} onChange={props.setFilter} />
+        <SegmentedControl items={LOG_FILTERS} value={props.filter} onChange={props.setFilter} appearance="rail" />
         <SearchField
           className="d-logs-search"
           value={props.search}
@@ -1943,14 +1977,14 @@ function SettingsScreen(props: {
       <div className="d-card">
         <div className="d-settings-section first">
           <h3 className="d-section-title">Appearance</h3>
-          <div className="d-detail-row">
-            <span className="d-detail-label">Language</span>
-            <SegmentedControl items={[{ id: 'en', label: 'English' }, { id: 'zh', label: '中文' }]} value={props.language} onChange={props.setLanguage} className="d-routing-pills" />
-          </div>
-          <div className="d-detail-row">
-            <span className="d-detail-label">Theme</span>
-            <SegmentedControl items={[{ id: 'light', label: 'Light' }, { id: 'dark', label: 'Dark' }, { id: 'system', label: 'System' }]} value={props.appearanceTheme} onChange={props.setAppearanceTheme} className="d-routing-pills" />
-          </div>
+          <SettingChoiceRow
+            label="Language"
+            control={<SegmentedControl items={[{ id: 'en', label: 'English' }, { id: 'zh', label: '中文' }]} value={props.language} onChange={props.setLanguage} appearance="rail" className="d-settings-segmented" />}
+          />
+          <SettingChoiceRow
+            label="Theme"
+            control={<SegmentedControl items={[{ id: 'light', label: 'Light' }, { id: 'dark', label: 'Dark' }, { id: 'system', label: 'System' }]} value={props.appearanceTheme} onChange={props.setAppearanceTheme} appearance="rail" className="d-settings-segmented" />}
+          />
         </div>
 
         <div className="d-settings-section">
@@ -1958,6 +1992,20 @@ function SettingsScreen(props: {
           <ToggleSetting title="Auto Refresh" description="Refresh runtime snapshot every 4 seconds." checked={props.autoRefresh} onChange={props.setAutoRefresh} />
           <ToggleSetting title="Advanced Manifest Access" description="Allow opening the raw manifest editor modal." checked={props.showAdvancedEditor} onChange={props.setShowAdvancedEditor} />
           <ToggleSetting title="Compact Tables" description="Tighten spacing for activity, provider and inventory tables." checked={props.compactTables} onChange={props.setCompactTables} last />
+        </div>
+
+        <div className="d-settings-section">
+          <SettingChoiceRow
+            label="Strategy"
+            control={<SegmentedControl items={ROUTING_STRATEGIES} value={props.routingStrategy} onChange={props.onStrategyChange} appearance="rail" className="d-settings-segmented" />}
+          />
+          <div className="d-detail-row">
+            <span className="d-detail-label">Auto-fallback</span>
+            <ToggleSwitch checked={props.autoFallback} onChange={props.onAutoFallbackChange} ariaLabel="Toggle auto-fallback" />
+          </div>
+          <p className="d-page-note">
+            Try providers in priority order. Skip to next if insufficient stock or request fails.
+          </p>
         </div>
 
         <div className="d-settings-section">
@@ -1981,6 +2029,18 @@ function SettingsScreen(props: {
           </div>
         </div>
       </div>
+    </div>
+  );
+}
+
+function SettingChoiceRow(props: {
+  label: string;
+  control: ReactNode;
+}) {
+  return (
+    <div className="d-detail-row d-detail-row-choice">
+      <span className="d-detail-label">{props.label}</span>
+      <div className="d-setting-choice-control">{props.control}</div>
     </div>
   );
 }

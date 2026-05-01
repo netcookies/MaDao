@@ -103,6 +103,28 @@ cargo run -p madao-tauri
 
 或按 Tauri 常规开发方式运行。
 
+### 5. 原生窗口截图与对比
+
+UI 基线截图不再使用浏览器渲染，而是直接启动真实的 Tauri 桌面程序，再用 macOS 原生窗口截图做对比：
+
+```bash
+npm run ui:screenshot -- --target Overview
+npm run ui:screenshot:compare -- --target Overview
+```
+
+可选 `target`：
+
+- `Overview`
+- `Providers`
+- `ProviderWorkspace_Config`
+- `ProviderWorkspace_Store`
+- `ProviderWorkspace_Wallet`
+- `Messages`
+- `Settings`
+- `Logs`
+- `Notifications`
+- `NewActivation`
+
 ## 验证命令
 
 ### Rust 测试
