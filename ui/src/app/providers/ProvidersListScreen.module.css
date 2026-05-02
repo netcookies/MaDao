@@ -1,0 +1,86 @@
+.tableGrid {
+  display: grid;
+  grid-template-columns: 120px minmax(0, 1fr) 220px;
+  gap: 16px;
+  align-items: center;
+}
+
+.tableLabels {
+  padding: 16px 20px;
+  color: #8c8c92;
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+}
+
+.tableRow {
+  padding: 20px;
+  border-top: 1px solid var(--border);
+}
+
+.actionsHead {
+  text-align: right;
+}
+
+.priorityCell {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.grip {
+  opacity: 0.3;
+  flex-shrink: 0;
+}
+
+.nameCell {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.name {
+  font-size: 21px;
+  font-weight: 600;
+  line-height: 1.19;
+  letter-spacing: 0.231px;
+}
+
+.subcopy {
+  font-size: 13px;
+  line-height: 1.43;
+  letter-spacing: -0.224px;
+  color: var(--text-muted);
+}
+
+.actionsCell {
+  display: inline-flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+.priorityNum {
+  min-width: 36px;
+  height: 36px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 14px;
+  font-weight: 600;
+}
+
+@media (max-width: 760px) {
+  .tableGrid {
+    grid-template-columns: 1fr;
+  }
+
+  .actionsHead,
+  .actionsCell {
+    text-align: left;
+    justify-content: flex-start;
+  }
+}

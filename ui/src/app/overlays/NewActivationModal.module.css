@@ -1,0 +1,91 @@
+.activation {
+  width: min(480px, 96vw);
+}
+
+.head {
+  padding: 14px 24px 10px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.title {
+  margin: 0;
+  font-size: 17px;
+  font-weight: 600;
+  line-height: 1.24;
+  letter-spacing: -0.224px;
+}
+
+.closeButton {
+  width: 20px;
+  height: 20px;
+  padding: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: var(--radius-pill);
+  background: transparent;
+  color: var(--text-muted);
+}
+
+.divider {
+  width: 100%;
+  height: 1px;
+  background: rgba(0, 0, 0, 0.06);
+}
+
+.form {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  padding: 16px 24px;
+  overflow-y: auto;
+}
+
+.priceInputs {
+  display: grid;
+  grid-template-columns: 1fr 16px 1fr;
+  gap: 8px;
+  align-items: center;
+}
+
+.input {
+  min-height: var(--control-height-compact);
+  border: 1px solid rgba(0, 0, 0, 0.12);
+  border-radius: var(--radius-sm);
+  background: #fff;
+  padding: 8px 12px;
+  color: var(--text);
+  font-size: 14px;
+  line-height: 1.29;
+  letter-spacing: -0.224px;
+  width: 100%;
+}
+
+.priceSep {
+  text-align: center;
+  opacity: 0.4;
+}
+
+.errorBox {
+  margin: 0 24px;
+  padding: 10px 14px;
+  border-radius: var(--radius-sm);
+  background: rgba(255, 59, 48, 0.07);
+  border: 1px solid rgba(255, 59, 48, 0.22);
+  font-size: 13px;
+  color: #c0392b;
+}
+
+.footer {
+  padding: 10px 24px 14px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  border-top: 1px solid var(--border);
+}
+
+.submitButton {
+  min-width: 144px;
+}

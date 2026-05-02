@@ -1,0 +1,214 @@
+.iconSoft {
+  opacity: 0.55;
+}
+
+.cardsList {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.card {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 18px;
+  padding: 22px 24px;
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+}
+
+.cardHead {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+}
+
+.service {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.serviceTitle {
+  font-size: 17px;
+  line-height: 1.24;
+  letter-spacing: -0.374px;
+}
+
+.phoneWrap {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+}
+
+.phonePill {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 12px;
+  background: var(--surface-subtle);
+  border-radius: var(--radius-md);
+}
+
+.phoneText {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 17px;
+  font-weight: 600;
+  line-height: 1.24;
+  letter-spacing: -0.374px;
+}
+
+.inlineIcon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  height: 22px;
+  padding: 0;
+}
+
+.price,
+.refunded {
+  font-size: 14px;
+  font-weight: 600;
+  line-height: 1.29;
+  letter-spacing: -0.224px;
+}
+
+.price {
+  color: var(--text-muted);
+}
+
+.refunded {
+  color: #e0443e;
+}
+
+.codeArea {
+  width: 100%;
+  padding: 28px 20px;
+  border-radius: var(--radius-md);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+  border: 2px solid transparent;
+}
+
+.received {
+  background: var(--surface-subtle);
+  border-color: var(--green);
+}
+
+.waiting {
+  background: #fdf8f5;
+  border: 2px dashed var(--orange);
+}
+
+.failed {
+  background: var(--surface-subtle);
+  border-color: rgba(0, 0, 0, 0.06);
+  opacity: 0.7;
+}
+
+.codeRow {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+}
+
+.codeNum {
+  font-size: 48px;
+  font-weight: 700;
+  letter-spacing: 6px;
+  line-height: 1;
+  color: var(--text);
+}
+
+.copyButton {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 44px;
+  height: 44px;
+  border-radius: var(--radius-pill);
+  background: var(--surface-chip);
+}
+
+.loader {
+  animation: d-spin 0.9s linear infinite;
+}
+
+.codeStateCopy,
+.codeStateTitle {
+  font-size: 14px;
+  font-weight: 600;
+  line-height: 1.29;
+  letter-spacing: -0.224px;
+}
+
+.codeStateSuccess {
+  color: var(--green);
+}
+
+.codeStateWarning {
+  color: #dea123;
+}
+
+.codeStateTitle {
+  opacity: 0.8;
+}
+
+.codeStateMeta {
+  margin: 0;
+  font-size: 13px;
+  line-height: 1.43;
+  letter-spacing: 0.08em;
+  color: var(--text-muted);
+  text-align: center;
+}
+
+.footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding-top: 4px;
+}
+
+.footerCopy {
+  font-size: 13px;
+  line-height: 1.43;
+  color: var(--text-muted);
+}
+
+.footerActions {
+  display: inline-flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+}
+
+@media (max-width: 760px) {
+  .cardHead,
+  .footer {
+    flex-direction: column;
+    align-items: flex-start;
+  }
+
+  .phoneWrap {
+    justify-content: flex-start;
+  }
+
+  .codeNum {
+    font-size: 36px;
+    letter-spacing: 3px;
+  }
+}

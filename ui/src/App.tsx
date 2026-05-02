@@ -1,124 +1,80 @@
 import {
-  startTransition, useEffect, useMemo, useRef, useState, type ButtonHTMLAttributes, type InputHTMLAttributes, type ReactNode,
+  startTransition, useEffect, useMemo, useRef, useState, type ReactNode,
 } from 'react';
 import {
-  Bell, Bot, ChevronDown, ChevronLeft, ChevronsUpDown, Copy, GripVertical, LayoutDashboard,
+  Bell, Bot, ChevronLeft, ChevronsUpDown, Copy, GripVertical, LayoutDashboard,
   Loader2, MessageSquare, Minus, PanelLeft, Plus, Search, Send, Server, Settings,
   Shield, ShoppingCart, Sliders, Smartphone, Square, Terminal, User, Wallet, X,
 } from 'lucide-react';
 import { invoke } from '@tauri-apps/api/core';
+import {
+  AppButton,
+  ConfigRow,
+  DataTable,
+  DetailRow,
+  ModalField,
+  PageHeader,
+  SearchField,
+  SectionHeader,
+  SegmentedControl,
+  SelectTrigger,
+  StatusBadge,
+  StatusPill,
+} from './app/ui-bridge';
+import { MessagesScreen } from './app/messages/MessagesScreen';
+import { NotifIcon } from './app/overlays/NotifIcon';
+import { NewActivationModal } from './app/overlays/NewActivationModal';
+import { ManifestModal } from './app/overlays/ManifestModal';
+import { SearchSelectorModal } from './app/overlays/SearchSelectorModal';
+import { OverviewScreen } from './app/overview/OverviewScreen';
+import { ProviderWorkspaceScreen } from './app/providers/ProviderWorkspaceScreen';
+import { ProvidersListScreen } from './app/providers/ProvidersListScreen';
+import type {
+  ActivationFormState,
+  AppearanceTheme,
+  LanguageCode,
+  LogEntry,
+  LogFilter,
+  MessageFilter,
+  NotificationFeed,
+  OptionItem,
+  PriceSortKey,
+  ProviderBalance,
+  ProviderDynamicOptions,
+  ProviderManifest,
+  ProviderManifestList,
+  ProviderPriceItem,
+  ProviderPriceResponse,
+  ProviderSectionId,
+  ProviderSummary,
+  RoutingStrategy,
+  RuntimeSettings,
+  RuntimeSettingsUpdate,
+  ScreenId,
+  SelectorKind,
+  SelectorState,
+  Snapshot,
+  StoreQueryState,
+  TicketRecord,
+} from './app/types';
+import { LogsScreen } from './app/logs/LogsScreen';
+import { SettingsScreen } from './app/settings/SettingsScreen';
+import {
+  countryBadge,
+  formatCountryLabel,
+  formatProviderLabel,
+  formatRelativeTime,
+  formatServiceLabel,
+  getTicketPhase,
+} from './lib/formatters';
+import { cx } from './lib/cx';
+import { mergeOptionItems } from './app/utils';
+import { useConsoleDataState } from './hooks/useConsoleDataState';
+import { useConsoleUiState } from './hooks/useConsoleUiState';
 import { getScreenshotMeasureSelector, getScreenshotScenario, isIsolatedScreenshotTarget, type ScreenshotTarget } from './screenshot-mode';
 
-type ScreenId = 'overview' | 'providers' | 'messages' | 'settings' | 'logs';
-type ProviderSectionId = 'config' | 'store' | 'wallet';
-type MessageFilter = 'all' | 'received' | 'waiting' | 'failed';
-type LogFilter = 'all' | 'info' | 'warn' | 'error';
-type SelectorKind =
-  | 'service'
-  | 'country'
-  | 'provider'
-  | 'store-service'
-  | 'store-country'
-  | 'store-operator'
-  | 'activation-service'
-  | 'activation-country'
-  | 'activation-operator';
-type PriceSortKey = 'country' | 'price' | 'stock';
-type RoutingStrategy = 'ordered_priority' | 'lowest_price' | 'highest_stock';
-type TicketPhase = 'received' | 'waiting' | 'failed';
-type AppearanceTheme = 'light' | 'dark' | 'system';
-type LanguageCode = 'en' | 'zh';
-type ButtonVariant = 'primary' | 'outline' | 'success' | 'ghost' | 'danger-outline' | 'text';
-type ButtonSize = 'default' | 'utility' | 'compact';
-
-type ProviderSummary = {
-  id: string;
-  name: string;
-  enabled: boolean;
-  kind: string;
-  protocol: string;
-  primary_endpoint?: string | null;
-  default_service: string;
-  default_country: string;
-  homepage?: string | null;
-  description?: string | null;
-  priority: number;
-};
-
-type TicketRecord = {
-  id: string;
-  provider: string;
-  service: string;
-  country: string;
-  phone_number: string;
-  status: string;
-  price?: number | null;
-  code?: string | null;
-  message?: string | null;
-};
-
-type LogEntry = {
-  timestamp: string;
-  scope: string;
-  level: string;
-  message: string;
-};
-
-type Snapshot = {
-  providers: ProviderSummary[];
-  tickets: TicketRecord[];
-  logs: LogEntry[];
-};
-
-type ProviderManifest = {
-  id: string;
-  name: string;
-  kind: string;
-  enabled: boolean;
-  priority: number;
-  homepage?: string | null;
-  description?: string | null;
-  service_aliases: Record<string, string>;
-  defaults: {
-    service: string;
-    country: string;
-    auto_pick_country: boolean;
-    verify_on_register: boolean;
-    reuse_phone: boolean;
-    max_price: number;
-    min_price: number;
-    min_balance: number;
-    max_tries: number;
-    poll_timeout_sec: number;
-    reuse_max: number;
-  };
-  handler_api?: Record<string, unknown>;
-  five_sim?: Record<string, unknown>;
-  mock?: Record<string, unknown>;
-};
-
-type ProviderManifestList = { manifests: ProviderManifest[] };
-type ProviderBalance = { provider: string; amount: number; currency: string };
-type ProviderPriceItem = { country: string; display_name: string; operator: string; price: number; stock: number };
-type ProviderPriceResponse = { provider: string; service: string; items: ProviderPriceItem[] };
-type OptionItem = { value: string; label: string; hint: string };
-type SelectorState = { kind: SelectorKind; title: string; options: OptionItem[] };
-type NotificationFeed = { items: LogEntry[] };
-type RuntimeSettings = { routing_strategy: RoutingStrategy; auto_fallback: boolean };
-type RuntimeSettingsUpdate = { routing_strategy: RoutingStrategy; auto_fallback: boolean };
-type ProviderDynamicOptions = { provider: string; services: OptionItem[]; countries: OptionItem[]; operators: OptionItem[] };
 type SidebarItem = { id: ScreenId; label: string; Icon: typeof LayoutDashboard };
-type StoreQueryState = { service: string; country: string; operator: string; search: string };
 type ScreenshotScenario = ReturnType<typeof getScreenshotScenario>;
-
-type ActivationFormState = {
-  service: string;
-  country: string;
-  provider: string;
-  operator: string;
-  min_price: string;
-  max_price: string;
-};
 
 const API_BASE = 'http://127.0.0.1:7822';
 const SOCKET_PATH = '/tmp/madao-sms.sock';
@@ -160,147 +116,79 @@ const LOG_FILTERS: Array<{ id: LogFilter; label: string }> = [
   { id: 'error', label: 'Error' },
 ];
 
-function cx(...values: Array<string | false | null | undefined>) {
-  return values.filter(Boolean).join(' ');
-}
-
-function normalizeTicketStatus(status: string) {
-  return status
-    .replace(/([a-z])([A-Z])/g, '$1_$2')
-    .replace(/[\s-]+/g, '_')
-    .toLowerCase();
-}
-
-function getTicketPhase(status: string): TicketPhase {
-  const normalized = normalizeTicketStatus(status);
-  if (normalized === 'code_received' || normalized === 'finished') return 'received';
-  if (normalized === 'pending' || normalized === 'waiting_code') return 'waiting';
-  return 'failed';
-}
-
-function mergeOptionItems(optionGroups: OptionItem[][]) {
-  const merged = new Map<string, OptionItem>();
-  optionGroups.flat().forEach((item) => {
-    if (!merged.has(item.value)) merged.set(item.value, item);
-  });
-  return [...merged.values()];
-}
-
-function formatRelativeTime(input: string) {
-  const timestamp = new Date(input).getTime();
-  const diff = Math.max(0, Date.now() - timestamp);
-  const minutes = Math.floor(diff / 60000);
-  if (minutes < 1) return 'just now';
-  if (minutes === 1) return '1 min ago';
-  if (minutes < 60) return `${minutes} min ago`;
-  const hours = Math.floor(minutes / 60);
-  return `${hours} hr ago`;
-}
-
-function countryBadge(country: string) {
-  const normalized = country.toLowerCase();
-  const map: Record<string, string> = {
-    usa: '🇺🇸',
-    us: '🇺🇸',
-    '50': '🇺🇸',
-    england: '🇬🇧',
-    uk: '🇬🇧',
-    '44': '🇬🇧',
-    germany: '🇩🇪',
-    japan: '🇯🇵',
-    canada: '🇨🇦',
-    australia: '🇦🇺',
-    '61': '🇦🇺',
-    russia: '🇷🇺',
-    '0': '🇷🇺',
-  };
-  return map[normalized] ?? '🌐';
-}
-
-function formatServiceLabel(service: string) {
-  const normalized = service.toLowerCase();
-  const labels: Record<string, string> = {
-    openai: 'OpenAI (ChatGPT)',
-    dr: 'OpenAI (ChatGPT)',
-    telegram: 'Telegram',
-    tg: 'Telegram',
-    whatsapp: 'WhatsApp',
-    wa: 'WhatsApp',
-    paypal: 'PayPal',
-    discord: 'Discord',
-  };
-  return labels[normalized] ?? service;
-}
-
-function formatProviderLabel(provider: string) {
-  const normalized = provider.toLowerCase();
-  const labels: Record<string, string> = {
-    fivesim: 'FiveSim',
-    herosms: 'HeroSMS',
-    smsbower: 'SMSBower',
-  };
-  return labels[normalized] ?? provider;
-}
-
-function formatCountryLabel(country: string) {
-  const normalized = country.toLowerCase();
-  const labels: Record<string, string> = {
-    any: 'any — auto select',
-    usa: 'usa',
-    england: 'uk',
-    uk: 'uk',
-    '50': 'usa',
-    '44': 'uk',
-    local: 'local',
-  };
-  return labels[normalized] ?? country;
-}
-
 export function App() {
-  const [snapshot, setSnapshot] = useState<Snapshot | null>(null);
-  const [manifests, setManifests] = useState<Record<string, ProviderManifest>>({});
-  const [rawEditors, setRawEditors] = useState<Record<string, string>>({});
-  const [selectedProvider, setSelectedProvider] = useState<string>('');
-  const [balances, setBalances] = useState<Record<string, string>>({});
-  const [pricePanels, setPricePanels] = useState<Record<string, ProviderPriceResponse>>({});
-  const [priceSort, setPriceSort] = useState<Record<string, { key: PriceSortKey; dir: 'asc' | 'desc' }>>({});
-  const [statusMessage, setStatusMessage] = useState<string>('Console ready.');
-  const [busyAction, setBusyAction] = useState<string>('');
-  const [activeScreen, setActiveScreen] = useState<ScreenId>('overview');
-  const [providerView, setProviderView] = useState<'list' | 'workspace'>('list');
-  const [activeProviderSection, setActiveProviderSection] = useState<ProviderSectionId>('config');
-  const [autoRefresh, setAutoRefresh] = useState(true);
-  const [showAdvancedEditor, setShowAdvancedEditor] = useState(true);
-  const [compactTables, setCompactTables] = useState(false);
-  const [messageFilter, setMessageFilter] = useState<MessageFilter>('all');
-  const [logsFilter, setLogsFilter] = useState<LogFilter>('all');
-  const [logsSearch, setLogsSearch] = useState('');
-  const [selectorState, setSelectorState] = useState<SelectorState | null>(null);
-  const [selectorSearch, setSelectorSearch] = useState('');
-  const [showManifestModal, setShowManifestModal] = useState(false);
-  const [showActivationModal, setShowActivationModal] = useState(false);
-  const [activationForm, setActivationForm] = useState<ActivationFormState>({
-    service: '',
-    country: '',
-    provider: 'auto',
-    operator: '',
-    min_price: '',
-    max_price: '',
-  });
-  const [activationBusy, setActivationBusy] = useState(false);
-  const [activationError, setActivationError] = useState('');
-  const [providerOrder, setProviderOrder] = useState<string[]>([]);
-  const [notifications, setNotifications] = useState<LogEntry[]>([]);
-  const [showNotifications, setShowNotifications] = useState(false);
-  const [notificationCursor, setNotificationCursor] = useState(0);
-  const [runtimeSettings, setRuntimeSettings] = useState<RuntimeSettings>({
-    routing_strategy: 'ordered_priority',
-    auto_fallback: true,
-  });
-  const [appearanceTheme, setAppearanceTheme] = useState<AppearanceTheme>('light');
-  const [language, setLanguage] = useState<LanguageCode>('en');
-  const [providerOptions, setProviderOptions] = useState<Record<string, ProviderDynamicOptions>>({});
-  const [storeQueries, setStoreQueries] = useState<Record<string, StoreQueryState>>({});
+  const {
+    snapshot,
+    setSnapshot,
+    manifests,
+    setManifests,
+    rawEditors,
+    setRawEditors,
+    balances,
+    setBalances,
+    pricePanels,
+    setPricePanels,
+    priceSort,
+    setPriceSort,
+    providerOrder,
+    setProviderOrder,
+    notifications,
+    setNotifications,
+    runtimeSettings,
+    setRuntimeSettings,
+    providerOptions,
+    setProviderOptions,
+    storeQueries,
+    setStoreQueries,
+  } = useConsoleDataState();
+  const {
+    selectedProvider,
+    setSelectedProvider,
+    statusMessage,
+    setStatusMessage,
+    busyAction,
+    setBusyAction,
+    activeScreen,
+    setActiveScreen,
+    providerView,
+    setProviderView,
+    activeProviderSection,
+    setActiveProviderSection,
+    autoRefresh,
+    setAutoRefresh,
+    showAdvancedEditor,
+    setShowAdvancedEditor,
+    compactTables,
+    setCompactTables,
+    messageFilter,
+    setMessageFilter,
+    logsFilter,
+    setLogsFilter,
+    logsSearch,
+    setLogsSearch,
+    selectorState,
+    setSelectorState,
+    selectorSearch,
+    setSelectorSearch,
+    showManifestModal,
+    setShowManifestModal,
+    showActivationModal,
+    setShowActivationModal,
+    activationForm,
+    setActivationForm,
+    activationBusy,
+    setActivationBusy,
+    activationError,
+    setActivationError,
+    showNotifications,
+    setShowNotifications,
+    notificationCursor,
+    setNotificationCursor,
+    appearanceTheme,
+    setAppearanceTheme,
+    language,
+    setLanguage,
+  } = useConsoleUiState();
   const [isScreenshotMode] = useState(Boolean(screenshotTarget));
 
   useEffect(() => {
@@ -919,7 +807,10 @@ export function App() {
     setProviderOptions(scenario.providerOptions);
     setPricePanels(scenario.pricePanels);
     setBalances(scenario.balances);
-    setRuntimeSettings(scenario.runtimeSettings);
+    setRuntimeSettings({
+      routing_strategy: scenario.runtimeSettings.routing_strategy as RoutingStrategy,
+      auto_fallback: Boolean(scenario.runtimeSettings.auto_fallback),
+    });
     setSelectedProvider(scenario.selectedProvider);
     setActiveScreen(scenario.activeScreen as ScreenId);
     setProviderView(scenario.providerView as 'list' | 'workspace');
@@ -1089,6 +980,7 @@ export function App() {
                 tickets={filteredMessages}
                 filter={messageFilter}
                 setFilter={setMessageFilter}
+                filters={MESSAGE_FILTERS}
                 busyAction={busyAction}
                 onCopy={copyToClipboard}
                 onRelease={(ticketId, action) => void releaseTicket(ticketId, action)}
@@ -1130,6 +1022,9 @@ export function App() {
                   })}
                 onReload={() => void reloadProviders()}
                 reloadBusy={busyAction === 'reload'}
+                apiBase={API_BASE}
+                socketPath={SOCKET_PATH}
+                routingStrategies={ROUTING_STRATEGIES}
               />
             )}
 
@@ -1138,6 +1033,7 @@ export function App() {
                 logs={filteredLogs}
                 filter={logsFilter}
                 setFilter={setLogsFilter}
+                filters={LOG_FILTERS}
                 onRefresh={() => void Promise.all([loadSnapshot(), loadNotifications()])}
                 search={logsSearch}
                 onSearch={setLogsSearch}
@@ -1190,1060 +1086,5 @@ export function App() {
         />
       )}
     </div>
-  );
-}
-
-function AppButton(props: ButtonHTMLAttributes<HTMLButtonElement> & {
-  variant?: ButtonVariant;
-  size?: ButtonSize;
-}) {
-  const {
-    variant = 'primary',
-    size = variant === 'primary' ? 'default' : 'utility',
-    className,
-    type = 'button',
-    ...rest
-  } = props;
-  const variantClass = {
-    primary: 'd-btn-primary',
-    outline: 'd-btn-outline',
-    success: 'd-btn-success',
-    ghost: 'd-btn-ghost',
-    'danger-outline': 'd-btn-outline d-btn-danger-outline',
-    text: 'd-btn-text',
-  }[variant];
-  return (
-    <button
-      type={type}
-      className={cx(variantClass, size !== 'default' && `d-btn-${size}`, className)}
-      {...rest}
-    />
-  );
-}
-
-function PageHeader(props: {
-  title: string;
-  subtitle?: string;
-  meta?: ReactNode;
-  actions?: ReactNode;
-  align?: 'start' | 'center';
-}) {
-  return (
-    <div className={cx('d-page-header', props.align === 'center' && 'is-center')}>
-      <div className="d-page-title-block">
-        <h1 className="d-h1">{props.title}</h1>
-        {props.subtitle && <p className="d-subtitle">{props.subtitle}</p>}
-      </div>
-      {(props.meta || props.actions) && (
-        <div className="d-page-header-side">
-          {props.meta}
-          {props.actions}
-        </div>
-      )}
-    </div>
-  );
-}
-
-function SectionHeader(props: {
-  eyebrow?: string;
-  title: string;
-  description?: string;
-  actions?: ReactNode;
-  icon?: ReactNode;
-  badge?: ReactNode;
-}) {
-  return (
-    <div className="d-section-header">
-      <div className="d-section-header-main">
-        {props.icon && <div className="d-section-header-icon">{props.icon}</div>}
-        <div className="d-section-header-copy">
-          {props.eyebrow && <span className="d-eyebrow">{props.eyebrow}</span>}
-          <div className="d-section-header-title-row">
-            <h2 className="d-section-header-title">{props.title}</h2>
-            {props.badge}
-          </div>
-          {props.description && <p className="d-section-header-description">{props.description}</p>}
-        </div>
-      </div>
-      {props.actions && <div className="d-section-header-actions">{props.actions}</div>}
-    </div>
-  );
-}
-
-function SegmentedControl<T extends string>(props: {
-  items: Array<{ id: T; label: string }>;
-  value: T;
-  onChange: (value: T) => void;
-  appearance?: 'pill' | 'rail';
-  className?: string;
-}) {
-  return (
-    <div className={cx('d-seg-tabs', props.appearance === 'rail' && 'is-rail', props.className)}>
-      {props.items.map((item) => (
-        <button
-          key={item.id}
-          className={cx('d-seg-tab', props.appearance === 'rail' && 'is-rail', props.value === item.id && 'active')}
-          onClick={() => props.onChange(item.id)}
-        >
-          {item.label}
-        </button>
-      ))}
-    </div>
-  );
-}
-
-function SearchField(props: InputHTMLAttributes<HTMLInputElement> & {
-  compact?: boolean;
-  className?: string;
-}) {
-  const { compact = false, className, ...inputProps } = props;
-  return (
-    <label className={cx('d-search-bar', compact && 'is-compact', className)}>
-      <Search size={14} style={{ opacity: 0.4 }} />
-      <input {...inputProps} />
-    </label>
-  );
-}
-
-function SelectTrigger(props: {
-  value: string;
-  placeholder?: string;
-  onClick: () => void;
-  compact?: boolean;
-  prominent?: boolean;
-  muted?: boolean;
-  disabled?: boolean;
-  className?: string;
-}) {
-  return (
-    <button
-      className={cx('d-select-display d-select-button', props.compact && 'is-compact', props.prominent && 'is-prominent', props.className)}
-      onClick={props.onClick}
-      disabled={props.disabled}
-    >
-      <span className={cx(!props.value && 'placeholder-text', props.muted && 'placeholder-text')}>
-        {props.value || props.placeholder}
-      </span>
-      <ChevronDown size={14} style={{ opacity: 0.5 }} />
-    </button>
-  );
-}
-
-function StatusBadge(props: { tone: 'green' | 'gray' | 'orange'; children: ReactNode }) {
-  return <span className={`d-badge ${props.tone}`}>{props.children}</span>;
-}
-
-function StatusPill(props: { status: string }) {
-  const normalized = props.status.toLowerCase();
-  const tone = normalized.includes('connected') || normalized.includes('received')
-    ? 'green'
-    : normalized.includes('standby') || normalized.includes('waiting') || normalized.includes('pending')
-      ? 'orange'
-      : 'gray';
-  return (
-    <span className={`d-status-pill ${tone}`}>
-      <span className="d-status-pill-dot" />
-      {props.status}
-    </span>
-  );
-}
-
-function DataTable(props: {
-  className?: string;
-  headerClassName?: string;
-  header: ReactNode;
-  children: ReactNode;
-}) {
-  return (
-    <div className={cx('d-data-table', props.className)}>
-      <div className={cx('d-data-table-head', props.headerClassName)}>
-        {props.header}
-      </div>
-      <div className="d-data-table-body">
-        {props.children}
-      </div>
-    </div>
-  );
-}
-
-function OverviewScreen(props: {
-  stats: { totalMessages: string; activeProviders: string; successRate: string };
-  activity: TicketRecord[];
-  statusMessage: string;
-  onViewAll: () => void;
-}) {
-  return (
-    <div className="d-page">
-      <PageHeader
-        title="Good morning, Developer"
-        subtitle="Here&apos;s what&apos;s happening with your SMS services today."
-        meta={<span className="d-status-note">{props.statusMessage}</span>}
-      />
-
-      <div className="d-stats-grid">
-        <StatCard title="Messages Sent" value={props.stats.totalMessages} caption="+15% from session baseline" positive />
-        <StatCard title="Active Providers" value={props.stats.activeProviders} caption="All systems operational" positive />
-        <StatCard title="Success Rate" value={props.stats.successRate} caption="Live delivery confidence" />
-      </div>
-
-      <div className="d-card">
-        <div className="d-card-head">
-          <h2 className="d-card-title">Recent Activity</h2>
-          <AppButton variant="ghost" size="utility" onClick={props.onViewAll}>View All</AppButton>
-        </div>
-        <div className="d-table">
-          <div className="d-table-row d-table-header">
-            <span>Provider</span><span>Status</span><span>Recipient</span><span>Service</span>
-          </div>
-          {props.activity.map((item) => (
-            <div className="d-table-row" key={item.id}>
-              <span>{item.provider}</span>
-              <span><StatusPill status={item.status} /></span>
-              <span>{item.phone_number}</span>
-              <span className="d-table-service">{formatServiceLabel(item.service)}</span>
-            </div>
-          ))}
-        </div>
-      </div>
-    </div>
-  );
-}
-
-function StatCard(props: { title: string; value: string; caption: string; positive?: boolean }) {
-  return (
-    <div className="d-stat-card">
-      <div className="d-stat-head">
-        <span className="d-stat-label">{props.title}</span>
-      </div>
-      <strong className="d-stat-value">{props.value}</strong>
-      <span className={cx('d-stat-caption', props.positive ? 'positive' : 'negative')}>{props.caption}</span>
-    </div>
-  );
-}
-
-function ProvidersListScreen(props: {
-  providers: ProviderManifest[];
-  onConfigure: (id: string) => void;
-  onReorder: (ids: string[]) => void;
-}) {
-  const dragIndex = useRef<number | null>(null);
-
-  function handleDragStart(index: number) {
-    dragIndex.current = index;
-  }
-
-  function handleDragOver(event: React.DragEvent, index: number) {
-    event.preventDefault();
-    if (dragIndex.current === null || dragIndex.current === index) return;
-    const next = [...props.providers];
-    const [moved] = next.splice(dragIndex.current, 1);
-    next.splice(index, 0, moved);
-    dragIndex.current = index;
-    props.onReorder(next.map((provider) => provider.id));
-  }
-
-  function handleDrop() {
-    dragIndex.current = null;
-  }
-
-  return (
-    <div className="d-page">
-      <PageHeader
-        title="SMS Providers"
-        subtitle="Manage your SMS gateway connections and routing rules."
-      />
-
-      <div className="d-card d-card-flush">
-        <DataTable
-          className="d-provider-table"
-          headerClassName="d-provider-table-grid d-provider-table-labels"
-          header={(
-            <>
-              <span>Priority</span>
-              <span>Provider</span>
-              <span className="d-provider-table-actions-head">Status / Actions</span>
-            </>
-          )}
-        >
-          {props.providers.map((provider, index) => (
-            <div
-              key={provider.id}
-              className="d-provider-table-grid d-provider-table-row"
-              draggable
-              onDragStart={() => handleDragStart(index)}
-              onDragOver={(event) => handleDragOver(event, index)}
-              onDrop={handleDrop}
-            >
-              <div className="d-provider-priority-cell">
-                <GripVertical size={14} className="d-provider-grip" />
-                <span className="d-priority-num">{index + 1}</span>
-              </div>
-              <div className="d-provider-name-cell">
-                <span className="d-plist-name">{provider.name}</span>
-                <span className="d-provider-subcopy">
-                  {provider.protocol} · {formatServiceLabel(provider.defaults.service)}
-                </span>
-              </div>
-              <div className="d-provider-actions-cell">
-                <StatusBadge tone={provider.enabled ? 'green' : 'orange'}>
-                  {provider.enabled ? 'Connected' : 'Standby'}
-                </StatusBadge>
-                <AppButton variant="ghost" size="utility" onClick={() => props.onConfigure(provider.id)}>Configure</AppButton>
-              </div>
-            </div>
-          ))}
-        </DataTable>
-      </div>
-    </div>
-  );
-}
-
-function ProviderWorkspaceScreen(props: {
-  manifest: ProviderManifest;
-  summary?: ProviderSummary;
-  section: ProviderSectionId;
-  prices: ProviderPriceItem[];
-  balanceLabel: string;
-  busyAction: string;
-  rawEditor: string;
-  showAdvancedEditor: boolean;
-  apiKeyValue: string;
-  onSelectSection: (section: ProviderSectionId) => void;
-  onManifestFieldChange: (
-    section: 'root' | 'defaults' | 'handler_api' | 'five_sim' | 'mock',
-    field: string,
-    value: string | number | boolean,
-  ) => void;
-  onApiKeyChange: (value: string) => void;
-  onFetchBalance: () => void;
-  onFetchPrices: () => void;
-  onSave: () => void;
-  onOpenRawJson: () => void;
-  onOpenSelector: (kind: SelectorKind) => void;
-  storeQuery: StoreQueryState;
-  onStoreQueryChange: (patch: Partial<StoreQueryState>) => void;
-  onSortPrices: (key: PriceSortKey) => void;
-  priceSort: { key: PriceSortKey; dir: 'asc' | 'desc' };
-}) {
-  const { manifest, section } = props;
-  const isConnected = manifest.enabled;
-
-  return (
-    <div className="d-workspace">
-      <div className="d-ws-tabs-bar">
-        <div className="d-ws-tabs-title">{manifest.name.toUpperCase()} WORKSPACE</div>
-        <div className="d-ws-tabs-list">
-          {WORKSPACE_SECTIONS.map(({ id, label, Icon }) => (
-            <button
-              key={id}
-              className={`d-ws-tab${section === id ? ' active' : ''}`}
-              onClick={() => props.onSelectSection(id)}
-            >
-              <Icon size={16} style={{ opacity: section === id ? 1 : 0.6 }} />
-              <span>{label}</span>
-            </button>
-          ))}
-        </div>
-      </div>
-
-      <div className="d-ws-detail">
-        {section === 'config' && (
-          <WorkspaceConfig
-            manifest={manifest}
-            isConnected={isConnected}
-            busyAction={props.busyAction}
-            apiKeyValue={props.apiKeyValue}
-            showAdvancedEditor={props.showAdvancedEditor}
-            onManifestFieldChange={props.onManifestFieldChange}
-            onApiKeyChange={props.onApiKeyChange}
-            onSave={props.onSave}
-            onOpenRawJson={props.onOpenRawJson}
-            onOpenSelector={props.onOpenSelector}
-          />
-        )}
-        {section === 'store' && (
-          <WorkspaceStore
-            manifest={manifest}
-            prices={props.prices}
-            busyAction={props.busyAction}
-            onFetchPrices={props.onFetchPrices}
-            onOpenSelector={props.onOpenSelector}
-            storeQuery={props.storeQuery}
-            onStoreQueryChange={props.onStoreQueryChange}
-            onSortPrices={props.onSortPrices}
-            priceSort={props.priceSort}
-          />
-        )}
-        {section === 'wallet' && (
-          <WorkspaceWallet
-            manifest={manifest}
-            balanceLabel={props.balanceLabel}
-            summary={props.summary}
-            busyAction={props.busyAction}
-            onFetchBalance={props.onFetchBalance}
-          />
-        )}
-      </div>
-    </div>
-  );
-}
-
-function WorkspaceConfig(props: {
-  manifest: ProviderManifest;
-  isConnected: boolean;
-  busyAction: string;
-  apiKeyValue: string;
-  showAdvancedEditor: boolean;
-  onManifestFieldChange: (
-    section: 'root' | 'defaults' | 'handler_api' | 'five_sim' | 'mock',
-    field: string,
-    value: string | number | boolean,
-  ) => void;
-  onApiKeyChange: (value: string) => void;
-  onSave: () => void;
-  onOpenRawJson: () => void;
-  onOpenSelector: (kind: SelectorKind) => void;
-}) {
-  const { manifest } = props;
-
-  return (
-    <div className="d-ws-body">
-      <SectionHeader
-        eyebrow="Provider Workspace"
-        title={manifest.name}
-        description={manifest.description ?? `${manifest.kind} provider`}
-        icon={<MessageSquare size={28} color="#0066cc" />}
-        badge={<StatusBadge tone={props.isConnected ? 'green' : 'gray'}>{props.isConnected ? 'Connected' : 'Disabled'}</StatusBadge>}
-        actions={(
-          <>
-            {props.showAdvancedEditor && (
-              <AppButton variant="outline" size="utility" onClick={props.onOpenRawJson}>Raw JSON</AppButton>
-            )}
-            <AppButton variant="primary" size="utility" onClick={props.onSave} disabled={props.busyAction.includes('save')}>
-              {props.busyAction.includes('save') ? 'Saving…' : 'Save'}
-            </AppButton>
-          </>
-        )}
-      />
-
-      <div className="d-form-card">
-        <ConfigRow label="Provider Name">
-          <input className="d-input" value={manifest.name} onChange={(event) => props.onManifestFieldChange('root', 'name', event.target.value)} />
-        </ConfigRow>
-        <ConfigRow label="API Key" last>
-          <input className="d-input" type="password" value={props.apiKeyValue} onChange={(event) => props.onApiKeyChange(event.target.value)} placeholder="Paste provider API key" />
-        </ConfigRow>
-      </div>
-    </div>
-  );
-}
-
-function WorkspaceStore(props: {
-  manifest: ProviderManifest;
-  prices: ProviderPriceItem[];
-  busyAction: string;
-  onFetchPrices: () => void;
-  onOpenSelector: (kind: SelectorKind) => void;
-  storeQuery: StoreQueryState;
-  onStoreQueryChange: (patch: Partial<StoreQueryState>) => void;
-  onSortPrices: (key: PriceSortKey) => void;
-  priceSort: { key: PriceSortKey; dir: 'asc' | 'desc' };
-}) {
-  return (
-    <div className="d-ws-body">
-      <SectionHeader
-        eyebrow="Store"
-        title="Price Inventory"
-        description="Stock by service, country and operator"
-        actions={(
-          <div className="d-inline-actions d-inline-actions-wrap">
-            <SelectTrigger
-              value={formatServiceLabel(props.storeQuery.service || props.manifest.defaults.service)}
-              onClick={() => props.onOpenSelector('store-service')}
-            />
-            <SelectTrigger
-              value={props.storeQuery.country ? formatCountryLabel(props.storeQuery.country) : ''}
-              placeholder="All countries"
-              muted={!props.storeQuery.country}
-              onClick={() => props.onOpenSelector('store-country')}
-            />
-            <SelectTrigger
-              value={props.storeQuery.operator}
-              placeholder="All operators"
-              muted={!props.storeQuery.operator}
-              onClick={() => props.onOpenSelector('store-operator')}
-            />
-            <AppButton variant="primary" size="utility" onClick={props.onFetchPrices} disabled={props.busyAction.includes('prices')}>
-              Load Prices
-            </AppButton>
-          </div>
-        )}
-      />
-
-      <SearchField
-        value={props.storeQuery.search}
-        onChange={(event) => props.onStoreQueryChange({ search: event.target.value })}
-        placeholder="Filter by country or operator..."
-      />
-
-      <div className="d-card d-card-flush">
-        <DataTable
-          className="d-store-table"
-          headerClassName="d-store-grid d-store-head"
-          header={(
-            <>
-              <button className="sortable" onClick={() => props.onSortPrices('country')}>
-                <span>Country</span>
-                <ChevronsUpDown size={12} />
-              </button>
-              <span>Operator</span>
-              <button className="sortable is-right" onClick={() => props.onSortPrices('price')}>
-                <span>Price</span>
-                <ChevronsUpDown size={12} />
-              </button>
-              <button className="sortable is-right" onClick={() => props.onSortPrices('stock')}>
-                <span>Stock</span>
-                <ChevronsUpDown size={12} />
-              </button>
-            </>
-          )}
-        >
-          {props.prices.length > 0 ? props.prices.slice(0, 20).map((item) => (
-            <div className="d-store-grid d-store-table-row" key={`${item.country}-${item.display_name}`}>
-              <span className="d-store-country-cell">
-                <span className="d-store-country-flag">{countryBadge(item.country)}</span>
-                <span className="d-store-country-copy">{item.display_name}</span>
-              </span>
-              <span className="d-store-operator-cell">{item.operator || 'any'}</span>
-              <span className="d-store-price-cell">${item.price.toFixed(3)}</span>
-              <span className="d-store-stock-cell">{item.stock.toLocaleString()}</span>
-            </div>
-          )) : (
-            <div className="d-empty">Click Load Prices to fetch inventory.</div>
-          )}
-        </DataTable>
-      </div>
-    </div>
-  );
-}
-
-function WorkspaceWallet(props: {
-  manifest: ProviderManifest;
-  balanceLabel: string;
-  summary?: ProviderSummary;
-  busyAction: string;
-  onFetchBalance: () => void;
-}) {
-  return (
-    <div className="d-ws-body">
-      <div className="d-balance-card">
-        <span className="d-balance-kicker">Current Balance</span>
-        <strong className="d-balance-value">
-          {props.balanceLabel === '—' ? '—' : props.balanceLabel}
-        </strong>
-        <div className="d-balance-actions">
-          <AppButton variant="primary" onClick={props.onFetchBalance} disabled={props.busyAction.includes('balance')}>
-            Top Up / Refresh
-          </AppButton>
-        </div>
-      </div>
-
-      <div className="d-card d-card-flush">
-        <div className="d-pd-header">Provider Details</div>
-        <DetailRow label="Protocol" value={props.summary?.protocol ?? props.manifest.kind} />
-        <DetailRow label="Default Service" value={formatServiceLabel(props.manifest.defaults.service)} />
-        <DetailRow label="Default Country" value={formatCountryLabel(props.manifest.defaults.country)} />
-        <DetailRow label="Status" value={props.manifest.enabled ? 'Enabled' : 'Disabled'} last />
-      </div>
-    </div>
-  );
-}
-
-function MessagesScreen(props: {
-  tickets: TicketRecord[];
-  filter: MessageFilter;
-  setFilter: (value: MessageFilter) => void;
-  busyAction: string;
-  onCopy: (value: string, label: string) => void;
-  onRelease: (ticketId: string, action: 'finish' | 'cancel' | 'retry') => void;
-  onBuyAnother: (ticket: TicketRecord) => void;
-}) {
-  const serviceIcon = (service: string) => {
-    const value = service.toLowerCase();
-    if (value.includes('telegram')) return <Send size={24} />;
-    if (value.includes('paypal') || value.includes('shield')) return <Shield size={24} className="d-icon-soft" />;
-    return <Bot size={24} />;
-  };
-
-  return (
-    <div className="d-page">
-      <PageHeader
-        title="Activations"
-        align="center"
-        actions={<SegmentedControl items={MESSAGE_FILTERS} value={props.filter} onChange={props.setFilter} appearance="rail" />}
-      />
-
-      <div className="d-cards-list">
-        {props.tickets.length > 0 ? props.tickets.slice(0, 8).map((ticket) => {
-          const phase = getTicketPhase(ticket.status);
-          const isReceived = phase === 'received';
-          const isWaiting = phase === 'waiting';
-
-          return (
-            <div className="d-act-card" key={ticket.id}>
-              <div className="d-act-head">
-                <div className="d-act-service">
-                  {serviceIcon(ticket.service)}
-                  <strong className="d-act-service-title">{formatServiceLabel(ticket.service)}</strong>
-                </div>
-                <div className="d-act-phone-wrap">
-                  <div className="d-act-phone-pill">
-                    <span className="d-act-phone-text">
-                      <Smartphone size={14} className="d-icon-soft" />{ticket.phone_number}
-                    </span>
-                    <button className="d-inline-icon" onClick={() => props.onCopy(ticket.phone_number, 'Phone number')} aria-label="Copy phone number">
-                      <Copy size={14} color="#0066cc" />
-                    </button>
-                  </div>
-                  {ticket.price && (
-                    <span className="d-act-price">
-                      ${ticket.price.toFixed(2)}
-                    </span>
-                  )}
-                  {!isReceived && !isWaiting && (
-                    <span className="d-act-refunded">Refunded</span>
-                  )}
-                </div>
-              </div>
-
-              {isReceived && (
-                <div className="d-code-area received">
-                  <div className="d-code-row">
-                    <span className="d-code-num">{ticket.code ?? '------'}</span>
-                    <button className="d-copy-btn" onClick={() => props.onCopy(ticket.code ?? '', 'SMS code')} disabled={!ticket.code}>
-                      <Copy size={20} color="#0066cc" />
-                    </button>
-                  </div>
-                  <span className="d-code-state-copy success">SMS received successfully</span>
-                </div>
-              )}
-              {isWaiting && (
-                <div className="d-code-area waiting">
-                  <Loader2 size={32} color="#ffbd2e" className="d-code-loader" />
-                  <span className="d-code-state-copy warning">Waiting for SMS...</span>
-                  <span className="d-code-state-meta">
-                    {ticket.message ?? 'Check provider dashboard'}
-                  </span>
-                </div>
-              )}
-              {!isReceived && !isWaiting && (
-                <div className="d-code-area failed">
-                  <strong className="d-code-state-title">Activation canceled or expired</strong>
-                  <p className="d-code-state-meta">
-                    {ticket.message ?? 'You were not charged for this request.'}
-                  </p>
-                </div>
-              )}
-
-              <div className="d-act-footer">
-                <span className="d-act-footer-copy">Provider: {formatProviderLabel(ticket.provider)}</span>
-                <div className="d-act-footer-actions">
-                  {isReceived && (
-                    <AppButton
-                      variant="primary"
-                      size="utility"
-                      onClick={() => props.onRelease(ticket.id, 'finish')}
-                      disabled={props.busyAction === `finish-${ticket.id}`}
-                    >
-                      Finish Activation
-                    </AppButton>
-                  )}
-                  {isWaiting && (
-                    <>
-                      <AppButton
-                        variant="danger-outline"
-                        size="utility"
-                        onClick={() => props.onRelease(ticket.id, 'cancel')}
-                        disabled={props.busyAction === `cancel-${ticket.id}`}
-                      >
-                        Cancel & Refund
-                      </AppButton>
-                      <AppButton variant="success" size="utility" onClick={() => props.onBuyAnother(ticket)}>
-                        Buy Another
-                      </AppButton>
-                    </>
-                  )}
-                  {!isReceived && !isWaiting && (
-                    <AppButton variant="outline" size="utility" onClick={() => props.onRelease(ticket.id, 'retry')} disabled={props.busyAction === `retry-${ticket.id}`}>
-                      Try Again
-                    </AppButton>
-                  )}
-                </div>
-              </div>
-            </div>
-          );
-        }) : (
-          <div className="d-empty">No activations.</div>
-        )}
-      </div>
-    </div>
-  );
-}
-
-function LogsScreen(props: {
-  logs: LogEntry[];
-  filter: LogFilter;
-  setFilter: (value: LogFilter) => void;
-  onRefresh: () => void;
-  search: string;
-  onSearch: (value: string) => void;
-}) {
-  return (
-    <div className="d-page">
-      <PageHeader
-        title="System Logs"
-        subtitle="Real-time event stream for debugging and monitoring."
-        align="center"
-        actions={(
-          <div className="d-inline-actions">
-            <AppButton variant="outline" size="utility" onClick={props.onRefresh}>Refresh</AppButton>
-            <AppButton variant="outline" size="utility" onClick={() => props.onSearch('')}>Clear Search</AppButton>
-          </div>
-        )}
-      />
-
-      <div className="d-detail-row d-detail-row-wrap">
-        <SegmentedControl items={LOG_FILTERS} value={props.filter} onChange={props.setFilter} appearance="rail" />
-        <SearchField
-          className="d-logs-search"
-          value={props.search}
-          onChange={(event) => props.onSearch(event.target.value)}
-          placeholder="Search logs..."
-        />
-      </div>
-
-      <div className="d-card d-card-flush">
-        <DataTable
-          className="d-logs-table"
-          headerClassName="d-logs-table-grid d-logs-table-head"
-          header={(
-            <>
-              <span>Level</span>
-              <span>Time</span>
-              <span>Scope</span>
-              <span>Message</span>
-            </>
-          )}
-        >
-          {props.logs.length > 0 ? props.logs.map((entry, index) => (
-            <div className="d-logs-table-grid d-logs-table-row" key={`${entry.timestamp}-${index}`}>
-              <span><span className={`d-log-badge ${entry.level.toLowerCase()}`}>{entry.level.toUpperCase()}</span></span>
-              <span className="d-logs-time">{new Date(entry.timestamp).toLocaleTimeString()}</span>
-              <span>{entry.scope}</span>
-              <span>{entry.message}</span>
-            </div>
-          )) : <div className="d-empty">No log events.</div>}
-        </DataTable>
-      </div>
-    </div>
-  );
-}
-
-function SettingsScreen(props: {
-  autoRefresh: boolean;
-  setAutoRefresh: (value: boolean) => void;
-  showAdvancedEditor: boolean;
-  setShowAdvancedEditor: (value: boolean) => void;
-  compactTables: boolean;
-  setCompactTables: (value: boolean) => void;
-  language: LanguageCode;
-  setLanguage: (value: LanguageCode) => void;
-  appearanceTheme: AppearanceTheme;
-  setAppearanceTheme: (value: AppearanceTheme) => void;
-  routingStrategy: RoutingStrategy;
-  autoFallback: boolean;
-  onStrategyChange: (value: RoutingStrategy) => void;
-  onAutoFallbackChange: (enabled: boolean) => void;
-  onReload: () => void;
-  reloadBusy: boolean;
-}) {
-  return (
-    <div className="d-page">
-      <PageHeader
-        title="Settings"
-        subtitle="Configure global preferences and app behavior."
-      />
-
-      <div className="d-card">
-        <div className="d-settings-section first">
-          <h3 className="d-section-title">Appearance</h3>
-          <SettingChoiceRow
-            label="Language"
-            control={<SegmentedControl items={[{ id: 'en', label: 'English' }, { id: 'zh', label: '中文' }]} value={props.language} onChange={props.setLanguage} appearance="rail" className="d-settings-segmented" />}
-          />
-          <SettingChoiceRow
-            label="Theme"
-            control={<SegmentedControl items={[{ id: 'light', label: 'Light' }, { id: 'dark', label: 'Dark' }, { id: 'system', label: 'System' }]} value={props.appearanceTheme} onChange={props.setAppearanceTheme} appearance="rail" className="d-settings-segmented" />}
-          />
-        </div>
-
-        <div className="d-settings-section">
-          <h3 className="d-section-title">General</h3>
-          <ToggleSetting title="Auto Refresh" description="Refresh runtime snapshot every 4 seconds." checked={props.autoRefresh} onChange={props.setAutoRefresh} />
-          <ToggleSetting title="Advanced Manifest Access" description="Allow opening the raw manifest editor modal." checked={props.showAdvancedEditor} onChange={props.setShowAdvancedEditor} />
-          <ToggleSetting title="Compact Tables" description="Tighten spacing for activity, provider and inventory tables." checked={props.compactTables} onChange={props.setCompactTables} last />
-        </div>
-
-        <div className="d-settings-section">
-          <SettingChoiceRow
-            label="Strategy"
-            control={<SegmentedControl items={ROUTING_STRATEGIES} value={props.routingStrategy} onChange={props.onStrategyChange} appearance="rail" className="d-settings-segmented" />}
-          />
-          <div className="d-detail-row">
-            <span className="d-detail-label">Auto-fallback</span>
-            <ToggleSwitch checked={props.autoFallback} onChange={props.onAutoFallbackChange} ariaLabel="Toggle auto-fallback" />
-          </div>
-          <p className="d-page-note">
-            Try providers in priority order. Skip to next if insufficient stock or request fails.
-          </p>
-        </div>
-
-        <div className="d-settings-section">
-          <div className="d-card-head">
-            <h3 className="d-section-title">Server Configuration</h3>
-            <AppButton variant="outline" size="utility" onClick={props.onReload} disabled={props.reloadBusy}>
-              {props.reloadBusy ? 'Reloading…' : 'Reload Providers'}
-            </AppButton>
-          </div>
-          <div className="d-detail-row">
-            <span className="d-detail-label">HTTP Endpoint</span>
-            <div className="d-code-box">{API_BASE}</div>
-          </div>
-          <div className="d-detail-row">
-            <span className="d-detail-label">Socket Path</span>
-            <div className="d-code-box">{SOCKET_PATH}</div>
-          </div>
-          <div className="d-detail-row">
-            <span className="d-detail-label">Desktop Runtime</span>
-            <span className="d-detail-caption">Tauri v2</span>
-          </div>
-        </div>
-      </div>
-    </div>
-  );
-}
-
-function SettingChoiceRow(props: {
-  label: string;
-  control: ReactNode;
-}) {
-  return (
-    <div className="d-detail-row d-detail-row-choice">
-      <span className="d-detail-label">{props.label}</span>
-      <div className="d-setting-choice-control">{props.control}</div>
-    </div>
-  );
-}
-
-function NewActivationModal(props: {
-  providers: ProviderManifest[];
-  form: ActivationFormState;
-  busy: boolean;
-  error: string;
-  onChange: (field: keyof ActivationFormState, value: string) => void;
-  onClose: () => void;
-  onSubmit: () => void;
-  onOpenSelector: (kind: SelectorKind) => void;
-}) {
-  const providerLabel = props.form.provider === 'auto'
-    ? 'Auto — follow routing rules'
-    : props.providers.find((provider) => provider.id === props.form.provider)?.name ?? props.form.provider;
-  return (
-    <div className="d-backdrop" onClick={props.onClose}>
-      <div className="d-modal d-modal-activation" onClick={(event) => event.stopPropagation()}>
-        <div className="d-modal-head-activation">
-          <h2 className="d-modal-title">New Activation</h2>
-          <button className="d-icon-btn-activation" onClick={props.onClose} aria-label="Close">
-            <X size={20} style={{ opacity: 0.4 }} />
-          </button>
-        </div>
-        <div className="d-modal-divider" />
-        <div className="d-activation-form">
-          <ModalField label="SERVICE">
-            <SelectTrigger
-              compact
-              value={props.form.service ? formatServiceLabel(props.form.service) : ''}
-              placeholder="e.g. telegram, openai, whatsapp"
-              onClick={() => props.onOpenSelector('activation-service')}
-            />
-          </ModalField>
-          <ModalField label="COUNTRY">
-            <SelectTrigger compact value={props.form.country ? formatCountryLabel(props.form.country) : ''} placeholder="any — auto select" onClick={() => props.onOpenSelector('activation-country')} />
-          </ModalField>
-          <ModalField label="PROVIDER">
-            <SelectTrigger compact value={providerLabel} muted={props.form.provider === 'auto'} onClick={() => props.onOpenSelector('provider')} />
-          </ModalField>
-          <ModalField label="PRICE RANGE">
-            <div className="d-price-inputs">
-              <input className="d-input-activation" type="number" value={props.form.min_price} onChange={(event) => props.onChange('min_price', event.target.value)} placeholder="Min $" min="0" step="0.01" />
-              <span className="d-price-sep">–</span>
-              <input className="d-input-activation" type="number" value={props.form.max_price} onChange={(event) => props.onChange('max_price', event.target.value)} placeholder="Max $" min="0" step="0.01" />
-            </div>
-          </ModalField>
-          <ModalField label="OPERATOR" hint={props.form.provider !== 'auto' ? `${providerLabel} only` : undefined}>
-            <SelectTrigger compact value={props.form.operator} placeholder="any" onClick={() => props.onOpenSelector('activation-operator')} className="is-disabled-look" />
-          </ModalField>
-        </div>
-        {props.error && <div className="d-error-box">{props.error}</div>}
-        <div className="d-modal-footer-activation">
-          <AppButton variant="text" size="utility" onClick={props.onClose} disabled={props.busy}>Cancel</AppButton>
-          <AppButton variant="primary" size="utility" className="d-btn-submit-activation" onClick={props.onSubmit} disabled={props.busy}>
-            {props.busy ? 'Starting…' : 'Start Activation'}
-          </AppButton>
-        </div>
-      </div>
-    </div>
-  );
-}
-
-function ManifestModal(props: {
-  providerName: string;
-  rawEditor: string;
-  busy: boolean;
-  onClose: () => void;
-  onChange: (value: string) => void;
-  onSave: () => void;
-}) {
-  return (
-    <div className="d-backdrop" onClick={props.onClose}>
-      <div className="d-modal d-modal-wide" onClick={(event) => event.stopPropagation()}>
-        <div className="d-modal-head">
-          <div>
-            <h2 className="d-modal-title">Advanced Manifest</h2>
-            <p className="d-modal-subtitle">
-              {props.providerName} · JSON source of truth
-            </p>
-          </div>
-          <div className="d-inline-actions">
-            <AppButton variant="ghost" size="utility" onClick={props.onClose}>Close</AppButton>
-            <AppButton variant="primary" size="utility" onClick={props.onSave} disabled={props.busy}>Save</AppButton>
-          </div>
-        </div>
-        <textarea className="d-json-editor" value={props.rawEditor} onChange={(event) => props.onChange(event.target.value)} />
-      </div>
-    </div>
-  );
-}
-
-function SearchSelectorModal(props: {
-  title: string;
-  search: string;
-  options: OptionItem[];
-  onClose: () => void;
-  onSearch: (value: string) => void;
-  onSelect: (option: OptionItem) => void;
-}) {
-  return (
-    <div className="d-backdrop" onClick={props.onClose}>
-      <div className="d-modal d-modal-selector" onClick={(event) => event.stopPropagation()}>
-        <div className="d-modal-head">
-          <div>
-            <h2 className="d-modal-title">{props.title}</h2>
-            <p className="d-modal-subtitle">Search and pick a compatible option.</p>
-          </div>
-          <AppButton variant="ghost" size="utility" onClick={props.onClose}>Close</AppButton>
-        </div>
-        <div className="d-selector-search-wrap">
-          <SearchField
-            compact
-            value={props.search}
-            onChange={(event) => props.onSearch(event.target.value)}
-            placeholder="Search options..."
-            autoFocus
-          />
-        </div>
-        <div className="d-selector-list">
-          {props.options.map((option) => (
-            <button key={`${option.value}-${option.label}`} className="d-selector-item" onClick={() => props.onSelect(option)}>
-              <div className="d-selector-copy">
-                <strong className="d-selector-label">{option.label}</strong>
-                <span className="d-selector-hint">{option.hint}</span>
-              </div>
-            </button>
-          ))}
-        </div>
-      </div>
-    </div>
-  );
-}
-
-function NotifIcon({ level }: { level: string }) {
-  const symbol = level === 'error' ? '⊘' : level === 'warn' ? '?' : 'i';
-  return <span className={`d-notif-icon ${level}`}>{symbol}</span>;
-}
-
-function ConfigRow(props: { label: string; children: ReactNode; last?: boolean }) {
-  return (
-    <div className={`d-config-row${props.last ? ' last' : ''}`}>
-      <span className="d-config-label">{props.label}</span>
-      <div className="d-config-value">{props.children}</div>
-    </div>
-  );
-}
-
-function DetailRow(props: { label: string; value: string; last?: boolean }) {
-  return (
-    <div className={`d-pd-row${props.last ? '' : ' border'}`}>
-      <span className="d-detail-label">{props.label}</span>
-      <span className="d-detail-value">{props.value}</span>
-    </div>
-  );
-}
-
-function ToggleSetting(props: {
-  title: string;
-  description: string;
-  checked: boolean;
-  onChange: (value: boolean) => void;
-  last?: boolean;
-}) {
-  return (
-    <div className={`d-toggle-row${props.last ? '' : ' border'}`}>
-      <div className="d-toggle-copy">
-        <strong className="d-toggle-title">{props.title}</strong>
-        <p className="d-toggle-description">{props.description}</p>
-      </div>
-      <ToggleSwitch checked={props.checked} onChange={props.onChange} ariaLabel={props.title} />
-    </div>
-  );
-}
-
-function ToggleSwitch(props: {
-  checked: boolean;
-  onChange: (value: boolean) => void;
-  ariaLabel: string;
-}) {
-  return (
-    <button
-      type="button"
-      className={`d-toggle${props.checked ? ' on' : ''}`}
-      onClick={() => props.onChange(!props.checked)}
-      aria-label={props.ariaLabel}
-      aria-pressed={props.checked}
-    >
-      <span className="d-toggle-thumb" />
-    </button>
-  );
-}
-
-function ModalField(props: { label: string; hint?: string; children: ReactNode }) {
-  return (
-    <label className="d-modal-field">
-      <div className="d-modal-field-label-wrap">
-        <span className="d-modal-field-label">{props.label}</span>
-        {props.hint && <span className="d-field-hint">{props.hint}</span>}
-      </div>
-      {props.children}
-    </label>
   );
 }

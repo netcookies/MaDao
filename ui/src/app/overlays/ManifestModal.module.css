@@ -1,0 +1,44 @@
+.wide {
+  width: min(800px, 96vw);
+}
+
+.header {
+  padding: 14px 24px 10px;
+  border-bottom: 1px solid var(--border);
+}
+
+.title {
+  margin: 0;
+  font-size: 17px;
+  font-weight: 600;
+  line-height: 1.24;
+  letter-spacing: -0.224px;
+}
+
+.subtitle {
+  margin: 4px 0 0;
+  font-size: 13px;
+  line-height: 1.43;
+  color: var(--text-muted);
+}
+
+.actions {
+  display: inline-flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+.editor {
+  flex: 1;
+  min-height: 400px;
+  padding: 16px 20px;
+  font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+  font-size: 12px;
+  line-height: 1.6;
+  border: none;
+  resize: none;
+  background: var(--surface-subtle);
+  color: var(--text);
+  overflow: auto;
+}
