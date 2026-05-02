@@ -5,7 +5,6 @@
 本规范基于以下设计源与现状实现抽取，用于下一步把当前单文件视图与纯 CSS 拆解为可维护的 React component：
 
 - 设计源：`designs/new.pen`
-- 视觉基线：`designs/screenshots/*.png`
 - 当前实现：`ui/src/App.tsx`、`ui/src/styles.css`
 
 本次抽取遵循两个原则：

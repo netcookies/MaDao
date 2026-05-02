@@ -1,12 +1,11 @@
 import {
-  startTransition, useEffect, useMemo, useRef, useState, type ReactNode,
+  useEffect, useMemo, useRef, useState, type ReactNode,
 } from 'react';
 import {
   Bell, Bot, ChevronLeft, ChevronsUpDown, Copy, GripVertical, LayoutDashboard,
   Loader2, MessageSquare, Minus, PanelLeft, Plus, Search, Send, Server, Settings,
   Shield, ShoppingCart, Sliders, Smartphone, Square, Terminal, User, Wallet, X,
 } from 'lucide-react';
-import { invoke } from '@tauri-apps/api/core';
 import {
   AppButton,
   ConfigRow,
@@ -39,17 +38,11 @@ import type {
   NotificationFeed,
   OptionItem,
   PriceSortKey,
-  ProviderBalance,
-  ProviderDynamicOptions,
   ProviderManifest,
-  ProviderManifestList,
   ProviderPriceItem,
-  ProviderPriceResponse,
   ProviderSectionId,
   ProviderSummary,
   RoutingStrategy,
-  RuntimeSettings,
-  RuntimeSettingsUpdate,
   ScreenId,
   SelectorKind,
   SelectorState,
@@ -68,19 +61,18 @@ import {
   getTicketPhase,
 } from './lib/formatters';
 import { cx } from './lib/cx';
-import { mergeOptionItems } from './app/utils';
+import { useActivationFlow } from './hooks/useActivationFlow';
 import { useConsoleDataState } from './hooks/useConsoleDataState';
+import { useProviderRuntime } from './hooks/useProviderRuntime';
 import { useConsoleUiState } from './hooks/useConsoleUiState';
-import { getScreenshotMeasureSelector, getScreenshotScenario, isIsolatedScreenshotTarget, type ScreenshotTarget } from './screenshot-mode';
+import { useSelectorFlow } from './hooks/useSelectorFlow';
+import {
+  API_BASE,
+  SOCKET_PATH,
+} from './services/runtimeApi';
+import { windowAction } from './services/windowApi';
 
 type SidebarItem = { id: ScreenId; label: string; Icon: typeof LayoutDashboard };
-type ScreenshotScenario = ReturnType<typeof getScreenshotScenario>;
-
-const API_BASE = 'http://127.0.0.1:7822';
-const SOCKET_PATH = '/tmp/madao-sms.sock';
-const screenshotTarget = (window as Window & {
-  __MA_DAO_SCREENSHOT_TARGET__?: ScreenshotTarget;
-}).__MA_DAO_SCREENSHOT_TARGET__ ?? null;
 
 const NAV_ITEMS: SidebarItem[] = [
   { id: 'overview', label: 'Overview', Icon: LayoutDashboard },
@@ -189,15 +181,116 @@ export function App() {
     language,
     setLanguage,
   } = useConsoleUiState();
-  const [isScreenshotMode] = useState(Boolean(screenshotTarget));
+  const {
+    visibleProviders,
+    orderedProviders,
+    selectedManifest,
+    selectedSummary,
+    selectedOptions,
+    selectedStoreQuery,
+    sortedPrices,
+    loadSnapshot,
+    loadManifests,
+    loadProviderOptions,
+    loadNotifications,
+    loadRuntimeSettings,
+    updateManifestField,
+    saveProvider,
+    reloadProviders,
+    updateRuntimeSettings,
+    fetchBalance,
+    fetchPrices,
+    updateStoreQuery,
+    reorderProviders,
+    setApiKey,
+    apiKeyValue,
+  } = useProviderRuntime(
+    {
+      snapshot,
+      setSnapshot,
+      manifests,
+      setManifests,
+      rawEditors,
+      setRawEditors,
+      balances,
+      setBalances,
+      pricePanels,
+      setPricePanels,
+      priceSort,
+      setPriceSort,
+      providerOrder,
+      setProviderOrder,
+      notifications,
+      setNotifications,
+      runtimeSettings,
+      setRuntimeSettings,
+      providerOptions,
+      setProviderOptions,
+      storeQueries,
+      setStoreQueries,
+    },
+    {
+      selectedProvider,
+      setSelectedProvider,
+      setActivationForm,
+      setStatusMessage,
+      setBusyAction,
+      setShowManifestModal,
+    },
+  );
+
+  const {
+    pollTicket,
+    releaseTicket,
+    copyToClipboard,
+    submitActivation,
+    primeActivationFromTicket,
+    closeActivationModal,
+    updateActivationField,
+  } = useActivationFlow(
+    {
+      activationForm,
+      setActivationForm,
+      activationBusy,
+      setActivationBusy,
+      activationError,
+      setActivationError,
+      showActivationModal,
+      setShowActivationModal,
+      busyAction,
+      setBusyAction,
+      setStatusMessage,
+    },
+    {
+      loadSnapshot,
+      loadNotifications,
+    },
+  );
+
+  const {
+    openSelector,
+    applySelectorOption,
+  } = useSelectorFlow(
+    {
+      selectorState,
+      setSelectorState,
+      setSelectorSearch,
+      activationForm,
+      setActivationForm,
+      selectedProvider,
+    },
+    {
+      selectedOptions,
+      visibleProviders,
+      providerOptions,
+      updateManifestField,
+      updateStoreQuery,
+    },
+  );
 
   useEffect(() => {
-    if (isScreenshotMode && screenshotTarget) {
-      applyScreenshotScenario(getScreenshotScenario(screenshotTarget));
-      return;
-    }
     void Promise.all([loadSnapshot(), loadManifests(), loadNotifications(), loadRuntimeSettings()]);
-  }, [isScreenshotMode]);
+  }, []);
 
   useEffect(() => {
     if (!autoRefresh) return;
@@ -214,11 +307,6 @@ export function App() {
     root.dataset.language = language;
   }, [appearanceTheme, language]);
 
-  const visibleProviders = useMemo(
-    () => Object.values(manifests).filter((provider) => provider.id !== 'mock' && provider.kind !== 'mock'),
-    [manifests],
-  );
-
   useEffect(() => {
     if (visibleProviders.length === 0) return;
     if (!visibleProviders.some((provider) => provider.id === selectedProvider)) {
@@ -230,17 +318,6 @@ export function App() {
       }));
     }
   }, [visibleProviders, selectedProvider]);
-
-  const selectedManifest = manifests[selectedProvider];
-  const selectedSummary = snapshot?.providers.find((provider) => provider.id === selectedProvider);
-  const selectedPrices = pricePanels[selectedProvider];
-  const selectedOptions = providerOptions[selectedProvider];
-  const selectedStoreQuery = storeQueries[selectedProvider] ?? {
-    service: selectedManifest?.defaults.service ?? '',
-    country: '',
-    operator: '',
-    search: '',
-  };
 
   const filteredMessages = useMemo(() => {
     const tickets = (snapshot?.tickets ?? []).filter((ticket) => ticket.provider !== 'mock');
@@ -296,13 +373,6 @@ export function App() {
       }));
   }, [snapshot]);
 
-  const orderedProviders = useMemo(() => {
-    const byId = Object.fromEntries(visibleProviders.map((provider) => [provider.id, provider]));
-    const ordered = providerOrder.map((id) => byId[id]).filter(Boolean) as ProviderManifest[];
-    const rest = visibleProviders.filter((provider) => !providerOrder.includes(provider.id));
-    return [...ordered, ...rest];
-  }, [visibleProviders, providerOrder]);
-
   const filteredSelectorOptions = useMemo(() => {
     if (!selectorState) return [];
     if (!selectorSearch.trim()) return selectorState.options;
@@ -312,473 +382,14 @@ export function App() {
     );
   }, [selectorSearch, selectorState]);
 
-  const sortedPrices = useMemo(() => {
-    const panel = selectedPrices;
-    if (!panel) return [];
-    const query = selectedStoreQuery;
-    const sort = priceSort[selectedProvider] ?? { key: 'country' as PriceSortKey, dir: 'asc' as const };
-    const filtered = panel.items.filter((item) => {
-      if (query.country && item.country !== query.country) return false;
-      if (query.operator && item.operator !== query.operator) return false;
-      if (!query.search.trim()) return true;
-      const term = query.search.trim().toLowerCase();
-      return [item.display_name, item.country, item.operator].some((value) => value.toLowerCase().includes(term));
-    });
-    return [...filtered].sort((left, right) => {
-      const direction = sort.dir === 'asc' ? 1 : -1;
-      switch (sort.key) {
-        case 'price':
-          return (left.price - right.price) * direction;
-        case 'stock':
-          return (left.stock - right.stock) * direction;
-        case 'country':
-        default:
-          return left.display_name.localeCompare(right.display_name) * direction;
-      }
-    });
-  }, [priceSort, selectedPrices, selectedProvider, selectedStoreQuery]);
-
-  async function loadSnapshot() {
-    if (isScreenshotMode) return;
-    try {
-      const response = await fetch(`${API_BASE}/api/providers`);
-      const data = (await response.json()) as Snapshot;
-      startTransition(() => setSnapshot(data));
-    } catch {
-      setStatusMessage('Cannot connect to runtime snapshot.');
-    }
-  }
-
-  async function loadManifests() {
-    if (isScreenshotMode) return;
-    try {
-      const response = await fetch(`${API_BASE}/api/provider-manifests`);
-      const data = (await response.json()) as ProviderManifestList;
-      const next: Record<string, ProviderManifest> = {};
-      const editors: Record<string, string> = {};
-      data.manifests.forEach((manifest) => {
-        next[manifest.id] = manifest;
-        editors[manifest.id] = JSON.stringify(manifest, null, 2);
-      });
-      const sorted = data.manifests
-        .filter((manifest) => manifest.kind !== 'mock')
-        .sort((left, right) => (left.priority ?? 100) - (right.priority ?? 100) || left.id.localeCompare(right.id))
-        .map((manifest) => manifest.id);
-      startTransition(() => {
-        setManifests(next);
-        setRawEditors(editors);
-        setProviderOrder(sorted);
-      });
-      const optionsList = await Promise.all(
-        data.manifests
-          .filter((manifest) => manifest.kind !== 'mock')
-          .map((manifest) => fetchProviderOptions(manifest.id)),
-      );
-      setProviderOptions((current) => {
-        const nextOptions = { ...current };
-        optionsList.forEach((options) => {
-          nextOptions[options.provider] = options;
-        });
-        return nextOptions;
-      });
-      const firstProvider = sorted[0];
-      if (firstProvider) {
-        const defaults = optionsList.find((item) => item.provider === firstProvider);
-        setActivationForm((current) => ({
-          ...current,
-          service: current.service || defaults?.services[0]?.value || '',
-          country: current.country || defaults?.countries[0]?.value || '',
-          operator: current.operator || defaults?.operators[0]?.value || '',
-        }));
-      }
-    } catch {
-      setStatusMessage('Failed to load provider manifests.');
-    }
-  }
-
-  async function fetchProviderOptions(providerId: string): Promise<ProviderDynamicOptions> {
-    const response = await fetch(`${API_BASE}/api/providers/${providerId}/options`);
-    if (!response.ok) throw new Error(await response.text());
-    return (await response.json()) as ProviderDynamicOptions;
-  }
-
-  async function loadProviderOptions(providerId: string) {
-    if (isScreenshotMode) return;
-    try {
-      const data = await fetchProviderOptions(providerId);
-      setProviderOptions((current) => ({
-        ...current,
-        [providerId]: data,
-      }));
-    } catch {
-      setStatusMessage(`Failed to load options for ${providerId}.`);
-    }
-  }
-
-  async function loadNotifications() {
-    if (isScreenshotMode) return;
-    try {
-      const response = await fetch(`${API_BASE}/api/notifications`);
-      const data = (await response.json()) as NotificationFeed;
-      setNotifications(data.items);
-    } catch {
-      setNotifications([]);
-    }
-  }
-
   function markNotificationsRead() {
     setNotificationCursor(notifications.length);
     setStatusMessage('Notifications marked as read.');
   }
 
-  async function loadRuntimeSettings() {
-    if (isScreenshotMode) return;
-    try {
-      const response = await fetch(`${API_BASE}/api/settings/runtime`);
-      const data = (await response.json()) as RuntimeSettings;
-      setRuntimeSettings(data);
-    } catch {
-      setStatusMessage('Failed to load routing rules.');
-    }
-  }
-
-  function updateManifestField(
-    providerId: string,
-    section: 'root' | 'defaults' | 'handler_api' | 'five_sim' | 'mock',
-    field: string,
-    value: string | number | boolean,
-  ) {
-    setManifests((current) => {
-      const manifest = current[providerId];
-      if (!manifest) return current;
-      const next = structuredClone(manifest) as ProviderManifest;
-      if (section === 'root') {
-        (next as Record<string, unknown>)[field] = value;
-      } else {
-        const target = (next as Record<string, unknown>)[section] as Record<string, unknown> | undefined;
-        if (target) target[field] = value;
-      }
-      setRawEditors((editors) => ({
-        ...editors,
-        [providerId]: JSON.stringify(next, null, 2),
-      }));
-      return {
-        ...current,
-        [providerId]: next,
-      };
-    });
-  }
-
-  async function saveProvider(providerId: string) {
-    if (isScreenshotMode) return;
-    try {
-      setBusyAction(`save-${providerId}`);
-      const manifest = JSON.parse(rawEditors[providerId] ?? '{}') as ProviderManifest;
-      const response = await fetch(`${API_BASE}/api/providers/${providerId}/manifest`, {
-        method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(manifest),
-      });
-      if (!response.ok) {
-        const error = (await response.json()) as { message?: string };
-        throw new Error(error.message ?? response.statusText);
-      }
-      setStatusMessage(`Saved ${providerId} and hot-reloaded.`);
-      await Promise.all([loadManifests(), loadSnapshot(), loadNotifications()]);
-      setShowManifestModal(false);
-    } catch (error) {
-      setStatusMessage(`Save failed: ${String(error)}`);
-    } finally {
-      setBusyAction('');
-    }
-  }
-
-  async function reloadProviders() {
-    if (isScreenshotMode) return;
-    try {
-      setBusyAction('reload');
-      const response = await fetch(`${API_BASE}/api/provider-manifests/reload`, { method: 'POST' });
-      if (!response.ok) throw new Error(await response.text());
-      setStatusMessage('Providers reloaded.');
-      await Promise.all([loadManifests(), loadSnapshot(), loadNotifications()]);
-    } catch (error) {
-      setStatusMessage(`Reload failed: ${String(error)}`);
-    } finally {
-      setBusyAction('');
-    }
-  }
-
-  async function updateRuntimeSettings(next: RuntimeSettingsUpdate) {
-    if (isScreenshotMode) return;
-    try {
-      setBusyAction('routing-settings');
-      const response = await fetch(`${API_BASE}/api/settings/runtime`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(next),
-      });
-      if (!response.ok) throw new Error(await response.text());
-      const data = (await response.json()) as RuntimeSettings;
-      setRuntimeSettings(data);
-      setStatusMessage('Routing rules saved.');
-      await loadNotifications();
-    } catch (error) {
-      setStatusMessage(`Failed to save routing rules: ${String(error)}`);
-    } finally {
-      setBusyAction('');
-    }
-  }
-
-  async function fetchBalance(providerId: string) {
-    if (isScreenshotMode) return;
-    try {
-      setBusyAction(`balance-${providerId}`);
-      const response = await fetch(`${API_BASE}/api/providers/${providerId}/balance`);
-      if (!response.ok) throw new Error(await response.text());
-      const payload = (await response.json()) as ProviderBalance;
-      setBalances((current) => ({
-        ...current,
-        [providerId]: `${payload.amount.toFixed(2)} ${payload.currency}`,
-      }));
-      setStatusMessage(`Balance fetched for ${providerId}.`);
-    } catch (error) {
-      setStatusMessage(`Failed to fetch balance: ${String(error)}`);
-    } finally {
-      setBusyAction('');
-    }
-  }
-
-  async function fetchPrices(providerId: string) {
-    if (isScreenshotMode) return;
-    const query = storeQueries[providerId];
-    const service = query?.service || manifests[providerId]?.defaults.service;
-    if (!service) return;
-    try {
-      setBusyAction(`prices-${providerId}`);
-      const response = await fetch(`${API_BASE}/api/providers/${providerId}/prices`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ provider: providerId, service }),
-      });
-      if (!response.ok) throw new Error(await response.text());
-      const payload = (await response.json()) as ProviderPriceResponse;
-      setPricePanels((current) => ({
-        ...current,
-        [providerId]: payload,
-      }));
-      setStatusMessage(`Prices loaded for ${providerId}.`);
-    } catch (error) {
-      setStatusMessage(`Failed to fetch prices: ${String(error)}`);
-    } finally {
-      setBusyAction('');
-    }
-  }
-
-  async function pollTicket(ticketId: string) {
-    if (isScreenshotMode) return;
-    try {
-      setBusyAction(`poll-${ticketId}`);
-      const response = await fetch(`${API_BASE}/api/poll`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ ticket_id: ticketId }),
-      });
-      if (!response.ok) throw new Error(await response.text());
-      setStatusMessage(`Ticket ${ticketId} refreshed.`);
-      await Promise.all([loadSnapshot(), loadNotifications()]);
-    } catch (error) {
-      setStatusMessage(`Failed to refresh ticket: ${String(error)}`);
-    } finally {
-      setBusyAction('');
-    }
-  }
-
-  async function releaseTicket(ticketId: string, action: 'finish' | 'cancel' | 'retry') {
-    if (isScreenshotMode) return;
-    try {
-      setBusyAction(`${action}-${ticketId}`);
-      const response = await fetch(`${API_BASE}/api/release`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ ticket_id: ticketId, action }),
-      });
-      if (!response.ok) throw new Error(await response.text());
-      setStatusMessage(`Ticket ${ticketId} ${action} complete.`);
-      await Promise.all([loadSnapshot(), loadNotifications()]);
-    } catch (error) {
-      setStatusMessage(`Failed to update ticket: ${String(error)}`);
-    } finally {
-      setBusyAction('');
-    }
-  }
-
-  async function copyToClipboard(value: string, label: string) {
-    if (isScreenshotMode) return;
-    try {
-      await navigator.clipboard.writeText(value);
-      setStatusMessage(`${label} copied.`);
-    } catch (error) {
-      setStatusMessage(`Copy failed: ${String(error)}`);
-    }
-  }
-
-  function updateStoreQuery(providerId: string, patch: Partial<StoreQueryState>) {
-    setStoreQueries((current) => ({
-      ...current,
-      [providerId]: {
-        service: current[providerId]?.service ?? manifests[providerId]?.defaults.service ?? '',
-        country: current[providerId]?.country ?? '',
-        operator: current[providerId]?.operator ?? '',
-        search: current[providerId]?.search ?? '',
-        ...patch,
-      },
-    }));
-  }
-
-  async function reorderProviders(ids: string[]) {
-    if (isScreenshotMode) return;
-    const order = ids.map((id, index) => ({ id, priority: (index + 1) * 10 }));
-    try {
-      const response = await fetch(`${API_BASE}/api/providers/reorder`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ order }),
-      });
-      if (!response.ok) throw new Error(await response.text());
-      setStatusMessage('Priority order saved.');
-      await Promise.all([loadManifests(), loadNotifications()]);
-    } catch (error) {
-      setStatusMessage(`Failed to save order: ${String(error)}`);
-    }
-  }
-
-  async function submitActivation() {
-    if (isScreenshotMode) return;
-    setActivationBusy(true);
-    setActivationError('');
-    try {
-      const body: Record<string, unknown> = {
-        provider: activationForm.provider,
-        service: activationForm.service || undefined,
-        country: activationForm.country || undefined,
-      };
-      if (activationForm.min_price !== '') body.min_price = Number(activationForm.min_price);
-      if (activationForm.max_price !== '') body.max_price = Number(activationForm.max_price);
-      if (activationForm.operator) body.metadata = { operator: activationForm.operator };
-      const response = await fetch(`${API_BASE}/api/acquire`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(body),
-      });
-      if (!response.ok) {
-        const error = (await response.json()) as { message?: string };
-        throw new Error(error.message ?? response.statusText);
-      }
-      setShowActivationModal(false);
-      setStatusMessage('Activation created, waiting for SMS code.');
-      await Promise.all([loadSnapshot(), loadNotifications()]);
-    } catch (error) {
-      setActivationError(String(error));
-    } finally {
-      setActivationBusy(false);
-    }
-  }
-
-  function openSelector(kind: SelectorKind) {
-    let options: OptionItem[] = [];
-    let title = '';
-    if (kind === 'service') {
-      options = selectedOptions?.services ?? [];
-      title = 'Select Default Service';
-    } else if (kind === 'country') {
-      options = selectedOptions?.countries ?? [];
-      title = 'Select Default Country';
-    } else if (kind === 'provider') {
-      options = visibleProviders.map((provider) => ({
-        value: provider.id,
-        label: provider.name,
-        hint: provider.kind,
-      }));
-      title = 'Select Provider';
-    } else if (kind === 'store-service') {
-      options = selectedOptions?.services ?? [];
-      title = 'Select Store Service';
-    } else if (kind === 'store-country') {
-      options = selectedOptions?.countries ?? [];
-      title = 'Select Store Country';
-    } else if (kind === 'store-operator') {
-      options = selectedOptions?.operators ?? [];
-      title = 'Select Store Operator';
-    } else if (kind === 'activation-service') {
-      if (activationForm.provider === 'auto') {
-        options = mergeOptionItems(Object.values(providerOptions).map((item) => item.services));
-      } else {
-        options = providerOptions[activationForm.provider]?.services ?? [];
-      }
-      title = 'Select Activation Service';
-    } else if (kind === 'activation-country') {
-      if (activationForm.provider === 'auto') {
-        options = mergeOptionItems(Object.values(providerOptions).map((item) => item.countries));
-      } else {
-        options = providerOptions[activationForm.provider]?.countries ?? [];
-      }
-      title = 'Select Activation Country';
-    } else if (kind === 'activation-operator') {
-      if (activationForm.provider === 'auto') {
-        options = mergeOptionItems(Object.values(providerOptions).map((item) => item.operators));
-      } else {
-        options = providerOptions[activationForm.provider]?.operators ?? [];
-      }
-      title = 'Select Activation Operator';
-    }
-    setSelectorSearch('');
-    setSelectorState({ kind, title, options });
-  }
-
-  function applySelectorOption(option: OptionItem) {
-    if (!selectorState) return;
-    if (selectorState.kind === 'service' || selectorState.kind === 'country') {
-      updateManifestField(selectedProvider, 'defaults', selectorState.kind, option.value);
-    } else if (selectorState.kind === 'store-service') {
-      updateStoreQuery(selectedProvider, { service: option.value });
-    } else if (selectorState.kind === 'store-country') {
-      updateStoreQuery(selectedProvider, { country: option.value });
-    } else if (selectorState.kind === 'store-operator') {
-      updateStoreQuery(selectedProvider, { operator: option.value });
-    } else if (selectorState.kind === 'provider') {
-      const options = providerOptions[option.value];
-      setActivationForm((current) => ({
-        ...current,
-        provider: option.value,
-        service: options?.services[0]?.value ?? current.service,
-        country: options?.countries[0]?.value ?? current.country,
-        operator: options?.operators[0]?.value ?? current.operator,
-      }));
-    } else if (selectorState.kind === 'activation-service') {
-      setActivationForm((current) => ({ ...current, service: option.value }));
-    } else if (selectorState.kind === 'activation-country') {
-      setActivationForm((current) => ({ ...current, country: option.value }));
-    } else if (selectorState.kind === 'activation-operator') {
-      setActivationForm((current) => ({ ...current, operator: option.value }));
-    }
-    setSelectorState(null);
-  }
-
-  function setApiKey(providerId: string, value: string) {
-    const manifest = manifests[providerId];
-    if (!manifest) return;
-    if (manifest.handler_api) updateManifestField(providerId, 'handler_api', 'api_key', value);
-    if (manifest.five_sim) updateManifestField(providerId, 'five_sim', 'api_key', value);
-  }
-
-  function apiKeyValue(manifest: ProviderManifest) {
-    return String(manifest.handler_api?.api_key ?? manifest.five_sim?.api_key ?? '');
-  }
-
   async function handleWindowAction(action: 'minimize' | 'maximize_toggle' | 'close') {
-    if (isScreenshotMode) return;
     try {
-      await invoke('window_action', { action });
+      await windowAction(action);
     } catch (error) {
       setStatusMessage(`Window action failed: ${String(error)}`);
     }
@@ -788,51 +399,8 @@ export function App() {
     ? `Providers › ${manifests[selectedProvider]?.name ?? selectedProvider}`
     : NAV_ITEMS.find((item) => item.id === activeScreen)?.label ?? '';
 
-  function applyScreenshotScenario(scenario: ScreenshotScenario) {
-    const manifestMap = Object.fromEntries(
-      scenario.manifests.map((manifest) => [manifest.id, manifest as ProviderManifest]),
-    );
-    setSnapshot(scenario.snapshot);
-    setManifests(manifestMap);
-    setRawEditors(
-      Object.fromEntries(
-        scenario.manifests.map((manifest) => [manifest.id, JSON.stringify(manifest, null, 2)]),
-      ),
-    );
-    setProviderOrder(
-      scenario.manifests
-        .filter((manifest) => manifest.kind !== 'mock')
-        .map((manifest) => manifest.id),
-    );
-    setProviderOptions(scenario.providerOptions);
-    setPricePanels(scenario.pricePanels);
-    setBalances(scenario.balances);
-    setRuntimeSettings({
-      routing_strategy: scenario.runtimeSettings.routing_strategy as RoutingStrategy,
-      auto_fallback: Boolean(scenario.runtimeSettings.auto_fallback),
-    });
-    setSelectedProvider(scenario.selectedProvider);
-    setActiveScreen(scenario.activeScreen as ScreenId);
-    setProviderView(scenario.providerView as 'list' | 'workspace');
-    setActiveProviderSection(scenario.activeProviderSection as ProviderSectionId);
-    setNotifications(scenario.notifications);
-    setShowNotifications(Boolean(scenario.showNotifications));
-    setShowActivationModal(Boolean(scenario.showActivationModal));
-    setActivationForm(scenario.activationForm);
-    setStoreQueries(scenario.storeQueries);
-    setMessageFilter(scenario.messageFilter as MessageFilter);
-    setLogsFilter(scenario.logsFilter as LogFilter);
-    setLogsSearch(scenario.logsSearch);
-    setStatusMessage(scenario.statusMessage);
-    setNotificationCursor(scenario.notificationCursor);
-    setAppearanceTheme(scenario.appearanceTheme as AppearanceTheme);
-    setLanguage(scenario.language as LanguageCode);
-    setCompactTables(Boolean(scenario.compactTables));
-    setAutoRefresh(false);
-  }
-
   return (
-    <div className={cx(`app-root${compactTables ? ' compact' : ''}`, isScreenshotMode && screenshotTarget && isIsolatedScreenshotTarget(screenshotTarget) && 'is-screenshot-isolated')}>
+    <div className={cx(`app-root${compactTables ? ' compact' : ''}`)}>
       <div className="mac-window">
         <aside className="d-sidebar">
           <div className="d-traffic">
@@ -985,13 +553,7 @@ export function App() {
                 onCopy={copyToClipboard}
                 onRelease={(ticketId, action) => void releaseTicket(ticketId, action)}
                 onBuyAnother={(ticket) => {
-                  setActivationForm((current) => ({
-                    ...current,
-                    provider: ticket.provider,
-                    service: ticket.service,
-                    country: ticket.country,
-                  }));
-                  setShowActivationModal(true);
+                  primeActivationFromTicket(ticket);
                 }}
               />
             )}
@@ -1049,11 +611,8 @@ export function App() {
           form={activationForm}
           busy={activationBusy}
           error={activationError}
-          onChange={(field, value) => setActivationForm((current) => ({ ...current, [field]: value }))}
-          onClose={() => {
-            setShowActivationModal(false);
-            setActivationError('');
-          }}
+          onChange={updateActivationField}
+          onClose={closeActivationModal}
           onSubmit={() => void submitActivation()}
           onOpenSelector={openSelector}
         />

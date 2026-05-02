@@ -25,7 +25,6 @@ export type ComponentSpec = {
   designSource: {
     penNodeId?: string;
     penNodeName?: string;
-    screenshotTargets?: string[];
   };
   currentImplementation: {
     functions: string[];
@@ -221,7 +220,6 @@ export const componentSpecs: readonly ComponentSpec[] = [
     designSource: {
       penNodeId: 'xAOQW',
       penNodeName: 'Mac App',
-      screenshotTargets: ['Overview', 'Providers', 'Messages', 'Settings', 'Logs'],
     },
     currentImplementation: {
       functions: ['App'],
@@ -243,7 +241,6 @@ export const componentSpecs: readonly ComponentSpec[] = [
     designSource: {
       penNodeId: 'vMhdP',
       penNodeName: 'Sidebar Component',
-      screenshotTargets: ['Overview', 'Providers', 'Messages', 'Settings', 'Logs'],
     },
     currentImplementation: {
       functions: ['App'],
@@ -265,7 +262,6 @@ export const componentSpecs: readonly ComponentSpec[] = [
     designSource: {
       penNodeId: 'rlf7R',
       penNodeName: 'Toolbar Component',
-      screenshotTargets: ['Overview', 'Providers', 'Messages', 'Settings', 'Logs'],
     },
     currentImplementation: {
       functions: ['App'],
@@ -284,9 +280,7 @@ export const componentSpecs: readonly ComponentSpec[] = [
     name: 'Button',
     family: 'primitive',
     description: '统一按钮体系。',
-    designSource: {
-      screenshotTargets: ['Overview', 'Providers', 'Settings', 'NewActivation'],
-    },
+    designSource: {},
     currentImplementation: {
       functions: ['AppButton'],
       classes: ['d-btn-primary', 'd-btn-outline', 'd-btn-success', 'd-btn-ghost', 'd-btn-text'],
@@ -304,9 +298,7 @@ export const componentSpecs: readonly ComponentSpec[] = [
     name: 'IconButton',
     family: 'primitive',
     description: '图标按钮，支持 surface 与 toolbar 两种视觉语义。',
-    designSource: {
-      screenshotTargets: ['Overview', 'Notifications'],
-    },
+    designSource: {},
     currentImplementation: {
       functions: ['App'],
       classes: ['d-icon-btn', 'd-icon-btn-toolbar'],
@@ -324,9 +316,7 @@ export const componentSpecs: readonly ComponentSpec[] = [
     name: 'SegmentedControl',
     family: 'primitive',
     description: '同级切换控件，支持 pill 与 rail 两种变体。',
-    designSource: {
-      screenshotTargets: ['Messages', 'Logs', 'Settings'],
-    },
+    designSource: {},
     currentImplementation: {
       functions: ['SegmentedControl'],
       classes: ['d-seg-tabs', 'd-seg-tab'],
@@ -344,9 +334,7 @@ export const componentSpecs: readonly ComponentSpec[] = [
     name: 'SearchField',
     family: 'primitive',
     description: '带 leading icon 的统一搜索输入。',
-    designSource: {
-      screenshotTargets: ['Logs', 'ProviderWorkspace_Store', 'SearchSelectorModal'],
-    },
+    designSource: {},
     currentImplementation: {
       functions: ['SearchField'],
       classes: ['d-search-bar'],
@@ -364,9 +352,7 @@ export const componentSpecs: readonly ComponentSpec[] = [
     name: 'SelectTrigger',
     family: 'primitive',
     description: '只承担展示与弹出职责的选择器触发器。',
-    designSource: {
-      screenshotTargets: ['ProviderWorkspace_Store', 'NewActivation'],
-    },
+    designSource: {},
     currentImplementation: {
       functions: ['SelectTrigger'],
       classes: ['d-select-display', 'd-select-button'],
@@ -384,9 +370,7 @@ export const componentSpecs: readonly ComponentSpec[] = [
     name: 'ToggleSwitch',
     family: 'primitive',
     description: '二元状态切换。',
-    designSource: {
-      screenshotTargets: ['Settings'],
-    },
+    designSource: {},
     currentImplementation: {
       functions: ['ToggleSwitch'],
       classes: ['d-toggle', 'd-toggle-thumb'],
@@ -404,9 +388,7 @@ export const componentSpecs: readonly ComponentSpec[] = [
     name: 'SurfaceCard',
     family: 'primitive',
     description: '所有 panel / card / section 的基础容器。',
-    designSource: {
-      screenshotTargets: ['Overview', 'Providers', 'Settings', 'Logs'],
-    },
+    designSource: {},
     currentImplementation: {
       functions: ['OverviewScreen', 'ProvidersListScreen', 'SettingsScreen', 'LogsScreen'],
       classes: ['d-card', 'd-stat-card', 'd-balance-card', 'd-form-card', 'd-act-card'],
@@ -427,7 +409,6 @@ export const componentSpecs: readonly ComponentSpec[] = [
     designSource: {
       penNodeId: 'v71IQ',
       penNodeName: 'Notification Panel — Popover',
-      screenshotTargets: ['Notifications'],
     },
     currentImplementation: {
       functions: ['App', 'NotifIcon'],
@@ -449,7 +430,6 @@ export const componentSpecs: readonly ComponentSpec[] = [
     designSource: {
       penNodeId: 'UE0DB',
       penNodeName: 'Modal — New Activation',
-      screenshotTargets: ['NewActivation'],
     },
     currentImplementation: {
       functions: ['NewActivationModal', 'ModalField'],
@@ -468,9 +448,7 @@ export const componentSpecs: readonly ComponentSpec[] = [
     name: 'SearchSelectorModal',
     family: 'overlay',
     description: '大列表搜索选择器。',
-    designSource: {
-      screenshotTargets: ['ProviderWorkspace_Store'],
-    },
+    designSource: {},
     currentImplementation: {
       functions: ['SearchSelectorModal'],
       classes: ['d-modal-selector', 'd-selector-list', 'd-selector-item'],
@@ -488,9 +466,7 @@ export const componentSpecs: readonly ComponentSpec[] = [
     name: 'DataTable',
     family: 'data-display',
     description: '基础表格容器。',
-    designSource: {
-      screenshotTargets: ['Overview', 'Providers', 'Logs'],
-    },
+    designSource: {},
     currentImplementation: {
       functions: ['DataTable'],
       classes: ['d-table', 'd-table-row', 'd-table-header'],
@@ -508,9 +484,7 @@ export const componentSpecs: readonly ComponentSpec[] = [
     name: 'ActivityCard',
     family: 'domain',
     description: '消息与验证码激活卡片。',
-    designSource: {
-      screenshotTargets: ['Messages'],
-    },
+    designSource: {},
     currentImplementation: {
       functions: ['MessagesScreen'],
       classes: ['d-act-card', 'd-act-phone-pill', 'd-code-area', 'd-act-footer'],
@@ -531,7 +505,6 @@ export const componentSpecs: readonly ComponentSpec[] = [
     designSource: {
       penNodeId: 'N6Lgb',
       penNodeName: 'Mac App - Provider Workspace - Config',
-      screenshotTargets: ['ProviderWorkspace_Config', 'ProviderWorkspace_Store', 'ProviderWorkspace_Wallet'],
     },
     currentImplementation: {
       functions: ['ProviderWorkspaceScreen', 'WorkspaceConfig', 'WorkspaceStore', 'WorkspaceWallet'],
@@ -553,7 +526,6 @@ export const componentSpecs: readonly ComponentSpec[] = [
     designSource: {
       penNodeId: '7PXST',
       penNodeName: 'Mac App - Settings',
-      screenshotTargets: ['Settings'],
     },
     currentImplementation: {
       functions: ['SettingsScreen', 'SettingChoiceRow', 'ToggleSetting'],

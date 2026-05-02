@@ -6,7 +6,6 @@ use sms_server::spawn_http_server;
 use std::sync::Arc;
 use tauri::Emitter;
 use tauri::Manager;
-use tauri::PhysicalSize;
 use tauri::WebviewWindow;
 
 #[tauri::command]
@@ -79,7 +78,6 @@ pub fn run() {
             let app_handle = app.handle().clone();
             let service = app.state::<Arc<SmsService>>().inner().clone();
             let config = config.clone();
-            let screenshot_target = std::env::var("MA_DAO_SCREENSHOT_TARGET").ok();
             tauri::async_runtime::spawn(async move {
                 match spawn_http_server(service, &config).await {
                     Ok((addr, _handle)) => {
@@ -93,19 +91,6 @@ pub fn run() {
             });
             if let Some(window) = app.get_webview_window("main") {
                 let _ = window.set_title("MaDao SMS Platform");
-                if screenshot_target.is_some() {
-                    let _ = window.set_decorations(false);
-                    let _ = window.set_resizable(false);
-                    let _ = window.set_size(PhysicalSize::new(1104, 848));
-                    let _ = window.center();
-                    if let Some(target) = screenshot_target.clone() {
-                        let script = format!(
-                            "window.__MA_DAO_SCREENSHOT_TARGET__ = {};",
-                            serde_json::to_string(&target).unwrap_or_else(|_| "\"Overview\"".to_string())
-                        );
-                        let _ = window.eval(&script);
-                    }
-                }
             }
             Ok(())
         })

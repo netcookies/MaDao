@@ -158,12 +158,7 @@ index.ts
 
 ## 迁移步骤
 
-### Phase 0：冻结视觉基线
-
-- 保持 `designs/screenshots/*.png` 为验收基线。
-- 任何结构性迁移都必须保留截图一致性。
-
-### Phase 1：抽 token 与规范
+### Phase 0：抽 token 与规范
 
 - 建立 `design-system/spec.ts`
 - 建立 `design-system/tokens.ts`
@@ -171,7 +166,7 @@ index.ts
 
 这是当前已完成或可立即承接的阶段。
 
-### Phase 2：抽 primitive
+### Phase 1：抽 primitive
 
 优先级：
 
@@ -188,7 +183,7 @@ index.ts
 - 用少量适配层兼容旧页面
 - 不一次性替换全部 screen
 
-### Phase 3：抽 shell
+### Phase 2：抽 shell
 
 优先级：
 
@@ -198,7 +193,7 @@ index.ts
 4. `NotificationPopover`
 5. `Modal`
 
-### Phase 4：按页面拆 `App.tsx`
+### Phase 3：按页面拆 `App.tsx`
 
 建议拆分顺序：
 
@@ -234,7 +229,7 @@ index.ts
 
 - 把 `formatServiceLabel`、`formatProviderLabel`、`formatCountryLabel` 移到 formatter
 - 把 `busyAction` 拆成显式布尔状态或 action map
-- 把 screenshot mode 逻辑收敛到单独 adapter
+- 把调试或验收专用适配逻辑收敛到独立模块
 
 ## 风险点
 

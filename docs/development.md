@@ -43,22 +43,6 @@ cargo test -p sms-core
 npm run build
 ```
 
-### 原生 UI 截图
-
-通过真实 Tauri 程序窗口做截图，而不是浏览器页面：
-
-```bash
-npm run ui:screenshot -- --target Overview
-npm run ui:screenshot:compare -- --target Overview
-```
-
-说明：
-
-- 会先构建前端
-- 再启动 `cargo run -p madao-tauri`
-- 使用 macOS 原生窗口截图抓取实际桌面渲染
-- 基线仍然来自 `designs/screenshots/*.png`
-
 ### 启动 daemon
 
 ```bash
@@ -105,4 +89,4 @@ curl -X POST http://127.0.0.1:7822/api/provider-manifests/reload
 如需继续验收，建议下一步优先做：
 
 1. 以你们内部平台真实响应样例补充 protocol contract tests。
-2. 增加桌面端手工交互验收清单与截图基线。
+2. 增加桌面端手工交互验收清单。
