@@ -10,6 +10,8 @@ node_modules/
 .workflow/
 .claude/
 .artifacts/
+.ccw/
+src-tauri/icons/icon.iconset/
 plugins/providers/herosms.toml
 plugins/providers/smsbower.toml
 *.bak
