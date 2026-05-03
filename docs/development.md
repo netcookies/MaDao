@@ -43,6 +43,20 @@ cargo test -p sms-core
 npm run build
 ```
 
+当前前端样式栈为：
+
+- `Tailwind CSS`
+- `PostCSS + Autoprefixer`
+- `design token + CSS variables`
+
+关键配置文件：
+
+- `tailwind.config.cjs`
+- `postcss.config.cjs`
+- `ui/src/tailwind.css`
+- `ui/src/design-system/theme.css`
+- `ui/src/design-system/tailwind-theme.cjs`
+
 ### 启动 daemon
 
 ```bash
@@ -79,6 +93,13 @@ curl -X POST http://127.0.0.1:7822/api/provider-manifests/reload
 
 当前前端已经可以构建，Tauri 侧也能通过 workspace 编译检查。
 
+当前最小前端回归命令：
+
+```bash
+npm run build
+cargo check -p madao-tauri
+```
+
 如果你问“现在能编译打开测试了吗”，答案是：
 
 - `能编译`：是。
@@ -90,3 +111,4 @@ curl -X POST http://127.0.0.1:7822/api/provider-manifests/reload
 
 1. 以你们内部平台真实响应样例补充 protocol contract tests。
 2. 增加桌面端手工交互验收清单。
+3. 基于 `designs/new.pen` 更新 Tailwind 迁移后的视觉对齐基线。

@@ -41,6 +41,7 @@
   - 保存并热重载
   - 余额与价格面板查询
   - 运行时快照、日志、会话展示
+  - Tailwind 化的桌面组件体系
 
 ## 目录结构
 
@@ -67,6 +68,12 @@
 - `npm`
 
 本机已验证版本可正常构建。
+
+前端样式栈：
+
+- `Tailwind CSS`
+- `PostCSS + Autoprefixer`
+- `design token + CSS variables`
 
 ## 启动方式
 
@@ -139,6 +146,12 @@ npx getdesign@latest add apple --out ./DESIGN.md
 ```
 
 后续任何 UI 调整都应先参考 `DESIGN.md`。
+
+如果修改前端主题或样式基础设施，请同步检查：
+
+- `ui/src/design-system/theme.css`
+- `ui/src/design-system/tailwind-theme.cjs`
+- `tailwind.config.cjs`
 
 ## 文档
 

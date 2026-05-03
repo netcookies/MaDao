@@ -1,6 +1,6 @@
 import { AppButton, SearchField } from '../ui-bridge';
+import { Modal } from '../../components/overlays';
 import type { OptionItem } from '../types';
-import styles from './SearchSelectorModal.module.css';
 
 export type SearchSelectorModalProps = {
   title: string;
@@ -13,35 +13,37 @@ export type SearchSelectorModalProps = {
 
 export function SearchSelectorModal(props: SearchSelectorModalProps) {
   return (
-    <div className="d-backdrop" onClick={props.onClose}>
-      <div className={`d-modal ${styles.selector}`} onClick={(event) => event.stopPropagation()}>
-        <div className={styles.header}>
-          <div>
-            <h2 className={styles.title}>{props.title}</h2>
-            <p className={styles.subtitle}>Search and pick a compatible option.</p>
-          </div>
-          <AppButton variant="ghost" size="utility" onClick={props.onClose}>Close</AppButton>
-        </div>
-        <div className={styles.searchWrap}>
-          <SearchField
-            compact
-            value={props.search}
-            onChange={(event) => props.onSearch(event.target.value)}
-            placeholder="Search options..."
-            autoFocus
-          />
-        </div>
-        <div className={styles.list}>
-          {props.options.map((option) => (
-            <button key={`${option.value}-${option.label}`} className={styles.item} onClick={() => props.onSelect(option)}>
-              <div className={styles.copy}>
-                <strong className={styles.label}>{option.label}</strong>
-                <span className={styles.hint}>{option.hint}</span>
-              </div>
-            </button>
-          ))}
-        </div>
+    <Modal
+      open
+      variant="selector"
+      title={props.title}
+      subtitle="Search and pick a compatible option."
+      onClose={props.onClose}
+      actions={<AppButton variant="ghost" size="utility" onClick={props.onClose}>Close</AppButton>}
+    >
+      <div className="pt-0">
+        <SearchField
+          compact
+          value={props.search}
+          onChange={(event) => props.onSearch(event.target.value)}
+          placeholder="Search options..."
+          autoFocus
+        />
       </div>
-    </div>
+      <div className="flex max-h-[360px] flex-col overflow-y-auto pb-2 pt-1">
+        {props.options.map((option) => (
+          <button
+            key={`${option.value}-${option.label}`}
+            className="flex items-center justify-start gap-2 px-5 py-[9px] text-left transition-colors duration-fast ease-[var(--ds-motion-transition-fast)] hover:bg-black/5"
+            onClick={() => props.onSelect(option)}
+          >
+            <div className="flex min-w-0 flex-col gap-0.5">
+              <strong className="text-utility tracking-[var(--ds-type-utility-tracking)] text-ds-text-primary">{option.label}</strong>
+              <span className="text-caption tracking-[var(--ds-type-caption-tracking)] text-ds-text-secondary">{option.hint}</span>
+            </div>
+          </button>
+        ))}
+      </div>
+    </Modal>
   );
 }

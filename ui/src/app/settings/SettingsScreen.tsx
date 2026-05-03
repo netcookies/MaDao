@@ -6,7 +6,6 @@ import {
   ToggleSetting,
   ToggleSwitch,
 } from '../ui-bridge';
-import styles from './SettingsScreen.module.css';
 
 export type RoutingStrategy = 'ordered_priority' | 'lowest_price' | 'highest_stock';
 export type AppearanceTheme = 'light' | 'dark' | 'system';
@@ -36,64 +35,70 @@ export type SettingsScreenProps = {
 
 export function SettingsScreen(props: SettingsScreenProps) {
   return (
-    <div className="d-page">
+    <div className="flex flex-col gap-5">
       <PageHeader
         title="Settings"
         subtitle="Configure global preferences and app behavior."
       />
 
-      <div className="d-card">
-        <div className={`${styles.settingsSection} ${styles.first}`}>
-          <h3 className="d-section-title">Appearance</h3>
+      <div className="rounded-lg border border-ds-border bg-ds-surface p-5">
+        <div className="flex flex-col gap-0">
+          <div className="pb-5">
+            <h3 className="m-0 text-section-title font-semibold tracking-[var(--ds-type-section-title-tracking)] text-ds-text-primary">Appearance</h3>
+          </div>
           <SettingChoiceRow
             label="Language"
-            control={<SegmentedControl items={[{ id: 'en', label: 'English' }, { id: 'zh', label: '中文' }]} value={props.language} onChange={props.setLanguage} appearance="rail" className={styles.segmented} />}
+            control={<SegmentedControl items={[{ id: 'en', label: 'English' }, { id: 'zh', label: '中文' }]} value={props.language} onChange={props.setLanguage} appearance="rail" className="flex-nowrap" />}
           />
           <SettingChoiceRow
             label="Theme"
-            control={<SegmentedControl items={[{ id: 'light', label: 'Light' }, { id: 'dark', label: 'Dark' }, { id: 'system', label: 'System' }]} value={props.appearanceTheme} onChange={props.setAppearanceTheme} appearance="rail" className={styles.segmented} />}
+            control={<SegmentedControl items={[{ id: 'light', label: 'Light' }, { id: 'dark', label: 'Dark' }, { id: 'system', label: 'System' }]} value={props.appearanceTheme} onChange={props.setAppearanceTheme} appearance="rail" className="flex-nowrap" />}
           />
         </div>
 
-        <div className={styles.settingsSection}>
-          <h3 className="d-section-title">General</h3>
+        <div className="flex flex-col gap-0 border-t border-black/5 pt-5">
+          <h3 className="m-0 pb-5 text-section-title font-semibold tracking-[var(--ds-type-section-title-tracking)] text-ds-text-primary">General</h3>
           <ToggleSetting title="Auto Refresh" description="Refresh runtime snapshot every 4 seconds." checked={props.autoRefresh} onChange={props.setAutoRefresh} />
           <ToggleSetting title="Advanced Manifest Access" description="Allow opening the raw manifest editor modal." checked={props.showAdvancedEditor} onChange={props.setShowAdvancedEditor} />
           <ToggleSetting title="Compact Tables" description="Tighten spacing for activity, provider and inventory tables." checked={props.compactTables} onChange={props.setCompactTables} last />
         </div>
 
-        <div className={styles.settingsSection}>
+        <div className="flex flex-col gap-4 border-t border-black/5 pt-5">
           <SettingChoiceRow
             label="Strategy"
-            control={<SegmentedControl items={props.routingStrategies} value={props.routingStrategy} onChange={props.onStrategyChange} appearance="rail" className={styles.segmented} />}
+            control={<SegmentedControl items={props.routingStrategies} value={props.routingStrategy} onChange={props.onStrategyChange} appearance="rail" className="flex-nowrap" />}
           />
-          <div className={styles.detailRow}>
-            <span className={styles.detailLabel}>Auto-fallback</span>
+          <div className="flex items-center justify-between gap-4">
+            <span className="font-text text-utility font-normal tracking-[var(--ds-type-utility-tracking)] text-ds-text-secondary">Auto-fallback</span>
             <ToggleSwitch checked={props.autoFallback} onChange={props.onAutoFallbackChange} ariaLabel="Toggle auto-fallback" />
           </div>
-          <p className={styles.pageNote}>
+          <p className="m-0 text-caption leading-[1.5] text-ds-text-secondary">
             Try providers in priority order. Skip to next if insufficient stock or request fails.
           </p>
         </div>
 
-        <div className={styles.settingsSection}>
-          <div className="d-card-head">
-            <h3 className="d-section-title">Server Configuration</h3>
+        <div className="flex flex-col gap-4 border-t border-black/5 pt-5">
+          <div className="flex items-center justify-between gap-4">
+            <h3 className="m-0 text-section-title font-semibold tracking-[var(--ds-type-section-title-tracking)] text-ds-text-primary">Server Configuration</h3>
             <AppButton variant="outline" size="utility" onClick={props.onReload} disabled={props.reloadBusy}>
               {props.reloadBusy ? 'Reloading…' : 'Reload Providers'}
             </AppButton>
           </div>
-          <div className={styles.detailRow}>
-            <span className={styles.detailLabel}>HTTP Endpoint</span>
-            <div className={styles.codeBox}>{props.apiBase}</div>
+          <div className="flex items-center justify-between gap-4">
+            <span className="font-text text-utility font-normal tracking-[var(--ds-type-utility-tracking)] text-ds-text-secondary">HTTP Endpoint</span>
+            <div className="inline-block rounded-xs border border-ds-border bg-ds-surface-subtle px-2.5 py-[5px] font-mono text-caption text-ds-text-secondary">
+              {props.apiBase}
+            </div>
           </div>
-          <div className={styles.detailRow}>
-            <span className={styles.detailLabel}>Socket Path</span>
-            <div className={styles.codeBox}>{props.socketPath}</div>
+          <div className="flex items-center justify-between gap-4">
+            <span className="font-text text-utility font-normal tracking-[var(--ds-type-utility-tracking)] text-ds-text-secondary">Socket Path</span>
+            <div className="inline-block rounded-xs border border-ds-border bg-ds-surface-subtle px-2.5 py-[5px] font-mono text-caption text-ds-text-secondary">
+              {props.socketPath}
+            </div>
           </div>
-          <div className={styles.detailRow}>
-            <span className={styles.detailLabel}>Desktop Runtime</span>
-            <span className={styles.detailCaption}>Tauri v2</span>
+          <div className="flex items-center justify-between gap-4">
+            <span className="font-text text-utility font-normal tracking-[var(--ds-type-utility-tracking)] text-ds-text-secondary">Desktop Runtime</span>
+            <span className="text-[13px] leading-[1.43] tracking-[-0.224px] text-ds-text-secondary">Tauri v2</span>
           </div>
         </div>
       </div>

@@ -30,7 +30,7 @@ import {
   formatCountryLabel,
   formatServiceLabel,
 } from '../../lib/formatters';
-import styles from './ProviderWorkspaceScreen.module.css';
+import { cx } from '../../lib/cx';
 
 const WORKSPACE_SECTIONS: Array<{
   id: ProviderSectionId;
@@ -75,24 +75,29 @@ export function ProviderWorkspaceScreen(props: ProviderWorkspaceScreenProps) {
   const isConnected = manifest.enabled;
 
   return (
-    <div className={styles.workspace}>
-      <div className={styles.tabsBar}>
-        <div className={styles.tabsTitle}>{manifest.name.toUpperCase()} WORKSPACE</div>
-        <div className={styles.tabsList}>
+    <div className="overflow-hidden rounded-lg border border-ds-border bg-ds-surface">
+      <div className="flex flex-col gap-5 border-b border-ds-border bg-ds-surface-subtle px-6 pt-[18px] min-[980px]:flex-row min-[980px]:items-center min-[980px]:justify-between">
+        <div className="text-[12px] font-bold uppercase tracking-[0.12em] text-[#8c8c92]">
+          {manifest.name.toUpperCase()} WORKSPACE
+        </div>
+        <div className="flex flex-wrap items-end gap-2">
           {WORKSPACE_SECTIONS.map(({ id, label, Icon }) => (
-            <button
-              key={id}
-              className={`${styles.tab}${section === id ? ` ${styles.tabActive}` : ''}`}
-              onClick={() => props.onSelectSection(id)}
-            >
-              <Icon size={16} style={{ opacity: section === id ? 1 : 0.6 }} />
+              <button
+                key={id}
+                className={cx(
+                  'flex items-center gap-3 border-b-2 border-transparent pb-[14px] text-left text-utility font-semibold tracking-[var(--ds-type-utility-tracking)] text-ds-text-primary transition-colors duration-fast ease-[var(--ds-motion-transition-fast)]',
+                  section === id ? 'border-ds-accent-blue text-ds-accent-blue' : 'text-ds-text-secondary',
+                )}
+                onClick={() => props.onSelectSection(id)}
+              >
+              <Icon size={16} className={section === id ? 'opacity-100' : 'opacity-60'} />
               <span>{label}</span>
             </button>
           ))}
         </div>
       </div>
 
-      <div className={styles.detail}>
+      <div className="bg-ds-surface px-8 py-7 max-[760px]:px-5">
         {section === 'config' && (
           <WorkspaceConfig
             manifest={manifest}
@@ -153,12 +158,12 @@ function WorkspaceConfig(props: {
   const { manifest } = props;
 
   return (
-      <div className={styles.body}>
-        <SectionHeader
+    <div className="flex flex-col gap-5">
+      <SectionHeader
         eyebrow="Provider Workspace"
         title={manifest.name}
         description={manifest.description ?? `${manifest.kind} provider`}
-        icon={<MessageSquare size={28} color="#0066cc" />}
+        icon={<MessageSquare size={28} className="text-ds-accent-blue" />}
         badge={<StatusBadge tone={props.isConnected ? 'green' : 'gray'}>{props.isConnected ? 'Connected' : 'Disabled'}</StatusBadge>}
         actions={(
           <>
@@ -172,12 +177,22 @@ function WorkspaceConfig(props: {
         )}
       />
 
-      <div className={styles.formCard}>
+      <div className="overflow-hidden rounded-lg border border-ds-border bg-ds-surface">
         <ConfigRow label="Provider Name">
-          <input className={styles.input} value={manifest.name} onChange={(event) => props.onManifestFieldChange('root', 'name', event.target.value)} />
+          <input
+            className="min-h-control w-full rounded-sm border border-ds-border-strong bg-white px-4 py-[11px] text-utility tracking-[var(--ds-type-utility-tracking)] text-ds-text-primary"
+            value={manifest.name}
+            onChange={(event) => props.onManifestFieldChange('root', 'name', event.target.value)}
+          />
         </ConfigRow>
         <ConfigRow label="API Key" last>
-          <input className={styles.input} type="password" value={props.apiKeyValue} onChange={(event) => props.onApiKeyChange(event.target.value)} placeholder="Paste provider API key" />
+          <input
+            className="min-h-control w-full rounded-sm border border-ds-border-strong bg-white px-4 py-[11px] text-utility tracking-[var(--ds-type-utility-tracking)] text-ds-text-primary"
+            type="password"
+            value={props.apiKeyValue}
+            onChange={(event) => props.onApiKeyChange(event.target.value)}
+            placeholder="Paste provider API key"
+          />
         </ConfigRow>
       </div>
     </div>
@@ -196,13 +211,13 @@ function WorkspaceStore(props: {
   priceSort: { key: PriceSortKey; dir: 'asc' | 'desc' };
 }) {
   return (
-    <div className={styles.body}>
+    <div className="flex flex-col gap-5">
       <SectionHeader
         eyebrow="Store"
         title="Price Inventory"
         description="Stock by service, country and operator"
         actions={(
-          <div className={`d-inline-actions ${styles.inlineActionsWrap}`}>
+          <div className="flex flex-wrap justify-end gap-3">
             <SelectTrigger
               value={formatServiceLabel(props.storeQuery.service || props.manifest.defaults.service)}
               onClick={() => props.onOpenSelector('store-service')}
@@ -230,41 +245,44 @@ function WorkspaceStore(props: {
         value={props.storeQuery.search}
         onChange={(event) => props.onStoreQueryChange({ search: event.target.value })}
         placeholder="Filter by country or operator..."
+        className="w-full min-[760px]:w-[260px]"
       />
 
-      <div className="d-card d-card-flush">
+      <div className="overflow-hidden rounded-lg border border-ds-border bg-ds-surface">
         <DataTable
-          headerClassName={`${styles.storeGrid} ${styles.storeHead}`}
+          headerClassName="grid grid-cols-1 items-center gap-4 border-b border-ds-border px-5 py-[14px] text-[11px] font-semibold uppercase tracking-[0.12em] text-[#8c8c92] min-[760px]:grid-cols-[minmax(0,1.5fr)_minmax(0,1fr)_120px_96px]"
           header={(
             <>
-              <button className={styles.sortable} onClick={() => props.onSortPrices('country')}>
+              <button className="inline-flex items-center justify-start gap-1.5 bg-transparent p-0 text-left text-inherit" onClick={() => props.onSortPrices('country')}>
                 <span>Country</span>
                 <ChevronsUpDown size={12} />
               </button>
               <span>Operator</span>
-              <button className={`${styles.sortable} ${styles.sortableRight}`} onClick={() => props.onSortPrices('price')}>
+              <button className="inline-flex items-center justify-start gap-1.5 bg-transparent p-0 text-left text-inherit min-[760px]:justify-self-end" onClick={() => props.onSortPrices('price')}>
                 <span>Price</span>
                 <ChevronsUpDown size={12} />
               </button>
-              <button className={`${styles.sortable} ${styles.sortableRight}`} onClick={() => props.onSortPrices('stock')}>
+              <button className="inline-flex items-center justify-start gap-1.5 bg-transparent p-0 text-left text-inherit min-[760px]:justify-self-end" onClick={() => props.onSortPrices('stock')}>
                 <span>Stock</span>
                 <ChevronsUpDown size={12} />
               </button>
             </>
           )}
         >
-          {props.prices.length > 0 ? props.prices.slice(0, 20).map((item) => (
-            <div className={`${styles.storeGrid} ${styles.storeTableRow}`} key={`${item.country}-${item.display_name}`}>
-              <span className={styles.storeCountryCell}>
-                <span className={styles.storeCountryFlag}>{countryBadge(item.country)}</span>
-                <span className={styles.storeCountryCopy}>{item.display_name}</span>
+        {props.prices.length > 0 ? props.prices.slice(0, 20).map((item) => (
+            <div className="grid grid-cols-1 items-center gap-4 border-t border-ds-border px-5 py-4 min-[760px]:grid-cols-[minmax(0,1.5fr)_minmax(0,1fr)_120px_96px]" key={`${item.country}-${item.display_name}`}>
+              <span className="inline-flex min-w-0 items-center gap-2.5">
+                <span className="shrink-0">{countryBadge(item.country)}</span>
+                <span className="min-w-0 overflow-hidden text-ellipsis whitespace-nowrap">{item.display_name}</span>
               </span>
-              <span className={styles.storeOperatorCell}>{item.operator || 'any'}</span>
-              <span className={styles.storePriceCell}>${item.price.toFixed(3)}</span>
-              <span className={styles.storeStockCell}>{item.stock.toLocaleString()}</span>
+              <span className="text-[13px] text-ds-text-secondary">{item.operator || 'any'}</span>
+              <span className="text-left font-medium tabular-nums min-[760px]:text-right">${item.price.toFixed(3)}</span>
+              <span className="text-left tabular-nums min-[760px]:text-right">{item.stock.toLocaleString()}</span>
             </div>
           )) : (
-            <div className="d-empty">Click Load Prices to fetch inventory.</div>
+            <div className="px-5 py-7 text-center text-utility tracking-[var(--ds-type-utility-tracking)] text-ds-text-secondary">
+              Click Load Prices to fetch inventory.
+            </div>
           )}
         </DataTable>
       </div>
@@ -280,21 +298,23 @@ function WorkspaceWallet(props: {
   onFetchBalance: () => void;
 }) {
   return (
-    <div className={styles.body}>
-      <div className={styles.balanceCard}>
-        <span className={styles.balanceKicker}>Current Balance</span>
-        <strong className={styles.balanceValue}>
+    <div className="flex flex-col gap-5">
+      <div className="px-7 pb-6 pt-7">
+        <span className="text-utility tracking-[var(--ds-type-utility-tracking)] text-ds-text-secondary">Current Balance</span>
+        <strong className="block text-[48px] font-semibold leading-[1.1] tracking-[-0.48px] text-ds-text-primary">
           {props.balanceLabel === '—' ? '—' : props.balanceLabel}
         </strong>
-        <div className={styles.balanceActions}>
+        <div className="pt-6">
           <AppButton variant="primary" onClick={props.onFetchBalance} disabled={props.busyAction.includes('balance')}>
             Top Up / Refresh
           </AppButton>
         </div>
       </div>
 
-      <div className="d-card d-card-flush">
-        <div className="d-pd-header">Provider Details</div>
+      <div className="overflow-hidden rounded-lg border border-ds-border bg-ds-surface">
+        <div className="border-b border-black/5 px-5 py-4 text-section-title font-semibold tracking-[var(--ds-type-section-title-tracking)] text-ds-text-primary">
+          Provider Details
+        </div>
         <DetailRow label="Protocol" value={props.summary?.protocol ?? props.manifest.kind} />
         <DetailRow label="Default Service" value={formatServiceLabel(props.manifest.defaults.service)} />
         <DetailRow label="Default Country" value={formatCountryLabel(props.manifest.defaults.country)} />

@@ -1,6 +1,5 @@
 import type { ReactNode } from 'react';
 import { cx } from '../../../lib/cx';
-import styles from './Modal.module.css';
 
 export type ModalVariant = 'default' | 'wide' | 'activation' | 'selector';
 
@@ -30,27 +29,36 @@ export function Modal(props: ModalProps) {
   if (!open) return null;
 
   return (
-    <div className={styles.backdrop} onClick={onClose}>
+    <div
+      className="fixed inset-0 z-[1000] flex items-center justify-center bg-black/25 p-ds-xl"
+      onClick={onClose}
+    >
       <div
+        role="dialog"
+        aria-modal="true"
         className={cx(
-          styles.panel,
-          variant === 'wide' && styles.wide,
-          variant === 'activation' && styles.activation,
-          variant === 'selector' && styles.selector,
+          'flex w-full max-w-[720px] flex-col gap-ds-lg rounded-[12px] border border-ds-border bg-ds-surface p-ds-lg text-ds-text-primary shadow-modal',
+          variant === 'wide' && 'max-w-[960px]',
+          variant === 'activation' && 'max-w-activation',
+          variant === 'selector' && 'max-w-[560px]',
         )}
         onClick={(event) => event.stopPropagation()}
       >
         {(title || subtitle || actions) && (
-          <header className={styles.header}>
+          <header className="flex items-start justify-between gap-ds-lg">
             <div>
-              {title ? <h2 className={styles.title}>{title}</h2> : null}
-              {subtitle ? <p className={styles.subtitle}>{subtitle}</p> : null}
+              {title ? <h2 className="m-0 font-text text-[18px] font-semibold leading-[1.2]">{title}</h2> : null}
+              {subtitle ? (
+                <p className="m-0 mt-1.5 font-text text-utility font-normal tracking-[var(--ds-type-utility-tracking)] text-ds-text-secondary">
+                  {subtitle}
+                </p>
+              ) : null}
             </div>
             {actions}
           </header>
         )}
-        <div className={styles.body}>{children}</div>
-        {footer ? <footer className={styles.footer}>{footer}</footer> : null}
+        <div className="flex flex-col gap-ds-md">{children}</div>
+        {footer ? <footer className="flex items-center justify-end gap-ds-sm">{footer}</footer> : null}
       </div>
     </div>
   );

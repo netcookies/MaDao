@@ -1,6 +1,5 @@
 import type { ReactNode } from 'react';
 import { cx } from '../../../lib/cx';
-import styles from './AppShell.module.css';
 
 export type AppShellProps = {
   sidebar: ReactNode;
@@ -22,12 +21,20 @@ export function AppShell(props: AppShellProps) {
   } = props;
 
   return (
-    <div className={cx(styles.root, compact && styles.compact, className)}>
-      <div className={styles.window}>
+    <div className={cx('min-h-screen', className)} data-compact={compact || undefined}>
+      <div className="grid min-h-screen grid-cols-1 bg-ds-content min-[980px]:grid-cols-[var(--ds-size-sidebar-width)_minmax(0,1fr)]">
         {sidebar}
-        <div className={styles.main}>
+        <div className="flex min-w-0 flex-col bg-ds-content">
           {toolbar}
-          <main className={cx(styles.content, contentClassName)}>{children}</main>
+          <main
+            className={cx(
+              'flex-1 bg-ds-content px-[36px] pb-[36px] pt-7 max-[760px]:px-5 max-[760px]:pb-5',
+              compact && 'px-7 pb-7 pt-6',
+              contentClassName,
+            )}
+          >
+            {children}
+          </main>
         </div>
       </div>
     </div>

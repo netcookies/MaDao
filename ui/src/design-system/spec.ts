@@ -411,8 +411,8 @@ export const componentSpecs: readonly ComponentSpec[] = [
       penNodeName: 'Notification Panel — Popover',
     },
     currentImplementation: {
-      functions: ['App', 'NotifIcon'],
-      classes: ['d-notification-panel', 'd-notification-list', 'd-notification-item'],
+      functions: ['App', 'NotificationPopover'],
+      classes: ['notification popover tailwind structure'],
     },
     structure: ['PopoverHeader', 'NotificationList', 'NotificationItem', 'PopoverFooter'],
     variants: ['default'],

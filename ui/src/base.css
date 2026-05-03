@@ -1,41 +1,43 @@
 :root {
-  --window-bg: #f5f5f7;
-  --sidebar-bg: #f6f6f6;
-  --surface: #ffffff;
-  --surface-subtle: #fafafc;
-  --surface-chip: #d2d2d7;
-  --content-bg: #f5f5f7;
-  --border: rgba(0, 0, 0, 0.08);
-  --border-strong: rgba(0, 0, 0, 0.12);
-  --text: #1d1d1f;
-  --text-muted: #6e6e73;
-  --blue: #0066cc;
-  --blue-focus: #0071e3;
-  --blue-soft: rgba(0, 102, 204, 0.08);
-  --green: #27c93f;
-  --green-soft: #eaf9ec;
-  --orange: #ff9500;
-  --orange-soft: #fff4e6;
-  --red: #ff5f56;
-  --shadow: none;
-  --radius-xs: 5px;
-  --radius-sm: 8px;
-  --radius-md: 11px;
-  --radius-lg: 18px;
-  --radius-pill: 9999px;
-  --space-xxs: 4px;
-  --space-xs: 8px;
-  --space-sm: 12px;
-  --space-md: 17px;
-  --space-lg: 24px;
-  --space-xl: 32px;
-  --space-xxl: 48px;
-  --space-section: 80px;
-  --control-height: 44px;
-  --control-height-compact: 32px;
-  --control-padding-x: 20px;
-  --control-padding-x-compact: 12px;
-  font-family: "SF Pro Text", -apple-system, BlinkMacSystemFont, system-ui, sans-serif;
+  /* Legacy aliases remain for bridge CSS and CSS Modules during migration.
+     They should resolve from canonical --ds-* tokens instead of duplicating values. */
+  --window-bg: var(--ds-color-window-bg);
+  --sidebar-bg: var(--ds-color-sidebar-bg);
+  --surface: var(--ds-color-surface-default);
+  --surface-subtle: var(--ds-color-surface-subtle);
+  --surface-chip: var(--ds-color-surface-chip);
+  --content-bg: var(--ds-color-content-bg);
+  --border: var(--ds-color-border-default);
+  --border-strong: var(--ds-color-border-strong);
+  --text: var(--ds-color-text-primary);
+  --text-muted: var(--ds-color-text-secondary);
+  --blue: var(--ds-color-accent-blue);
+  --blue-focus: var(--ds-color-accent-blue-focus);
+  --blue-soft: var(--ds-color-accent-blue-soft);
+  --green: var(--ds-color-state-success);
+  --green-soft: var(--ds-color-state-success-soft);
+  --orange: var(--ds-color-state-warning);
+  --orange-soft: var(--ds-color-state-warning-soft);
+  --red: var(--ds-color-state-danger);
+  --shadow: var(--ds-effect-shadow-default);
+  --radius-xs: var(--ds-radius-xs);
+  --radius-sm: var(--ds-radius-sm);
+  --radius-md: var(--ds-radius-md);
+  --radius-lg: var(--ds-radius-lg);
+  --radius-pill: var(--ds-radius-pill);
+  --space-xxs: var(--ds-space-xxs);
+  --space-xs: var(--ds-space-xs);
+  --space-sm: var(--ds-space-sm);
+  --space-md: var(--ds-space-md);
+  --space-lg: var(--ds-space-lg);
+  --space-xl: var(--ds-space-xl);
+  --space-xxl: var(--ds-space-xxl);
+  --space-section: var(--ds-space-section);
+  --control-height: var(--ds-size-control-default);
+  --control-height-compact: var(--ds-size-control-compact);
+  --control-padding-x: var(--ds-space-control-x);
+  --control-padding-x-compact: var(--ds-space-control-x-compact);
+  font-family: var(--ds-font-family-text);
   color: var(--text);
   background: var(--window-bg);
 }
@@ -50,9 +52,9 @@ html, body, #root {
 
 body {
   color: var(--text);
-  font-size: 17px;
-  line-height: 1.47;
-  letter-spacing: -0.374px;
+  font-size: var(--ds-type-body-size);
+  line-height: var(--ds-type-body-line-height);
+  letter-spacing: var(--ds-type-body-tracking);
 }
 
 button, input, textarea, select {
@@ -65,24 +67,6 @@ button {
 }
 
 [data-theme="dark"] {
-  --window-bg: #1c1c1e;
-  --sidebar-bg: #232325;
-  --surface: #2c2c2e;
-  --surface-subtle: #3a3a3c;
-  --surface-chip: #48484a;
-  --content-bg: #232325;
-  --border: rgba(255, 255, 255, 0.1);
-  --border-strong: rgba(255, 255, 255, 0.15);
-  --text: #f5f5f7;
-  --text-muted: rgba(245, 245, 247, 0.55);
-  --blue: #3d9dff;
-  --blue-focus: #409cff;
-  --blue-soft: rgba(61, 157, 255, 0.15);
-  --green: #30d158;
-  --green-soft: rgba(48, 209, 88, 0.12);
-  --orange: #ff9f0a;
-  --orange-soft: rgba(255, 159, 10, 0.12);
-  --red: #ff453a;
   background: var(--window-bg);
   color: var(--text);
 }

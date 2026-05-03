@@ -2,7 +2,6 @@ import { Bot, Copy, Loader2, Send, Shield, Smartphone } from 'lucide-react';
 import { AppButton, PageHeader, SegmentedControl } from '../ui-bridge';
 import type { MessageFilter, TicketRecord } from '../types';
 import { formatProviderLabel, formatServiceLabel, getTicketPhase } from '../../lib/formatters';
-import styles from './MessagesScreen.module.css';
 
 export type MessagesScreenProps = {
   tickets: TicketRecord[];
@@ -18,84 +17,87 @@ export type MessagesScreenProps = {
 function serviceIcon(service: string) {
   const value = service.toLowerCase();
   if (value.includes('telegram')) return <Send size={24} />;
-  if (value.includes('paypal') || value.includes('shield')) return <Shield size={24} className={styles.iconSoft} />;
+  if (value.includes('paypal') || value.includes('shield')) return <Shield size={24} className="opacity-60" />;
   return <Bot size={24} />;
 }
 
 export function MessagesScreen(props: MessagesScreenProps) {
   return (
-    <div className="d-page">
+    <div className="flex flex-col gap-5">
       <PageHeader
         title="Activations"
         align="center"
         actions={<SegmentedControl items={props.filters} value={props.filter} onChange={props.setFilter} appearance="rail" />}
       />
 
-      <div className={styles.cardsList}>
+      <div className="flex flex-col gap-4">
         {props.tickets.length > 0 ? props.tickets.slice(0, 8).map((ticket) => {
           const phase = getTicketPhase(ticket.status);
           const isReceived = phase === 'received';
           const isWaiting = phase === 'waiting';
 
           return (
-            <div className={styles.card} key={ticket.id}>
-              <div className={styles.cardHead}>
-                <div className={styles.service}>
+            <div className="flex flex-col gap-[18px] rounded-[18px] border border-ds-border bg-ds-surface px-6 py-[22px]" key={ticket.id}>
+              <div className="flex flex-col gap-4 min-[760px]:flex-row min-[760px]:items-center min-[760px]:justify-between">
+                <div className="flex items-center gap-3">
                   {serviceIcon(ticket.service)}
-                  <strong className={styles.serviceTitle}>{formatServiceLabel(ticket.service)}</strong>
+                  <strong className="text-body-strong tracking-[var(--ds-type-body-strong-tracking)] text-ds-text-primary">
+                    {formatServiceLabel(ticket.service)}
+                  </strong>
                 </div>
-                <div className={styles.phoneWrap}>
-                  <div className={styles.phonePill}>
-                    <span className={styles.phoneText}>
-                      <Smartphone size={14} className={styles.iconSoft} />{ticket.phone_number}
+                <div className="flex flex-wrap items-center justify-start gap-3 min-[760px]:justify-end">
+                  <div className="inline-flex items-center gap-2.5 rounded-md bg-ds-surface-subtle px-3 py-2">
+                    <span className="inline-flex items-center gap-1.5 text-body-strong tracking-[var(--ds-type-body-strong-tracking)] text-ds-text-primary">
+                      <Smartphone size={14} className="opacity-60" />
+                      {ticket.phone_number}
                     </span>
-                    <button className={styles.inlineIcon} onClick={() => props.onCopy(ticket.phone_number, 'Phone number')} aria-label="Copy phone number">
+                    <button className="inline-flex h-[22px] w-[22px] items-center justify-center p-0" onClick={() => props.onCopy(ticket.phone_number, 'Phone number')} aria-label="Copy phone number">
                       <Copy size={14} color="#0066cc" />
                     </button>
                   </div>
                   {ticket.price && (
-                    <span className={styles.price}>
+                    <span className="text-utility-strong tracking-[var(--ds-type-utility-strong-tracking)] text-ds-text-secondary">
                       ${ticket.price.toFixed(2)}
                     </span>
                   )}
                   {!isReceived && !isWaiting && (
-                    <span className={styles.refunded}>Refunded</span>
+                    <span className="text-utility-strong tracking-[var(--ds-type-utility-strong-tracking)] text-[#e0443e]">Refunded</span>
                   )}
                 </div>
               </div>
 
               {isReceived && (
-                <div className={`${styles.codeArea} ${styles.received}`}>
-                  <div className={styles.codeRow}>
-                    <span className={styles.codeNum}>{ticket.code ?? '------'}</span>
-                    <button className={styles.copyButton} onClick={() => props.onCopy(ticket.code ?? '', 'SMS code')} disabled={!ticket.code}>
+                <div className="flex w-full flex-col items-center justify-center gap-3 rounded-md border-2 border-ds-state-success bg-ds-surface-subtle px-5 py-7">
+                  <div className="flex items-center gap-4">
+                    <span className="text-[48px] font-bold leading-none tracking-[6px] text-ds-text-primary">{ticket.code ?? '------'}</span>
+                    <button className="inline-flex h-11 w-11 items-center justify-center rounded-pill bg-ds-surface-chip" onClick={() => props.onCopy(ticket.code ?? '', 'SMS code')} disabled={!ticket.code}>
                       <Copy size={20} color="#0066cc" />
                     </button>
                   </div>
-                  <span className={`${styles.codeStateCopy} ${styles.codeStateSuccess}`}>SMS received successfully</span>
+                  <span className="text-utility-strong tracking-[var(--ds-type-utility-strong-tracking)] text-ds-state-success">SMS received successfully</span>
                 </div>
               )}
               {isWaiting && (
-                <div className={`${styles.codeArea} ${styles.waiting}`}>
-                  <Loader2 size={32} color="#ffbd2e" className={styles.loader} />
-                  <span className={`${styles.codeStateCopy} ${styles.codeStateWarning}`}>Waiting for SMS...</span>
-                  <span className={styles.codeStateMeta}>
+                <div className="flex w-full flex-col items-center justify-center gap-3 rounded-md border-2 border-dashed border-ds-state-warning bg-[#fdf8f5] px-5 py-7">
+                  <Loader2 size={32} color="#ffbd2e" className="animate-[d-spin_0.9s_linear_infinite]" />
+                  <span className="text-utility-strong tracking-[var(--ds-type-utility-strong-tracking)] text-[#dea123]">Waiting for SMS...</span>
+                  <span className="text-center text-[13px] tracking-[0.08em] text-ds-text-secondary">
                     {ticket.message ?? 'Check provider dashboard'}
                   </span>
                 </div>
               )}
               {!isReceived && !isWaiting && (
-                <div className={`${styles.codeArea} ${styles.failed}`}>
-                  <strong className={styles.codeStateTitle}>Activation canceled or expired</strong>
-                  <p className={styles.codeStateMeta}>
+                <div className="flex w-full flex-col items-center justify-center gap-3 rounded-md border-2 border-[rgba(0,0,0,0.06)] bg-ds-surface-subtle px-5 py-7 opacity-70">
+                  <strong className="text-utility-strong tracking-[var(--ds-type-utility-strong-tracking)] text-ds-text-secondary">Activation canceled or expired</strong>
+                  <p className="m-0 text-center text-[13px] tracking-[0.08em] text-ds-text-secondary">
                     {ticket.message ?? 'You were not charged for this request.'}
                   </p>
                 </div>
               )}
 
-              <div className={styles.footer}>
-                <span className={styles.footerCopy}>Provider: {formatProviderLabel(ticket.provider)}</span>
-                <div className={styles.footerActions}>
+              <div className="flex flex-col gap-3 pt-1 min-[760px]:flex-row min-[760px]:items-center min-[760px]:justify-between">
+                <span className="text-[13px] leading-[1.43] text-ds-text-secondary">Provider: {formatProviderLabel(ticket.provider)}</span>
+                <div className="inline-flex flex-wrap items-center justify-start gap-3 min-[760px]:justify-end">
                   {isReceived && (
                     <AppButton
                       variant="primary"
@@ -131,7 +133,9 @@ export function MessagesScreen(props: MessagesScreenProps) {
             </div>
           );
         }) : (
-          <div className="d-empty">No activations.</div>
+          <div className="rounded-lg border border-ds-border bg-ds-surface px-5 py-7 text-center text-utility tracking-[var(--ds-type-utility-tracking)] text-ds-text-secondary">
+            No activations.
+          </div>
         )}
       </div>
     </div>

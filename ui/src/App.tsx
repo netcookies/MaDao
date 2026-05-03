@@ -7,6 +7,13 @@ import {
   Shield, ShoppingCart, Sliders, Smartphone, Square, Terminal, User, Wallet, X,
 } from 'lucide-react';
 import {
+  AppShell,
+  AppSidebar,
+  AppToolbar,
+} from './components/composites';
+import { NotificationPopover } from './components/overlays';
+import { IconButton } from './components/primitives';
+import {
   AppButton,
   ConfigRow,
   DataTable,
@@ -21,7 +28,6 @@ import {
   StatusPill,
 } from './app/ui-bridge';
 import { MessagesScreen } from './app/messages/MessagesScreen';
-import { NotifIcon } from './app/overlays/NotifIcon';
 import { NewActivationModal } from './app/overlays/NewActivationModal';
 import { ManifestModal } from './app/overlays/ManifestModal';
 import { SearchSelectorModal } from './app/overlays/SearchSelectorModal';
@@ -438,89 +444,106 @@ export function App() {
     ? `Providers › ${manifests[selectedProvider]?.name ?? selectedProvider}`
     : NAV_ITEMS.find((item) => item.id === activeScreen)?.label ?? '';
 
-  return (
-    <div className={cx(`app-root${compactTables ? ' compact' : ''}`)}>
-      <div className="mac-window">
-        <aside className="d-sidebar">
-          <div className="d-traffic">
-            <button className="traffic red" aria-label="Close" onClick={() => void handleWindowAction('close')} />
-            <button className="traffic yellow" aria-label="Minimize" onClick={() => void handleWindowAction('minimize')} />
-            <button className="traffic green" aria-label="Toggle Maximize" onClick={() => void handleWindowAction('maximize_toggle')} />
-          </div>
-          <nav className="d-nav">
-            {NAV_ITEMS.map(({ id, label, Icon }) => {
-              const active = activeScreen === id;
-              return (
+  const notificationItems = useMemo(() => (
+    notifications.map((entry, index) => ({
+      id: `${entry.timestamp}-${index}`,
+      title: entry.message,
+      meta: `${formatProviderLabel(entry.scope)} · ${index < notificationCursor ? 'read' : formatRelativeTime(entry.timestamp)}`,
+      level: entry.level.toLowerCase() === 'error'
+        ? 'danger'
+        : entry.level.toLowerCase() === 'warn'
+          ? 'warning'
+          : 'info',
+    }))
+  ), [notificationCursor, notifications]);
+
+  const sidebar = (
+    <AppSidebar
+      items={NAV_ITEMS.map(({ id, label, Icon }) => ({ id, label, icon: Icon }))}
+      activeId={activeScreen}
+      onSelect={(id) => {
+        setActiveScreen(id);
+        if (id === 'providers') setProviderView('list');
+      }}
+      onClose={() => void handleWindowAction('close')}
+      onMinimize={() => void handleWindowAction('minimize')}
+      onMaximizeToggle={() => void handleWindowAction('maximize_toggle')}
+    />
+  );
+
+  const toolbarNavigation = activeScreen === 'providers' && providerView === 'workspace'
+    ? (
+      <button
+        type="button"
+        aria-label="Back to providers"
+        className="inline-flex h-7 w-7 items-center justify-center rounded-pill text-ds-text-secondary transition-colors duration-fast ease-[var(--ds-motion-transition-fast)] hover:bg-black/5 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ds-accent-focus"
+        onClick={() => setProviderView('list')}
+      >
+        <ChevronLeft size={16} />
+      </button>
+    )
+    : <PanelLeft size={16} className="text-ds-text-secondary/70" aria-hidden="true" />;
+
+  const toolbarActions = (
+    <>
+      <div className="relative">
+        <IconButton
+          variant="toolbar"
+          icon={<Bell size={16} className="opacity-60" />}
+          aria-label="Toggle notifications"
+          aria-expanded={showNotifications}
+          onClick={() => setShowNotifications((current) => !current)}
+        />
+        {showNotifications && (
+          <div className="absolute right-0 top-[calc(100%+8px)] z-30">
+            <NotificationPopover
+              markAllAction={(
                 <button
-                  key={id}
-                  className={`d-nav-item${active ? ' active' : ''}`}
+                  type="button"
+                  className="font-text text-[13px] font-medium text-ds-accent-focus transition-opacity duration-fast ease-[var(--ds-motion-transition-fast)] hover:opacity-80 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ds-accent-focus"
+                  onClick={markNotificationsRead}
+                >
+                  Mark all read
+                </button>
+              )}
+              items={notificationItems}
+              footer={(
+                <AppButton
+                  variant="ghost"
+                  size="utility"
                   onClick={() => {
-                    setActiveScreen(id);
-                    if (id === 'providers') setProviderView('list');
+                    setActiveScreen('logs');
+                    setShowNotifications(false);
                   }}
                 >
-                  <Icon size={16} opacity={active ? 1 : 0.6} />
-                  <span>{label}</span>
-                </button>
-              );
-            })}
-          </nav>
-        </aside>
+                  View all in Logs →
+                </AppButton>
+              )}
+            />
+          </div>
+        )}
+      </div>
+      <AppButton variant="primary" onClick={() => setShowActivationModal(true)}>
+        <Plus size={14} />
+        <span>New Activation</span>
+      </AppButton>
+    </>
+  );
 
-        <div className="d-main">
-          <header className="d-toolbar">
-            <div className="d-toolbar-left">
-              {activeScreen === 'providers' && providerView === 'workspace'
-                ? (
-                  <button className="d-toolbar-nav-btn" aria-label="Back to providers" onClick={() => setProviderView('list')}>
-                    <ChevronLeft size={16} />
-                  </button>
-                )
-                : (
-                  <span className="d-toolbar-nav-btn d-toolbar-nav-static" aria-hidden="true">
-                    <PanelLeft size={16} />
-                  </span>
-                )}
-              <span className="d-toolbar-title">{toolbarTitle}</span>
-            </div>
-            <div className="d-toolbar-right">
-              <div className="d-notification-wrap">
-                <button className="d-icon-btn d-icon-btn-toolbar" onClick={() => setShowNotifications((current) => !current)}>
-                  <Bell size={16} style={{ opacity: 0.6 }} />
-                </button>
-                {showNotifications && (
-                  <div className="d-notification-panel">
-                    <div className="d-notification-panel-head">
-                      <strong>Notifications</strong>
-                      <span className="d-note-link" onClick={markNotificationsRead}>Mark all read</span>
-                    </div>
-                    <div className="d-notification-list">
-                      {notifications.length > 0 ? notifications.map((entry, index) => (
-                        <div className="d-notification-item" key={`${entry.timestamp}-${index}`}>
-                          <div className="d-notification-title-row">
-                            <NotifIcon level={entry.level.toLowerCase()} />
-                            <strong>{entry.message}</strong>
-                          </div>
-                          <small>{formatProviderLabel(entry.scope)} · {index < notificationCursor ? 'read' : formatRelativeTime(entry.timestamp)}</small>
-                        </div>
-                      )) : <div className="d-empty">No events.</div>}
-                    </div>
-                    <div className="d-notification-panel-foot">
-                      <AppButton variant="ghost" size="utility" onClick={() => { setActiveScreen('logs'); setShowNotifications(false); }}>
-                        View all in Logs →
-                      </AppButton>
-                    </div>
-                  </div>
-                )}
-              </div>
-              <AppButton variant="primary" onClick={() => setShowActivationModal(true)}>
-                <Plus size={14} />
-                <span>New Activation</span>
-              </AppButton>
-            </div>
-          </header>
-
-          <div className="d-content">
+  return (
+    <>
+      <AppShell
+        sidebar={sidebar}
+        toolbar={(
+          <AppToolbar
+            title={toolbarTitle}
+            navigation={toolbarNavigation}
+            actions={toolbarActions}
+          />
+        )}
+        compact={compactTables}
+        contentClassName="max-[760px]:pt-5"
+      >
             {activeScreen === 'overview' && (
               <OverviewScreen
                 stats={overviewStats}
@@ -629,20 +652,18 @@ export function App() {
               />
             )}
 
-            {activeScreen === 'logs' && (
-              <LogsScreen
-                logs={filteredLogs}
-                filter={logsFilter}
-                setFilter={setLogsFilter}
-                filters={LOG_FILTERS}
-                onRefresh={() => void Promise.all([loadSnapshot(), loadNotifications()])}
-                search={logsSearch}
-                onSearch={setLogsSearch}
-              />
-            )}
-          </div>
-        </div>
-      </div>
+              {activeScreen === 'logs' && (
+                <LogsScreen
+                  logs={filteredLogs}
+                  filter={logsFilter}
+                  setFilter={setLogsFilter}
+                  filters={LOG_FILTERS}
+                  onRefresh={() => void Promise.all([loadSnapshot(), loadNotifications()])}
+                  search={logsSearch}
+                  onSearch={setLogsSearch}
+                />
+              )}
+      </AppShell>
 
       {showActivationModal && (
         <NewActivationModal
@@ -683,6 +704,6 @@ export function App() {
           onSelect={applySelectorOption}
         />
       )}
-    </div>
+    </>
   );
 }

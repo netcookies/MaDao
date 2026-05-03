@@ -62,7 +62,6 @@ export function PageHeader(props: {
       meta={props.meta}
       actions={props.actions}
       align={props.align}
-      className={cx('d-page-header', props.align === 'center' && 'is-center')}
     />
   );
 }
@@ -140,15 +139,27 @@ export function SelectTrigger(props: {
 }
 
 export function StatusBadge(props: { tone: 'green' | 'gray' | 'orange'; children: ReactNode }) {
-  return <span className={`d-badge ${props.tone}`}>{props.children}</span>;
+  const toneClass = props.tone === 'green'
+    ? 'bg-[var(--ds-color-state-success-soft)] text-ds-state-success'
+    : props.tone === 'orange'
+      ? 'bg-[var(--ds-color-state-warning-soft)] text-ds-state-warning'
+      : 'bg-ds-surface-subtle text-ds-text-secondary';
+
+  return (
+    <span
+      className={cx(
+        'inline-flex items-center rounded-pill px-2.5 py-1 font-text text-caption font-semibold tracking-[var(--ds-type-caption-tracking)]',
+        toneClass,
+      )}
+    >
+      {props.children}
+    </span>
+  );
 }
 
 export function StatusPill(props: { status: string }) {
   return (
-    <DsStatusPill
-      tone={statusToneFromValue(props.status)}
-      className={cx('d-status-pill', `is-ds-tone-${statusToneFromValue(props.status)}`)}
-    >
+    <DsStatusPill tone={statusToneFromValue(props.status)}>
       {props.status}
     </DsStatusPill>
   );
@@ -162,9 +173,9 @@ export function DataTable(props: {
 }) {
   return (
     <DsDataTable
-      className={cx('d-data-table', props.className)}
-      headerClassName={cx('d-data-table-head', props.headerClassName)}
-      bodyClassName="d-data-table-body"
+      className={cx('flex flex-col', props.className)}
+      headerClassName={cx('flex flex-col', props.headerClassName)}
+      bodyClassName="flex flex-col"
       header={props.header}
     >
       {props.children}
@@ -182,7 +193,6 @@ export function ToggleSwitch(props: {
       checked={props.checked}
       onChange={props.onChange}
       ariaLabel={props.ariaLabel}
-      className={cx('d-toggle', props.checked && 'on')}
     />
   );
 }
@@ -192,9 +202,11 @@ export function SettingChoiceRow(props: {
   control: ReactNode;
 }) {
   return (
-    <div className="d-detail-row d-detail-row-choice">
-      <span className="d-detail-label">{props.label}</span>
-      <div className="d-setting-choice-control">{props.control}</div>
+    <div className="flex items-center justify-between gap-4">
+      <span className="font-text text-utility font-normal tracking-[var(--ds-type-utility-tracking)] text-ds-text-secondary">
+        {props.label}
+      </span>
+      <div className="inline-flex min-h-9 items-center">{props.control}</div>
     </div>
   );
 }
@@ -207,10 +219,19 @@ export function ToggleSetting(props: {
   last?: boolean;
 }) {
   return (
-    <div className={`d-toggle-row${props.last ? '' : ' border'}`}>
-      <div className="d-toggle-copy">
-        <strong className="d-toggle-title">{props.title}</strong>
-        <p className="d-toggle-description">{props.description}</p>
+    <div
+      className={cx(
+        'flex items-center justify-between gap-4 py-4',
+        !props.last && 'border-b border-black/5',
+      )}
+    >
+      <div className="flex min-w-0 flex-col gap-1.5">
+        <strong className="font-text text-utility font-semibold tracking-[var(--ds-type-utility-tracking)] text-ds-text-primary">
+          {props.title}
+        </strong>
+        <p className="m-0 font-text text-caption font-normal tracking-[var(--ds-type-caption-tracking)] text-ds-text-secondary">
+          {props.description}
+        </p>
       </div>
       <ToggleSwitch checked={props.checked} onChange={props.onChange} ariaLabel={props.title} />
     </div>
@@ -219,28 +240,50 @@ export function ToggleSetting(props: {
 
 export function ConfigRow(props: { label: string; children: ReactNode; last?: boolean }) {
   return (
-    <div className={`d-config-row${props.last ? ' last' : ''}`}>
-      <span className="d-config-label">{props.label}</span>
-      <div className="d-config-value">{props.children}</div>
+    <div
+      className={cx(
+        'flex items-center justify-between gap-4 px-5 py-4',
+        !props.last && 'border-b border-black/5',
+      )}
+    >
+      <span className="font-text text-utility font-normal tracking-[var(--ds-type-utility-tracking)] text-ds-text-secondary">
+        {props.label}
+      </span>
+      <div className="min-w-0 flex-1">{props.children}</div>
     </div>
   );
 }
 
 export function DetailRow(props: { label: string; value: string; last?: boolean }) {
   return (
-    <div className={`d-pd-row${props.last ? '' : ' border'}`}>
-      <span className="d-detail-label">{props.label}</span>
-      <span className="d-detail-value">{props.value}</span>
+    <div
+      className={cx(
+        'flex items-center justify-between gap-4 px-5 py-4',
+        !props.last && 'border-b border-black/5',
+      )}
+    >
+      <span className="font-text text-utility font-normal tracking-[var(--ds-type-utility-tracking)] text-ds-text-secondary">
+        {props.label}
+      </span>
+      <span className="font-text text-[13px] font-medium leading-[1.43] tracking-[-0.224px] text-ds-text-primary">
+        {props.value}
+      </span>
     </div>
   );
 }
 
 export function ModalField(props: { label: string; hint?: string; children: ReactNode }) {
   return (
-    <label className="d-modal-field">
-      <div className="d-modal-field-label-wrap">
-        <span className="d-modal-field-label">{props.label}</span>
-        {props.hint && <span className="d-field-hint">{props.hint}</span>}
+    <label className="flex flex-col gap-2">
+      <div className="flex items-center justify-between gap-3">
+        <span className="font-text text-[11px] font-semibold uppercase tracking-[0.12em] text-ds-text-secondary">
+          {props.label}
+        </span>
+        {props.hint ? (
+          <span className="font-text text-[11px] font-medium text-ds-accent-blue">
+            {props.hint}
+          </span>
+        ) : null}
       </div>
       {props.children}
     </label>

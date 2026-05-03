@@ -1,12 +1,19 @@
 import type { ButtonHTMLAttributes, ReactNode } from 'react';
 import { cx } from '../../../lib/cx';
-import styles from './IconButton.module.css';
 
 export type IconButtonVariant = 'surface' | 'toolbar';
 
 export type IconButtonProps = ButtonHTMLAttributes<HTMLButtonElement> & {
   variant?: IconButtonVariant;
   icon: ReactNode;
+};
+
+const BASE_CLASS =
+  'inline-flex h-control w-control items-center justify-center rounded-pill border text-ds-text-primary transition-[background-color,color,border-color,opacity,transform] duration-fast ease-[var(--ds-motion-transition-fast)] active:scale-press disabled:cursor-default disabled:opacity-50 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ds-accent-focus';
+
+const VARIANT_CLASS: Record<IconButtonVariant, string> = {
+  surface: 'border-ds-border bg-ds-surface-chip',
+  toolbar: 'border-transparent bg-transparent',
 };
 
 export function IconButton(props: IconButtonProps) {
@@ -21,7 +28,7 @@ export function IconButton(props: IconButtonProps) {
   return (
     <button
       type={type}
-      className={cx(styles.root, styles[variant], className)}
+      className={cx(BASE_CLASS, VARIANT_CLASS[variant], className)}
       {...rest}
     >
       {icon}

@@ -1,5 +1,4 @@
 import { cx } from '../../../lib/cx';
-import styles from './ToggleSwitch.module.css';
 
 export type ToggleSwitchProps = {
   checked: boolean;
@@ -17,10 +16,19 @@ export function ToggleSwitch(props: ToggleSwitchProps) {
       role="switch"
       aria-checked={checked}
       aria-label={ariaLabel}
-      className={cx(styles.root, checked && styles.checked, className)}
+      className={cx(
+        'inline-flex h-[26px] w-[42px] items-center rounded-pill border border-transparent p-[3px] transition-[background-color,border-color] duration-fast ease-[var(--ds-motion-transition-fast)] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ds-accent-focus',
+        checked ? 'bg-ds-accent-blue' : 'bg-[rgba(120,120,128,0.16)]',
+        className,
+      )}
       onClick={() => onChange(!checked)}
     >
-      <span className={cx(styles.thumb, checked && styles.thumbChecked)} />
+      <span
+        className={cx(
+          'h-5 w-5 rounded-pill bg-white shadow-[0_1px_3px_rgba(0,0,0,0.18)] transition-transform duration-fast ease-[var(--ds-motion-transition-fast)]',
+          checked && 'translate-x-4',
+        )}
+      />
     </button>
   );
 }

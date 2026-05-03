@@ -1,6 +1,5 @@
 import type { ReactNode } from 'react';
 import { cx } from '../../../lib/cx';
-import styles from './NotificationPopover.module.css';
 
 export type NotificationLevel = 'info' | 'warning' | 'danger';
 
@@ -28,25 +27,38 @@ export function NotificationPopover(props: NotificationPopoverProps) {
   const { title = 'Notifications', markAllAction, footer, items } = props;
 
   return (
-    <section className={styles.root}>
-      <header className={styles.header}>
-        <h2 className={styles.headerTitle}>{title}</h2>
+    <section className="flex w-notification flex-col overflow-hidden rounded-[12px] border border-ds-border bg-ds-surface shadow-[0_8px_24px_rgba(0,0,0,0.16)]">
+      <header className="flex items-center justify-between gap-ds-sm bg-ds-content px-4 py-3">
+        <h2 className="m-0 font-text text-utility font-semibold tracking-[var(--ds-type-utility-tracking)]">{title}</h2>
         {markAllAction}
       </header>
-      <div className={styles.list}>
+      <div className="flex max-h-[240px] flex-col overflow-auto">
         {items.length > 0 ? items.map((item) => (
-          <div key={item.id} className={styles.item}>
-            <span className={cx(styles.icon, styles[item.level])}>
+          <div key={item.id} className="flex items-start gap-2.5 border-b border-ds-border bg-ds-surface px-4 py-3 last:border-b-0">
+            <span
+              className={cx(
+                'inline-flex h-[22px] w-[22px] shrink-0 items-center justify-center rounded-pill text-[12px] font-bold text-white',
+                item.level === 'info' && 'bg-ds-accent-blue',
+                item.level === 'warning' && 'bg-ds-state-warning',
+                item.level === 'danger' && 'bg-ds-state-danger',
+              )}
+            >
               {levelGlyph(item.level)}
             </span>
-            <div className={styles.copy}>
-              <strong className={styles.title}>{item.title}</strong>
-              <span className={styles.meta}>{item.meta}</span>
+            <div className="flex min-w-0 flex-col gap-0.5">
+              <strong className="font-text text-[13px] font-medium">{item.title}</strong>
+              <span className="font-text text-caption font-normal tracking-[var(--ds-type-caption-tracking)] text-ds-text-secondary">
+                {item.meta}
+              </span>
             </div>
           </div>
-        )) : <div className={styles.empty}>No notifications.</div>}
+        )) : (
+          <div className="px-4 py-5 font-text text-caption font-normal tracking-[var(--ds-type-caption-tracking)] text-ds-text-secondary">
+            No notifications.
+          </div>
+        )}
       </div>
-      {footer ? <footer className={styles.footer}>{footer}</footer> : null}
+      {footer ? <footer className="flex items-center justify-between gap-ds-sm bg-ds-content px-4 py-3">{footer}</footer> : null}
     </section>
   );
 }

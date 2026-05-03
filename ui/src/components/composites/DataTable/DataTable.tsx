@@ -1,6 +1,5 @@
 import type { ReactNode } from 'react';
 import { cx } from '../../../lib/cx';
-import styles from './DataTable.module.css';
 
 export type DataTableProps = {
   header: ReactNode;
@@ -14,9 +13,9 @@ export function DataTable(props: DataTableProps) {
   const { header, children, className, headerClassName, bodyClassName } = props;
 
   return (
-    <div className={cx(styles.root, className)}>
-      <div className={cx(styles.head, headerClassName)}>{header}</div>
-      <div className={cx(styles.body, bodyClassName)}>{children}</div>
+    <div className={cx('flex flex-col', className)}>
+      <div className={cx('flex flex-col', headerClassName)}>{header}</div>
+      <div className={cx('flex flex-col', bodyClassName)}>{children}</div>
     </div>
   );
 }

@@ -1,5 +1,5 @@
 import { AppButton } from '../ui-bridge';
-import styles from './ManifestModal.module.css';
+import { Modal } from '../../components/overlays';
 
 export type ManifestModalProps = {
   providerName: string;
@@ -12,22 +12,24 @@ export type ManifestModalProps = {
 
 export function ManifestModal(props: ManifestModalProps) {
   return (
-    <div className="d-backdrop" onClick={props.onClose}>
-      <div className={`d-modal ${styles.wide}`} onClick={(event) => event.stopPropagation()}>
-        <div className={styles.header}>
-          <div>
-            <h2 className={styles.title}>Advanced Manifest</h2>
-            <p className={styles.subtitle}>
-              {props.providerName} · JSON source of truth
-            </p>
-          </div>
-          <div className={styles.actions}>
-            <AppButton variant="ghost" size="utility" onClick={props.onClose}>Close</AppButton>
-            <AppButton variant="primary" size="utility" onClick={props.onSave} disabled={props.busy}>Save</AppButton>
-          </div>
+    <Modal
+      open
+      variant="wide"
+      title="Advanced Manifest"
+      subtitle={`${props.providerName} · JSON source of truth`}
+      onClose={props.onClose}
+      actions={(
+        <div className="inline-flex items-center gap-3">
+          <AppButton variant="ghost" size="utility" onClick={props.onClose}>Close</AppButton>
+          <AppButton variant="primary" size="utility" onClick={props.onSave} disabled={props.busy}>Save</AppButton>
         </div>
-        <textarea className={styles.editor} value={props.rawEditor} onChange={(event) => props.onChange(event.target.value)} />
-      </div>
-    </div>
+      )}
+    >
+      <textarea
+        className="min-h-[400px] flex-1 resize-none overflow-auto rounded-md bg-ds-surface-subtle px-5 py-4 font-mono text-caption leading-[1.6] text-ds-text-primary"
+        value={props.rawEditor}
+        onChange={(event) => props.onChange(event.target.value)}
+      />
+    </Modal>
   );
 }

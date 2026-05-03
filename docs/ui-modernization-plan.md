@@ -2,270 +2,102 @@
 
 ## 结论
 
-针对当前 `React + 单文件组件 + 单份大 CSS` 的结构，最稳妥的现代化方案不是直接上运行时 CSS-in-JS，而是：
+当前前端已经完成从 `CSS Modules + CSS Variables + .d-* bridge` 向 `Tailwind CSS + design token` 的主路径迁移。
 
-1. 保留 React 19。
-2. 引入 `design token + component contract` 作为单一事实源。
-3. 采用 `CSS Modules + CSS Variables + cascade layer` 做样式分层。
-4. 按 `primitive → shell → domain screen` 顺序迁移。
+最终架构是：
 
-这样做的原因：
+1. `React 19`
+2. `Tailwind CSS` 作为样式消费层
+3. `design token + CSS variables` 作为视觉真值源
+4. `primitive → composite → shell → screen` 的组件化结构
 
-- 不增加运行时样式成本。
-- 与 Vite 原生兼容。
-- 适合当前仓库没有额外前端基础设施的现实。
-- 能在不大改业务逻辑的前提下逐步拆掉 `App.tsx`。
+这意味着 Tailwind 只负责“消费和组合样式”，而不是重新定义一套新的颜色、圆角和间距真值。
 
-## 目标架构
+## 当前架构
 
-### 1. 设计系统层
+### Token 层
 
-- `ui/src/design-system/tokens.ts`
-  - 导出 JS 可读 token。
 - `ui/src/design-system/theme.css`
-  - 导出 CSS 变量。
-- `ui/src/design-system/spec.ts`
-  - 导出组件规范与迁移映射。
+  - canonical `--ds-*` token 源
+- `ui/src/base.css`
+  - 基础 reset + legacy alias
+- `ui/src/design-system/tailwind-theme.cjs`
+  - `--ds-*` 到 Tailwind theme 的消费映射
 
-### 2. Primitive 层
+### 构建层
 
-目录建议：
+- `tailwind.config.cjs`
+- `postcss.config.cjs`
+- `ui/src/tailwind.css`
 
-```text
-ui/src/components/primitives/
-├── Button/
-├── IconButton/
-├── SegmentedControl/
-├── SearchField/
-├── SelectTrigger/
-├── ToggleSwitch/
-├── SurfaceCard/
-└── StatusPill/
-```
+说明：
 
-每个 primitive 目录建议包含：
+- 当前 `preflight` 关闭，避免对 Apple 风格桌面 UI 做一次性全局 reset 冲击
+- 如需开启，必须伴随独立的视觉回归
 
-```text
-Component.tsx
-Component.module.css
-Component.types.ts
-index.ts
-```
+### 组件层
 
-### 3. Composite 层
+- primitives：已 Tailwind 化
+- composites：已 Tailwind 化
+- overlays：已 Tailwind 化
+- app shell：已脱离 `.d-*` 主结构
+- domain screens：已切到 Tailwind 主路径
 
-- `AppSidebar`
-- `AppToolbar`
-- `PageHeader`
-- `SectionHeader`
-- `DataTable`
-- `NotificationPopover`
-- `Modal`
+## 设计原则
 
-### 4. Domain 层
+### Tailwind 只做消费层
 
-- `providers/`
-- `messages/`
-- `settings/`
-- `logs/`
+- 禁止在 `tailwind.config.cjs` 内维护第二套 token 真值
+- 所有主题值优先从 `theme.css` 的 `--ds-*` 变量读取
+- `theme.css` 是唯一视觉真值源
 
-每个 domain 目录只保留：
+### 组件 API 保持稳定
 
-- 业务视图组合
-- domain hook
-- domain formatter
+- 迁移过程中优先保留原有 props 契约
+- 内部实现允许切换为 Tailwind class 组合
+- 尽量避免 screen 同步承担组件 API 破坏
 
-不再在 domain 内定义基础按钮与通用表单控件。
+### 清理顺序
 
-## 样式分层
+1. 先迁移主渲染路径
+2. 再迁移 screen
+3. 最后删除 bridge / module.css / 旧文档说明
 
-建议把样式分为 4 层：
+## 当前迁移状态
 
-### Layer 1：Tokens
+### 已完成
 
-- 只放 `:root` 变量与 `[data-theme="dark"]` 覆盖
-- 不出现任何组件选择器
+- Tailwind 基础设施与构建链路接入
+- token 映射与主题边界收口
+- primitives Tailwind 化
+- composites / overlays Tailwind 化
+- App shell 清退 `.d-*` 核心依赖
+- Overview / Providers / Provider Workspace / Messages / Settings / Logs / screen-level overlays 迁移
 
-### Layer 2：Reset / Base
+### 待持续收尾
 
-- `box-sizing`
-- `html/body/#root`
-- `button/input` 字体继承
-- `focus-visible` 基础策略
+- 清理未再使用的 `*.module.css`
+- 清理 `shared-bridge.css`
+- 清理 `shell.css`
+- 更新 `design-system/spec.ts` 中仍引用旧类名的迁移说明
+- 建立新的视觉对齐基线
 
-### Layer 3：Primitives
+## 推荐约束
 
-- Button
-- Input
-- Card
-- Badge
-- Toggle
+- 禁止新增 `.d-*` 全局类
+- 禁止新增 `Component.module.css` 作为主实现
+- Tailwind class 组合优先收敛在组件内部
+- 业务 screen 只做结构拼装，不复制组件样式片段
 
-### Layer 4：Screens
+## 验收方式
 
-- 页面布局
-- 局部响应式
-- domain 组合关系
+最小门禁：
 
-这样可以避免现在这种问题：
+- `npm run build`
+- `cargo check --workspace`
 
-- token 与业务样式混写
-- 页面局部调整反向污染全局 primitive
-- 一个类名承担多种语义
+推荐门禁：
 
-## 状态管理拆分
-
-当前 `App.tsx` 的问题不只是样式，还包括状态聚合过重。
-
-建议把状态拆为：
-
-### app shell state
-
-- `activeScreen`
-- `providerView`
-- `activeProviderSection`
-- `showNotifications`
-- `showActivationModal`
-
-### settings state
-
-- `appearanceTheme`
-- `language`
-- `compactTables`
-- `runtimeSettings`
-
-### data state
-
-- `snapshot`
-- `manifests`
-- `balances`
-- `pricePanels`
-- `providerOptions`
-
-### transient ui state
-
-- `selectorState`
-- `selectorSearch`
-- `busyAction`
-- `statusMessage`
-
-建议迁移到：
-
-- `hooks/useAppShellState.ts`
-- `hooks/useRuntimeData.ts`
-- `hooks/useProviderWorkspace.ts`
-- `hooks/useNotifications.ts`
-
-## 迁移步骤
-
-### Phase 0：抽 token 与规范
-
-- 建立 `design-system/spec.ts`
-- 建立 `design-system/tokens.ts`
-- 建立 `theme.css`
-
-这是当前已完成或可立即承接的阶段。
-
-### Phase 1：抽 primitive
-
-优先级：
-
-1. `Button`
-2. `SegmentedControl`
-3. `SearchField`
-4. `SelectTrigger`
-5. `ToggleSwitch`
-6. `SurfaceCard`
-
-迁移策略：
-
-- 新建组件
-- 用少量适配层兼容旧页面
-- 不一次性替换全部 screen
-
-### Phase 2：抽 shell
-
-优先级：
-
-1. `AppSidebar`
-2. `AppToolbar`
-3. `PageHeader`
-4. `NotificationPopover`
-5. `Modal`
-
-### Phase 3：按页面拆 `App.tsx`
-
-建议拆分顺序：
-
-1. `SettingsScreen`
-2. `LogsScreen`
-3. `MessagesScreen`
-4. `ProvidersListScreen`
-5. `ProviderWorkspaceScreen`
-6. `OverviewScreen`
-
-这个顺序的原因：
-
-- Settings / Logs 的业务耦合最小。
-- Provider Workspace 最复杂，最后拆更安全。
-
-## 推荐的现代化约束
-
-### 组件 API
-
-- variant 用显式 union type
-- size 用显式 union type
-- tone / status 用语义枚举
-- 禁止传入任意 className 改写核心结构，除过渡期外仅保留 `className` 做外层挂载
-
-### 样式策略
-
-- 禁止新增 `.d-*` 全局类作为长期方案
-- 优先 `data-variant`、`data-size`、`data-state`
-- 禁止业务组件直接依赖颜色值
-- 禁止同一个组件跨多个页面复制 CSS 片段
-
-### 业务与视觉解耦
-
-- 把 `formatServiceLabel`、`formatProviderLabel`、`formatCountryLabel` 移到 formatter
-- 把 `busyAction` 拆成显式布尔状态或 action map
-- 把调试或验收专用适配逻辑收敛到独立模块
-
-## 风险点
-
-### 1. 当前热文件已有未提交修改
-
-以下文件已经有在途变更：
-
-- `ui/src/App.tsx`
-- `ui/src/styles.css`
-- `designs/new.pen`
-
-因此结构性重构不能直接在这些文件上继续叠加，否则会与现有工作流冲突。
-
-### 2. 当前没有前端测试基础设施
-
-现状没有 Vitest / Testing Library。
-
-建议后续补充：
-
-- `vitest`
-- `@testing-library/react`
-- `@testing-library/user-event`
-
-至少覆盖：
-
-- primitive 组件渲染
-- variant / size / disabled / active 状态
-- overlay 开关
-- formatter 纯函数
-
-## 下一步建议
-
-如果继续推进代码落地，建议单独开一轮只处理 UI 重构，并遵循下面顺序：
-
-1. 先清理或合并当前 `App.tsx` / `styles.css` 的未提交修改。
-2. 接入 design-system token 文件。
-3. 落第一批 primitive。
-4. 用 `SettingsScreen` 作为首个迁移试点。
-5. 每迁移一屏都跑截图对比。
+- 关键 screen 截图对比 `designs/new.pen`
+- macOS 壳层与菜单栏联动手工回归
+- light / dark / compact 模式抽查
