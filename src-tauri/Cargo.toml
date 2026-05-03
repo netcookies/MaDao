@@ -18,5 +18,5 @@ serde.workspace = true
 serde_json.workspace = true
 sms-core = { path = "../crates/sms-core" }
 sms-server = { path = "../crates/sms-server" }
-tauri = { version = "2.10.3", features = [] }
+tauri = { version = "2.10.3", features = ["tray-icon", "image-png"] }
 tokio.workspace = true

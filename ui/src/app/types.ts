@@ -95,6 +95,11 @@ export type RuntimeSettingsUpdate = { routing_strategy: RoutingStrategy; auto_fa
 export type ProviderDynamicOptions = { provider: string; services: OptionItem[]; countries: OptionItem[]; operators: OptionItem[] };
 export type StoreQueryState = { service: string; country: string; operator: string; search: string };
 
+export type MenuCommandPayload =
+  | { kind: 'new_activation' }
+  | { kind: 'open_screen'; screen: ScreenId }
+  | { kind: 'open_provider'; provider_id: string; section: ProviderSectionId };
+
 export type ActivationFormState = {
   service: string;
   country: string;

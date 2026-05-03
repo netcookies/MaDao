@@ -71,6 +71,7 @@ import {
   SOCKET_PATH,
 } from './services/runtimeApi';
 import { windowAction } from './services/windowApi';
+import { listenMenuCommand } from './services/menuBarApi';
 
 type SidebarItem = { id: ScreenId; label: string; Icon: typeof LayoutDashboard };
 
@@ -306,6 +307,44 @@ export function App() {
     root.dataset.theme = appearanceTheme;
     root.dataset.language = language;
   }, [appearanceTheme, language]);
+
+  useEffect(() => {
+    let disposed = false;
+    let unlisten: (() => void) | undefined;
+
+    void listenMenuCommand((payload) => {
+      if (payload.kind === 'new_activation') {
+        setShowActivationModal(true);
+        return;
+      }
+
+      if (payload.kind === 'open_screen') {
+        setActiveScreen(payload.screen);
+        if (payload.screen === 'providers') {
+          setProviderView('list');
+        }
+        setShowNotifications(false);
+        return;
+      }
+
+      setSelectedProvider(payload.provider_id);
+      setActiveScreen('providers');
+      setProviderView('workspace');
+      setActiveProviderSection(payload.section);
+      setShowNotifications(false);
+    }).then((nextUnlisten) => {
+      if (disposed) {
+        nextUnlisten();
+        return;
+      }
+      unlisten = nextUnlisten;
+    }).catch(() => {});
+
+    return () => {
+      disposed = true;
+      unlisten?.();
+    };
+  }, []);
 
   useEffect(() => {
     if (visibleProviders.length === 0) return;

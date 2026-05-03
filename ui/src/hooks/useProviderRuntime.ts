@@ -26,6 +26,7 @@ import {
   saveProviderManifest,
   saveRuntimeSettings as persistRuntimeSettings,
 } from '../services/runtimeApi';
+import { refreshMenuBar } from '../services/menuBarApi';
 
 type DataState = {
   snapshot: Snapshot | null;
@@ -167,6 +168,7 @@ export function useProviderRuntime(
           operator: current.operator || defaults?.operators[0]?.value || '',
         }));
       }
+      void refreshMenuBar().catch(() => {});
     } catch {
       ui.setStatusMessage('Failed to load provider manifests.');
     }
