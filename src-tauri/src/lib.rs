@@ -243,7 +243,7 @@ fn sync_menu_bar(app: &tauri::AppHandle) -> Result<(), String> {
         .map_err(|err| err.to_string())?;
     TrayIconBuilder::with_id(TRAY_ID)
         .icon(tray_icon)
-        .icon_as_template(false)
+        .icon_as_template(true)
         .menu(&tray_menu)
         .show_menu_on_left_click(true)
         .tooltip(format!("MaDao SMS Platform · {active_count} active providers"))
