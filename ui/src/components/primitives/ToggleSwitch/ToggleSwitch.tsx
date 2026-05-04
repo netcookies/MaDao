@@ -17,7 +17,7 @@ export function ToggleSwitch(props: ToggleSwitchProps) {
       aria-checked={checked}
       aria-label={ariaLabel}
       className={cx(
-        'inline-flex h-[26px] w-[42px] items-center rounded-pill border border-transparent p-[3px] transition-[background-color,border-color] duration-fast ease-[var(--ds-motion-transition-fast)] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ds-accent-focus',
+        'inline-flex h-6 w-11 items-center rounded-pill border border-transparent p-[2px] transition-[background-color,border-color] duration-fast ease-[var(--ds-motion-transition-fast)] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ds-accent-focus',
         checked ? 'bg-ds-accent-blue' : 'bg-[rgba(120,120,128,0.16)]',
         className,
       )}

@@ -3,7 +3,7 @@ import {
 } from 'react';
 import {
   Bell, Bot, ChevronLeft, ChevronsUpDown, Copy, GripVertical, LayoutDashboard,
-  Loader2, MessageSquare, Minus, PanelLeft, Plus, Search, Send, Server, Settings,
+  Loader2, MessageSquare, PanelLeft, Plus, Search, Send, Server, Settings,
   Shield, ShoppingCart, Sliders, Smartphone, Square, Terminal, User, Wallet, X,
 } from 'lucide-react';
 import {
@@ -465,9 +465,6 @@ export function App() {
         setActiveScreen(id);
         if (id === 'providers') setProviderView('list');
       }}
-      onClose={() => void handleWindowAction('close')}
-      onMinimize={() => void handleWindowAction('minimize')}
-      onMaximizeToggle={() => void handleWindowAction('maximize_toggle')}
     />
   );
 

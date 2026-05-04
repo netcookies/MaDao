@@ -1,6 +1,6 @@
+import { Moon, Sun } from 'lucide-react';
 import {
   AppButton,
-  PageHeader,
   SegmentedControl,
   SettingChoiceRow,
   ToggleSetting,
@@ -35,41 +35,39 @@ export type SettingsScreenProps = {
 
 export function SettingsScreen(props: SettingsScreenProps) {
   return (
-    <div className="flex flex-col gap-5">
-      <PageHeader
-        title="Settings"
-        subtitle="Configure global preferences and app behavior."
-      />
+    <div className="flex flex-col gap-8">
+      <p className="m-0 max-w-[640px] font-text text-utility font-normal tracking-[var(--ds-type-utility-tracking)] text-ds-text-secondary">
+        Configure global preferences and app behavior.
+      </p>
 
-      <div className="rounded-lg border border-ds-border bg-ds-surface p-5">
-        <div className="flex flex-col gap-0">
-          <div className="pb-5">
-            <h3 className="m-0 text-section-title font-semibold tracking-[var(--ds-type-section-title-tracking)] text-ds-text-primary">Appearance</h3>
-          </div>
+      <div className="overflow-hidden rounded-sm border border-black/[0.08] bg-ds-surface py-2 shadow-[0_1px_2px_rgba(0,0,0,0.04)]">
+        <div className="flex flex-col gap-0 border-b border-solid border-black/5 border-x-0 border-t-0 px-6 py-4">
+          <h3 className="m-0 text-section-title font-semibold tracking-[var(--ds-type-section-title-tracking)] text-ds-text-primary">Appearance</h3>
           <SettingChoiceRow
             label="Language"
             control={<SegmentedControl items={[{ id: 'en', label: 'English' }, { id: 'zh', label: '中文' }]} value={props.language} onChange={props.setLanguage} appearance="rail" className="flex-nowrap" />}
           />
           <SettingChoiceRow
             label="Theme"
-            control={<SegmentedControl items={[{ id: 'light', label: 'Light' }, { id: 'dark', label: 'Dark' }, { id: 'system', label: 'System' }]} value={props.appearanceTheme} onChange={props.setAppearanceTheme} appearance="rail" className="flex-nowrap" />}
+            control={<SegmentedControl items={[{ id: 'light', label: 'Light', icon: <Sun size={13} /> }, { id: 'dark', label: 'Dark', icon: <Moon size={13} /> }, { id: 'system', label: 'System' }]} value={props.appearanceTheme} onChange={props.setAppearanceTheme} appearance="rail" className="flex-nowrap" />}
           />
         </div>
 
-        <div className="flex flex-col gap-0 border-t border-black/5 pt-5">
-          <h3 className="m-0 pb-5 text-section-title font-semibold tracking-[var(--ds-type-section-title-tracking)] text-ds-text-primary">General</h3>
+        <div className="flex flex-col gap-0 border-b border-solid border-black/5 border-x-0 border-t-0 px-6 py-4">
+          <h3 className="m-0 pb-4 text-section-title font-semibold tracking-[var(--ds-type-section-title-tracking)] text-ds-text-primary">General</h3>
           <ToggleSetting title="Auto Refresh" description="Refresh runtime snapshot every 4 seconds." checked={props.autoRefresh} onChange={props.setAutoRefresh} />
           <ToggleSetting title="Advanced Manifest Access" description="Allow opening the raw manifest editor modal." checked={props.showAdvancedEditor} onChange={props.setShowAdvancedEditor} />
           <ToggleSetting title="Compact Tables" description="Tighten spacing for activity, provider and inventory tables." checked={props.compactTables} onChange={props.setCompactTables} last />
         </div>
 
-        <div className="flex flex-col gap-4 border-t border-black/5 pt-5">
+        <div className="flex flex-col gap-3 border-b border-solid border-black/5 border-x-0 border-t-0 px-6 py-4">
+          <h3 className="m-0 text-section-title font-semibold tracking-[var(--ds-type-section-title-tracking)] text-ds-text-primary">Routing Rules</h3>
           <SettingChoiceRow
             label="Strategy"
             control={<SegmentedControl items={props.routingStrategies} value={props.routingStrategy} onChange={props.onStrategyChange} appearance="rail" className="flex-nowrap" />}
           />
           <div className="flex items-center justify-between gap-4">
-            <span className="font-text text-utility font-normal tracking-[var(--ds-type-utility-tracking)] text-ds-text-secondary">Auto-fallback</span>
+            <span className="font-text text-utility font-normal tracking-[var(--ds-type-utility-tracking)] text-ds-text-primary opacity-70">Auto-fallback</span>
             <ToggleSwitch checked={props.autoFallback} onChange={props.onAutoFallbackChange} ariaLabel="Toggle auto-fallback" />
           </div>
           <p className="m-0 text-caption leading-[1.5] text-ds-text-secondary">
@@ -77,7 +75,7 @@ export function SettingsScreen(props: SettingsScreenProps) {
           </p>
         </div>
 
-        <div className="flex flex-col gap-4 border-t border-black/5 pt-5">
+        <div className="flex flex-col gap-4 px-6 py-4">
           <div className="flex items-center justify-between gap-4">
             <h3 className="m-0 text-section-title font-semibold tracking-[var(--ds-type-section-title-tracking)] text-ds-text-primary">Server Configuration</h3>
             <AppButton variant="outline" size="utility" onClick={props.onReload} disabled={props.reloadBusy}>

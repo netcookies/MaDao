@@ -18,6 +18,8 @@ export function PageHeader(props: PageHeaderProps) {
       className={cx(
         'flex items-start justify-between gap-5',
         align === 'center' && 'items-center',
+        align === 'center' && 'max-[760px]:items-start',
+        'max-[760px]:flex-col',
         className,
       )}
     >
@@ -26,13 +28,13 @@ export function PageHeader(props: PageHeaderProps) {
           {title}
         </h1>
         {subtitle ? (
-          <p className="mt-2 m-0 font-text text-body font-normal tracking-[var(--ds-type-body-tracking)] text-ds-text-secondary">
+          <p className="m-0 mt-2 font-text text-utility font-normal tracking-[var(--ds-type-utility-tracking)] text-ds-text-secondary">
             {subtitle}
           </p>
         ) : null}
       </div>
       {(meta || actions) ? (
-        <div className="inline-flex flex-wrap items-center gap-3">
+        <div className="inline-flex flex-wrap items-center gap-2 max-[760px]:w-full max-[760px]:justify-start">
           {meta}
           {actions}
         </div>

@@ -248,9 +248,9 @@ function WorkspaceStore(props: {
         className="w-full min-[760px]:w-[260px]"
       />
 
-      <div className="overflow-hidden rounded-lg border border-ds-border bg-ds-surface">
+      <div className="overflow-hidden rounded-lg border border-solid border-ds-border-strong bg-ds-surface">
         <DataTable
-          headerClassName="grid grid-cols-1 items-center gap-4 border-b border-ds-border px-5 py-[14px] text-[11px] font-semibold uppercase tracking-[0.12em] text-[#8c8c92] min-[760px]:grid-cols-[minmax(0,1.5fr)_minmax(0,1fr)_120px_96px]"
+          headerClassName="grid grid-cols-1 items-center gap-4 border-b border-solid border-ds-border-strong border-x-0 border-t-0 px-5 py-[14px] text-[11px] font-semibold uppercase tracking-[0.12em] text-[#8c8c92] min-[760px]:grid-cols-[minmax(0,1.5fr)_minmax(0,1fr)_120px_96px]"
           header={(
             <>
               <button className="inline-flex items-center justify-start gap-1.5 bg-transparent p-0 text-left text-inherit" onClick={() => props.onSortPrices('country')}>
@@ -270,7 +270,7 @@ function WorkspaceStore(props: {
           )}
         >
         {props.prices.length > 0 ? props.prices.slice(0, 20).map((item) => (
-            <div className="grid grid-cols-1 items-center gap-4 border-t border-ds-border px-5 py-4 min-[760px]:grid-cols-[minmax(0,1.5fr)_minmax(0,1fr)_120px_96px]" key={`${item.country}-${item.display_name}`}>
+            <div className="grid grid-cols-1 items-center gap-4 border-b border-solid border-ds-border border-x-0 border-t-0 px-5 py-4 last:border-b-0 min-[760px]:grid-cols-[minmax(0,1.5fr)_minmax(0,1fr)_120px_96px]" key={`${item.country}-${item.display_name}`}>
               <span className="inline-flex min-w-0 items-center gap-2.5">
                 <span className="shrink-0">{countryBadge(item.country)}</span>
                 <span className="min-w-0 overflow-hidden text-ellipsis whitespace-nowrap">{item.display_name}</span>

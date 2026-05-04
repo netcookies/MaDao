@@ -9,7 +9,7 @@ export type SearchFieldProps = InputHTMLAttributes<HTMLInputElement> & {
 };
 
 const ROOT_CLASS =
-  'inline-flex w-full items-center gap-[10px] rounded-sm border border-ds-border-strong bg-ds-surface px-4 py-[11px] text-ds-text-primary focus-within:outline focus-within:outline-2 focus-within:outline-offset-2 focus-within:outline-ds-accent-focus';
+  'inline-flex w-full items-center gap-[8px] rounded-[8px] border border-ds-border-strong bg-ds-surface px-3 py-2 text-ds-text-primary focus-within:outline focus-within:outline-2 focus-within:outline-offset-2 focus-within:outline-ds-accent-focus';
 
 const COMPACT_CLASS = 'min-h-control-compact px-3 py-2';
 const DEFAULT_CLASS = 'min-h-control';

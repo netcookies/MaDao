@@ -1,6 +1,8 @@
+import type { ReactNode } from 'react';
+import { MessageSquare, Server, Shield } from 'lucide-react';
 import { AppButton, PageHeader, StatusPill } from '../ui-bridge';
 import type { TicketRecord } from '../types';
-import { formatServiceLabel } from '../../lib/formatters';
+import { formatProviderLabel, formatServiceLabel } from '../../lib/formatters';
 
 export type OverviewStats = {
   totalMessages: string;
@@ -17,58 +19,90 @@ export type OverviewScreenProps = {
 
 export function OverviewScreen(props: OverviewScreenProps) {
   return (
-    <div className="flex flex-col gap-5">
+    <div className="flex flex-col gap-8">
       <PageHeader
         title="Good morning, Developer"
         subtitle="Here&apos;s what&apos;s happening with your SMS services today."
-        meta={(
+        meta={props.statusMessage ? (
           <span className="font-text text-utility font-normal tracking-[var(--ds-type-utility-tracking)] text-ds-text-secondary">
             {props.statusMessage}
           </span>
-        )}
+        ) : undefined}
       />
 
-      <div className="grid grid-cols-1 gap-3 min-[760px]:grid-cols-3">
-        <StatCard title="Messages Sent" value={props.stats.totalMessages} caption="+15% from session baseline" positive />
-        <StatCard title="Active Providers" value={props.stats.activeProviders} caption="All systems operational" positive />
-        <StatCard title="Success Rate" value={props.stats.successRate} caption="Live delivery confidence" />
+      <div className="grid grid-cols-1 gap-4 min-[760px]:grid-cols-3">
+        <StatCard title="Messages Sent" value={props.stats.totalMessages} caption="+15% from yesterday" positive icon={<MessageSquare size={12} className="opacity-40" />} />
+        <StatCard title="Active Providers" value={props.stats.activeProviders} caption="All systems operational" positive icon={<Server size={12} className="opacity-40" />} />
+        <StatCard title="Success Rate" value={props.stats.successRate} caption="-0.1% from yesterday" icon={<Shield size={12} className="opacity-40" />} />
       </div>
 
-      <div className="flex flex-col gap-4 rounded-lg border border-ds-border bg-ds-surface p-5">
+      <div className="flex flex-col gap-4">
         <div className="flex items-center justify-between gap-4">
-          <h2 className="m-0 font-text text-section-title font-semibold tracking-[var(--ds-type-section-title-tracking)] text-ds-text-primary">
+          <h2 className="m-0 font-text text-[14px] font-semibold tracking-[0] text-ds-text-primary">
             Recent Activity
           </h2>
-          <AppButton variant="ghost" size="utility" onClick={props.onViewAll}>View All</AppButton>
+          <AppButton variant="outline" size="utility" onClick={props.onViewAll}>View All</AppButton>
         </div>
-        <div className="flex flex-col">
-          <div className="flex items-center gap-4 px-5 py-[17px] text-[11px] font-semibold uppercase tracking-[0.12em] text-[#8c8c92]">
-            <span>Provider</span><span>Status</span><span>Recipient</span><span>Service</span>
+        <div className="overflow-hidden rounded-[8px] border border-solid border-ds-border-strong bg-ds-surface shadow-[0_1px_2px_rgba(0,0,0,0.04)]">
+          <div className="grid grid-cols-[minmax(0,1fr)_minmax(0,1fr)_minmax(0,1.15fr)_minmax(0,1fr)] items-center gap-3 rounded-t-[8px] border-b border-solid border-ds-border-strong border-x-0 border-t-0 bg-ds-content px-4 py-2.5 text-[11px] font-semibold uppercase tracking-[0.12em] text-[#8c8c92]">
+            <span>Provider</span>
+            <span>Status</span>
+            <span>Recipient</span>
+            <span>Service</span>
           </div>
-          {props.activity.map((item) => (
-            <div className="flex items-center gap-4 border-t border-ds-border px-5 py-[17px]" key={item.id}>
-              <span className="flex-1 min-w-0">{item.provider}</span>
-              <span className="flex-1 min-w-0"><StatusPill status={item.status} /></span>
-              <span className="flex-1 min-w-0">{item.phone_number}</span>
-              <span className="flex-1 min-w-0 text-ds-text-secondary">{formatServiceLabel(item.service)}</span>
-            </div>
-          ))}
+          <div className="overflow-hidden rounded-b-[8px] bg-ds-surface">
+            {props.activity.map((item) => (
+              <div className="grid grid-cols-[minmax(0,1fr)_minmax(0,1fr)_minmax(0,1.15fr)_minmax(0,1fr)] items-center gap-3 border-b border-solid border-ds-border border-x-0 border-t-0 px-4 py-2 last:border-b-0" key={item.id}>
+                <span className="min-w-0 overflow-hidden text-ellipsis whitespace-nowrap text-body">{formatProviderLabel(item.provider)}</span>
+                <span className="min-w-0"><OverviewStatusTag status={item.status} /></span>
+                <span className="min-w-0 overflow-hidden text-ellipsis whitespace-nowrap text-body">{item.phone_number}</span>
+                <span className="min-w-0 overflow-hidden text-ellipsis whitespace-nowrap text-body text-ds-text-secondary">{formatServiceLabel(item.service)}</span>
+              </div>
+            ))}
+          </div>
         </div>
       </div>
     </div>
   );
 }
 
-function StatCard(props: { title: string; value: string; caption: string; positive?: boolean }) {
+function StatCard(props: { title: string; value: string; caption: string; positive?: boolean; icon?: ReactNode }) {
   return (
-    <div className="flex flex-col gap-2.5 rounded-lg border border-ds-border bg-ds-surface px-5 py-[18px]">
-      <div className="flex">
-        <span className="text-[12px] font-semibold uppercase tracking-[0.12em] text-[#8c8c92]">{props.title}</span>
+    <div className="flex flex-col gap-2 rounded-sm border border-black/[0.08] bg-ds-surface p-4 shadow-[0_1px_2px_rgba(0,0,0,0.04)]">
+      <div className="flex items-center justify-between gap-3">
+        <span className="text-[11px] font-semibold uppercase tracking-[0.12em] text-[#8c8c92]">{props.title}</span>
+        {props.icon}
       </div>
-      <strong className="text-[28px] font-semibold leading-[1.1] tracking-[-0.28px] text-ds-text-primary">{props.value}</strong>
+      <strong className="text-[24px] font-semibold leading-[1.1] tracking-[-0.4px] text-ds-text-primary">{props.value}</strong>
       <span className={props.positive ? 'text-[10px] text-ds-state-success' : 'text-[10px] text-ds-state-danger'}>
         {props.caption}
       </span>
     </div>
+  );
+}
+
+function OverviewStatusTag(props: { status: string }) {
+  const normalized = props.status.toLowerCase();
+  if (normalized.includes('deliver') || normalized.includes('received')) {
+    return (
+      <span className="inline-flex items-center gap-1 rounded-pill bg-[#eaf9ec] px-2 py-1 text-[12px] font-semibold text-[#1aab29]">
+        <span className="h-1.5 w-1.5 rounded-pill bg-[#27c93f]" />
+        Delivered
+      </span>
+    );
+  }
+  if (normalized.includes('pending') || normalized.includes('waiting')) {
+    return (
+      <span className="inline-flex items-center gap-1 rounded-pill bg-[#fff4e6] px-2 py-1 text-[12px] font-semibold text-[#dea123]">
+        <span className="h-1.5 w-1.5 rounded-pill bg-[#ffbd2e]" />
+        Pending
+      </span>
+    );
+  }
+  return (
+    <span className="inline-flex items-center gap-1 rounded-pill bg-[#ffeeed] px-2 py-1 text-[12px] font-semibold text-[#e0443e]">
+      <span className="h-1.5 w-1.5 rounded-pill bg-[#ff5f56]" />
+      Failed
+    </span>
   );
 }

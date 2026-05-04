@@ -13,7 +13,7 @@ const BASE_CLASS =
 
 const VARIANT_CLASS: Record<IconButtonVariant, string> = {
   surface: 'border-ds-border bg-ds-surface-chip',
-  toolbar: 'border-transparent bg-transparent',
+  toolbar: 'h-auto w-auto border-transparent bg-transparent p-0',
 };
 
 export function IconButton(props: IconButtonProps) {

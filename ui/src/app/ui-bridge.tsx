@@ -202,8 +202,8 @@ export function SettingChoiceRow(props: {
   control: ReactNode;
 }) {
   return (
-    <div className="flex items-center justify-between gap-4">
-      <span className="font-text text-utility font-normal tracking-[var(--ds-type-utility-tracking)] text-ds-text-secondary">
+    <div className="flex items-center justify-between gap-4 py-4">
+      <span className="font-text text-utility font-normal tracking-[var(--ds-type-utility-tracking)] text-ds-text-primary opacity-70">
         {props.label}
       </span>
       <div className="inline-flex min-h-9 items-center">{props.control}</div>
@@ -226,7 +226,7 @@ export function ToggleSetting(props: {
       )}
     >
       <div className="flex min-w-0 flex-col gap-1.5">
-        <strong className="font-text text-utility font-semibold tracking-[var(--ds-type-utility-tracking)] text-ds-text-primary">
+        <strong className="font-text text-utility font-normal tracking-[var(--ds-type-utility-tracking)] text-ds-text-primary">
           {props.title}
         </strong>
         <p className="m-0 font-text text-caption font-normal tracking-[var(--ds-type-caption-tracking)] text-ds-text-secondary">
@@ -246,7 +246,7 @@ export function ConfigRow(props: { label: string; children: ReactNode; last?: bo
         !props.last && 'border-b border-black/5',
       )}
     >
-      <span className="font-text text-utility font-normal tracking-[var(--ds-type-utility-tracking)] text-ds-text-secondary">
+      <span className="font-text text-utility font-normal tracking-[var(--ds-type-utility-tracking)] text-ds-text-primary opacity-70">
         {props.label}
       </span>
       <div className="min-w-0 flex-1">{props.children}</div>
@@ -262,7 +262,7 @@ export function DetailRow(props: { label: string; value: string; last?: boolean 
         !props.last && 'border-b border-black/5',
       )}
     >
-      <span className="font-text text-utility font-normal tracking-[var(--ds-type-utility-tracking)] text-ds-text-secondary">
+      <span className="font-text text-utility font-normal tracking-[var(--ds-type-utility-tracking)] text-ds-text-primary opacity-70">
         {props.label}
       </span>
       <span className="font-text text-[13px] font-medium leading-[1.43] tracking-[-0.224px] text-ds-text-primary">
@@ -274,9 +274,9 @@ export function DetailRow(props: { label: string; value: string; last?: boolean 
 
 export function ModalField(props: { label: string; hint?: string; children: ReactNode }) {
   return (
-    <label className="flex flex-col gap-2">
+    <label className="flex flex-col gap-1.5">
       <div className="flex items-center justify-between gap-3">
-        <span className="font-text text-[11px] font-semibold uppercase tracking-[0.12em] text-ds-text-secondary">
+        <span className="font-text text-[11px] font-semibold uppercase tracking-[0.08em] text-ds-text-primary opacity-50">
           {props.label}
         </span>
         {props.hint ? (

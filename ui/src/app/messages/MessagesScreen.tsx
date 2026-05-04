@@ -23,21 +23,21 @@ function serviceIcon(service: string) {
 
 export function MessagesScreen(props: MessagesScreenProps) {
   return (
-    <div className="flex flex-col gap-5">
+    <div className="flex flex-col gap-6">
       <PageHeader
         title="Activations"
         align="center"
-        actions={<SegmentedControl items={props.filters} value={props.filter} onChange={props.setFilter} appearance="rail" />}
+        actions={<SegmentedControl items={props.filters} value={props.filter} onChange={props.setFilter} appearance="rail" className="min-h-0" />}
       />
 
-      <div className="flex flex-col gap-4">
+      <div className="flex flex-col gap-5">
         {props.tickets.length > 0 ? props.tickets.slice(0, 8).map((ticket) => {
           const phase = getTicketPhase(ticket.status);
           const isReceived = phase === 'received';
           const isWaiting = phase === 'waiting';
 
           return (
-            <div className="flex flex-col gap-[18px] rounded-[18px] border border-ds-border bg-ds-surface px-6 py-[22px]" key={ticket.id}>
+            <div className="flex flex-col gap-5 rounded-[16px] border border-black/[0.08] bg-ds-surface px-6 py-6 shadow-[0_2px_8px_rgba(0,0,0,0.04)]" key={ticket.id}>
               <div className="flex flex-col gap-4 min-[760px]:flex-row min-[760px]:items-center min-[760px]:justify-between">
                 <div className="flex items-center gap-3">
                   {serviceIcon(ticket.service)}
@@ -46,50 +46,50 @@ export function MessagesScreen(props: MessagesScreenProps) {
                   </strong>
                 </div>
                 <div className="flex flex-wrap items-center justify-start gap-3 min-[760px]:justify-end">
-                  <div className="inline-flex items-center gap-2.5 rounded-md bg-ds-surface-subtle px-3 py-2">
+                  <div className="inline-flex items-center gap-2 rounded-md bg-ds-surface-subtle px-3 py-1.5">
                     <span className="inline-flex items-center gap-1.5 text-body-strong tracking-[var(--ds-type-body-strong-tracking)] text-ds-text-primary">
                       <Smartphone size={14} className="opacity-60" />
                       {ticket.phone_number}
                     </span>
-                    <button className="inline-flex h-[22px] w-[22px] items-center justify-center p-0" onClick={() => props.onCopy(ticket.phone_number, 'Phone number')} aria-label="Copy phone number">
+                    <button className="inline-flex h-[24px] w-[24px] items-center justify-center rounded-pill bg-white shadow-[0_1px_2px_rgba(0,0,0,0.08)]" onClick={() => props.onCopy(ticket.phone_number, 'Phone number')} aria-label="Copy phone number">
                       <Copy size={14} color="#0066cc" />
                     </button>
                   </div>
                   {ticket.price && (
-                    <span className="text-utility-strong tracking-[var(--ds-type-utility-strong-tracking)] text-ds-text-secondary">
+                    <span className="text-[15px] font-semibold tracking-[0] text-ds-text-primary opacity-60">
                       ${ticket.price.toFixed(2)}
                     </span>
                   )}
                   {!isReceived && !isWaiting && (
-                    <span className="text-utility-strong tracking-[var(--ds-type-utility-strong-tracking)] text-[#e0443e]">Refunded</span>
+                    <span className="text-[15px] font-semibold tracking-[0] text-[#e0443e]">Refunded</span>
                   )}
                 </div>
               </div>
 
               {isReceived && (
-                <div className="flex w-full flex-col items-center justify-center gap-3 rounded-md border-2 border-ds-state-success bg-ds-surface-subtle px-5 py-7">
+                <div className="flex w-full flex-col items-center justify-center gap-3 rounded-[12px] border-2 border-ds-state-success bg-ds-surface-subtle px-5 py-8">
                   <div className="flex items-center gap-4">
                     <span className="text-[48px] font-bold leading-none tracking-[6px] text-ds-text-primary">{ticket.code ?? '------'}</span>
-                    <button className="inline-flex h-11 w-11 items-center justify-center rounded-pill bg-ds-surface-chip" onClick={() => props.onCopy(ticket.code ?? '', 'SMS code')} disabled={!ticket.code}>
+                    <button className="inline-flex h-11 w-11 items-center justify-center rounded-pill border border-black/[0.08] bg-white shadow-[0_1px_2px_rgba(0,0,0,0.08)]" onClick={() => props.onCopy(ticket.code ?? '', 'SMS code')} disabled={!ticket.code}>
                       <Copy size={20} color="#0066cc" />
                     </button>
                   </div>
-                  <span className="text-utility-strong tracking-[var(--ds-type-utility-strong-tracking)] text-ds-state-success">SMS received successfully</span>
+                  <span className="text-[14px] font-medium tracking-[0] text-ds-state-success">SMS received successfully</span>
                 </div>
               )}
               {isWaiting && (
-                <div className="flex w-full flex-col items-center justify-center gap-3 rounded-md border-2 border-dashed border-ds-state-warning bg-[#fdf8f5] px-5 py-7">
+                <div className="flex w-full flex-col items-center justify-center gap-3 rounded-[12px] border-2 border-dashed border-ds-state-warning bg-[#fdf8f5] px-5 py-8">
                   <Loader2 size={32} color="#ffbd2e" className="animate-[d-spin_0.9s_linear_infinite]" />
-                  <span className="text-utility-strong tracking-[var(--ds-type-utility-strong-tracking)] text-[#dea123]">Waiting for SMS...</span>
+                  <span className="text-[15px] font-semibold tracking-[0] text-[#dea123]">Waiting for SMS...</span>
                   <span className="text-center text-[13px] tracking-[0.08em] text-ds-text-secondary">
                     {ticket.message ?? 'Check provider dashboard'}
                   </span>
                 </div>
               )}
               {!isReceived && !isWaiting && (
-                <div className="flex w-full flex-col items-center justify-center gap-3 rounded-md border-2 border-[rgba(0,0,0,0.06)] bg-ds-surface-subtle px-5 py-7 opacity-70">
-                  <strong className="text-utility-strong tracking-[var(--ds-type-utility-strong-tracking)] text-ds-text-secondary">Activation canceled or expired</strong>
-                  <p className="m-0 text-center text-[13px] tracking-[0.08em] text-ds-text-secondary">
+                <div className="flex w-full flex-col gap-2 rounded-[12px] bg-ds-surface-subtle px-6 py-4 opacity-80">
+                  <strong className="text-[15px] font-semibold tracking-[0] text-ds-text-primary">Activation canceled or expired</strong>
+                  <p className="m-0 text-[14px] text-ds-text-secondary">
                     {ticket.message ?? 'You were not charged for this request.'}
                   </p>
                 </div>

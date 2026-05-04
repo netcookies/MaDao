@@ -6,8 +6,8 @@
   --ds-color-surface-default: #ffffff;
   --ds-color-surface-subtle: #fafafc;
   --ds-color-surface-chip: #d2d2d7;
-  --ds-color-border-default: rgba(0, 0, 0, 0.08);
-  --ds-color-border-strong: rgba(0, 0, 0, 0.12);
+  --ds-color-border-default: rgba(0, 0, 0, 0.12);
+  --ds-color-border-strong: rgba(0, 0, 0, 0.18);
   --ds-color-text-primary: #1d1d1f;
   --ds-color-text-secondary: #6e6e73;
   --ds-color-accent-blue: #0066cc;
@@ -43,48 +43,48 @@
   --ds-size-notification-panel-width: 320px;
   --ds-size-activation-modal-width: 480px;
 
-  --ds-font-family-text: "SF Pro Text", -apple-system, BlinkMacSystemFont, system-ui, sans-serif;
-  --ds-font-family-display: "SF Pro Display", -apple-system, BlinkMacSystemFont, system-ui, sans-serif;
+  --ds-font-family-text: "Inter", "SF Pro Text", -apple-system, BlinkMacSystemFont, system-ui, sans-serif;
+  --ds-font-family-display: "Inter", "SF Pro Display", -apple-system, BlinkMacSystemFont, system-ui, sans-serif;
 
-  --ds-type-page-title-size: 34px;
-  --ds-type-page-title-line-height: 1.12;
+  --ds-type-page-title-size: 28px;
+  --ds-type-page-title-line-height: 1.14;
   --ds-type-page-title-weight: 600;
-  --ds-type-page-title-tracking: -0.374px;
+  --ds-type-page-title-tracking: 0.196px;
 
-  --ds-type-section-title-size: 21px;
-  --ds-type-section-title-line-height: 1.19;
+  --ds-type-section-title-size: 15px;
+  --ds-type-section-title-line-height: 1.2;
   --ds-type-section-title-weight: 600;
-  --ds-type-section-title-tracking: 0.231px;
+  --ds-type-section-title-tracking: 0;
 
-  --ds-type-body-size: 17px;
-  --ds-type-body-line-height: 1.47;
+  --ds-type-body-size: 14px;
+  --ds-type-body-line-height: 1.43;
   --ds-type-body-weight: 400;
-  --ds-type-body-tracking: -0.374px;
+  --ds-type-body-tracking: 0;
 
-  --ds-type-body-strong-size: 17px;
-  --ds-type-body-strong-line-height: 1.24;
+  --ds-type-body-strong-size: 14px;
+  --ds-type-body-strong-line-height: 1.29;
   --ds-type-body-strong-weight: 600;
-  --ds-type-body-strong-tracking: -0.374px;
+  --ds-type-body-strong-tracking: 0;
 
-  --ds-type-utility-size: 14px;
-  --ds-type-utility-line-height: 1.29;
+  --ds-type-utility-size: 13px;
+  --ds-type-utility-line-height: 1.23;
   --ds-type-utility-weight: 400;
-  --ds-type-utility-tracking: -0.224px;
+  --ds-type-utility-tracking: 0;
 
-  --ds-type-utility-strong-size: 14px;
-  --ds-type-utility-strong-line-height: 1.29;
+  --ds-type-utility-strong-size: 13px;
+  --ds-type-utility-strong-line-height: 1.23;
   --ds-type-utility-strong-weight: 600;
-  --ds-type-utility-strong-tracking: -0.224px;
+  --ds-type-utility-strong-tracking: 0;
 
   --ds-type-caption-size: 12px;
   --ds-type-caption-line-height: 1.43;
   --ds-type-caption-weight: 400;
-  --ds-type-caption-tracking: -0.224px;
+  --ds-type-caption-tracking: 0;
 
   --ds-motion-transition-fast: 180ms ease;
   --ds-motion-press-scale: 0.95;
   --ds-effect-shadow-default: none;
-  --ds-effect-shadow-modal: 0 8px 32px rgba(0, 0, 0, 0.15);
+  --ds-effect-shadow-modal: 0 8px 32px rgba(0, 0, 0, 0.12);
   --ds-effect-backdrop-blur: 40px;
 }
 
