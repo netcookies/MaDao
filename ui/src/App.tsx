@@ -3,7 +3,7 @@ import {
 } from 'react';
 import {
   Bell, Bot, ChevronLeft, ChevronsUpDown, Copy, GripVertical, LayoutDashboard,
-  Loader2, MessageSquare, PanelLeft, Plus, Search, Send, Server, Settings,
+  Loader2, MessageSquare, PanelLeftClose, PanelLeftOpen, Plus, Search, Send, Server, Settings,
   Shield, ShoppingCart, Sliders, Smartphone, Square, Terminal, User, Wallet, X,
 } from 'lucide-react';
 import {
@@ -159,6 +159,8 @@ export function App() {
     setShowAdvancedEditor,
     compactTables,
     setCompactTables,
+    sidebarCollapsed,
+    setSidebarCollapsed,
     messageFilter,
     setMessageFilter,
     logsFilter,
@@ -461,6 +463,7 @@ export function App() {
     <AppSidebar
       items={NAV_ITEMS.map(({ id, label, Icon }) => ({ id, label, icon: Icon }))}
       activeId={activeScreen}
+      collapsed={sidebarCollapsed}
       onSelect={(id) => {
         setActiveScreen(id);
         if (id === 'providers') setProviderView('list');
@@ -468,18 +471,32 @@ export function App() {
     />
   );
 
+  const collapseToggle = (
+    <button
+      type="button"
+      aria-label={sidebarCollapsed ? 'Expand sidebar' : 'Collapse sidebar'}
+      className="inline-flex h-7 w-7 items-center justify-center rounded-pill text-ds-text-secondary transition-colors duration-fast ease-[var(--ds-motion-transition-fast)] hover:bg-black/5 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ds-accent-focus"
+      onClick={() => setSidebarCollapsed((current) => !current)}
+    >
+      {sidebarCollapsed ? <PanelLeftOpen size={16} /> : <PanelLeftClose size={16} />}
+    </button>
+  );
+
   const toolbarNavigation = activeScreen === 'providers' && providerView === 'workspace'
     ? (
-      <button
-        type="button"
-        aria-label="Back to providers"
-        className="inline-flex h-7 w-7 items-center justify-center rounded-pill text-ds-text-secondary transition-colors duration-fast ease-[var(--ds-motion-transition-fast)] hover:bg-black/5 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ds-accent-focus"
-        onClick={() => setProviderView('list')}
-      >
-        <ChevronLeft size={16} />
-      </button>
+      <div className="inline-flex items-center gap-1">
+        {collapseToggle}
+        <button
+          type="button"
+          aria-label="Back to providers"
+          className="inline-flex h-7 w-7 items-center justify-center rounded-pill text-ds-text-secondary transition-colors duration-fast ease-[var(--ds-motion-transition-fast)] hover:bg-black/5 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ds-accent-focus"
+          onClick={() => setProviderView('list')}
+        >
+          <ChevronLeft size={16} />
+        </button>
+      </div>
     )
-    : <PanelLeft size={16} className="text-ds-text-secondary/70" aria-hidden="true" />;
+    : collapseToggle;
 
   const toolbarActions = (
     <>
@@ -520,7 +537,7 @@ export function App() {
           </div>
         )}
       </div>
-      <AppButton variant="primary" onClick={() => setShowActivationModal(true)}>
+      <AppButton variant="primary" size="utility" onClick={() => setShowActivationModal(true)}>
         <Plus size={14} />
         <span>New Activation</span>
       </AppButton>
@@ -531,6 +548,7 @@ export function App() {
     <>
       <AppShell
         sidebar={sidebar}
+        sidebarCollapsed={sidebarCollapsed}
         toolbar={(
           <AppToolbar
             title={toolbarTitle}

@@ -32,8 +32,8 @@ const VARIANT_CLASS: Record<ButtonVariant, string> = {
 
 const SIZE_CLASS: Record<ButtonSize, string> = {
   default: 'min-h-control rounded-pill px-[22px] py-[11px] text-body leading-none',
-  utility: 'min-h-control-compact rounded-sm px-[15px] py-2 text-[13px] leading-[1] tracking-[0]',
-  compact: 'min-h-[28px] rounded-sm px-3 py-1.5 text-utility',
+  utility: 'min-h-control-compact px-[15px] py-2 text-[13px] leading-[1] tracking-[0]',
+  compact: 'min-h-[28px] px-3 py-1.5 text-utility',
 };
 
 export function Button(props: ButtonProps) {
@@ -55,7 +55,9 @@ export function Button(props: ButtonProps) {
         BASE_CLASS,
         VARIANT_CLASS[variant],
         SIZE_CLASS[size],
-        variant === 'primary' && size === 'utility' && 'rounded-pill',
+        variant !== 'primary' && size === 'utility' && 'rounded-sm',
+        variant !== 'primary' && size === 'compact' && 'rounded-sm',
+        variant === 'primary' && (size === 'utility' || size === 'compact') && 'rounded-pill',
         className,
       )}
       {...rest}

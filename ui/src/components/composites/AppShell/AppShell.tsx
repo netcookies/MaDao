@@ -6,6 +6,7 @@ export type AppShellProps = {
   toolbar?: ReactNode;
   children: ReactNode;
   compact?: boolean;
+  sidebarCollapsed?: boolean;
   className?: string;
   fillViewport?: boolean;
   windowClassName?: string;
@@ -18,6 +19,7 @@ export function AppShell(props: AppShellProps) {
     toolbar,
     children,
     compact = false,
+    sidebarCollapsed = false,
     className,
     fillViewport = true,
     windowClassName,
@@ -31,7 +33,10 @@ export function AppShell(props: AppShellProps) {
     >
       <div
         className={cx(
-          'grid grid-cols-1 overflow-hidden bg-white min-[980px]:grid-cols-[var(--ds-size-sidebar-width)_minmax(0,1fr)]',
+          'grid grid-cols-1 overflow-hidden bg-white transition-[grid-template-columns] duration-fast ease-[var(--ds-motion-transition-fast)]',
+          sidebarCollapsed
+            ? 'min-[980px]:grid-cols-[64px_minmax(0,1fr)]'
+            : 'min-[980px]:grid-cols-[var(--ds-size-sidebar-width)_minmax(0,1fr)]',
           fillViewport ? 'min-h-screen min-[980px]:h-screen' : 'h-full w-full',
           windowClassName,
         )}

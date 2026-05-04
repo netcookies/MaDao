@@ -12,7 +12,7 @@ use tauri::WebviewWindow;
 use tauri::WindowEvent;
 use tauri::image::Image;
 use tauri::menu::{CheckMenuItemBuilder, Menu, MenuBuilder, MenuItem, SubmenuBuilder};
-use tauri::tray::TrayIconBuilder;
+use tauri::tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent};
 
 const MENU_COMMAND_EVENT: &str = "menu-command";
 const TRAY_ID: &str = "madao-menu-bar";
@@ -69,9 +69,18 @@ fn show_main_window(app: &tauri::AppHandle) -> Result<(), String> {
     let window = app
         .get_webview_window("main")
         .ok_or_else(|| "main window not found".to_string())?;
+    let _ = app.set_dock_visibility(true);
     let _ = window.unminimize();
     let _ = window.show();
     let _ = window.set_focus();
+    Ok(())
+}
+
+fn hide_main_window(app: &tauri::AppHandle) -> Result<(), String> {
+    if let Some(window) = app.get_webview_window("main") {
+        window.hide().map_err(|err| err.to_string())?;
+    }
+    app.set_dock_visibility(false).map_err(|err| err.to_string())?;
     Ok(())
 }
 
@@ -245,7 +254,7 @@ fn sync_menu_bar(app: &tauri::AppHandle) -> Result<(), String> {
         .icon(tray_icon)
         .icon_as_template(true)
         .menu(&tray_menu)
-        .show_menu_on_left_click(true)
+        .show_menu_on_left_click(false)
         .tooltip(format!("MaDao SMS Platform · {active_count} active providers"))
         .build(app)
         .map_err(|err| err.to_string())?;
@@ -374,6 +383,27 @@ pub fn run() {
             refresh_menu_bar,
             window_action
         ])
+        .on_tray_icon_event(|app, event| {
+            if event.id().as_ref() != TRAY_ID {
+                return;
+            }
+
+            if let TrayIconEvent::Click {
+                button,
+                button_state,
+                ..
+            } = event
+            {
+                match (button, button_state) {
+                    (MouseButton::Left, MouseButtonState::Up) => {
+                        if let Err(err) = show_main_window(app) {
+                            eprintln!("tray left click failed: {err}");
+                        }
+                    }
+                    _ => {}
+                }
+            }
+        })
         .on_menu_event(|app, event| {
             handle_menu_event(app, event.id().as_ref());
         })
@@ -383,7 +413,7 @@ pub fn run() {
             }
             if let WindowEvent::CloseRequested { api, .. } = event {
                 api.prevent_close();
-                let _ = window.hide();
+                let _ = hide_main_window(&window.app_handle());
             }
         })
         .setup(move |app| {
@@ -404,6 +434,7 @@ pub fn run() {
             if let Some(window) = app.get_webview_window("main") {
                 let _ = window.set_title("MaDao SMS Platform");
             }
+            let _ = app.set_dock_visibility(true);
             let menu = build_app_menu(&app.handle())?;
             let _ = app.set_menu(menu).map_err(|err| err.to_string())?;
             sync_menu_bar(&app.handle())?;
