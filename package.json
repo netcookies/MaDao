@@ -6,7 +6,10 @@
   "scripts": {
     "dev": "vite",
     "build": "vite build",
-    "preview": "vite preview"
+    "preview": "vite preview",
+    "ui:design-baselines": "node scripts/ui-screenshot/fixtures.mjs",
+    "ui:screenshot": "node scripts/ui-screenshot/capture.mjs",
+    "ui:screenshot:compare": "node scripts/ui-screenshot/compare.mjs"
   },
   "dependencies": {
     "@tauri-apps/api": "^2.10.1",
@@ -19,6 +22,9 @@
     "@types/react-dom": "^19.2.2",
     "@vitejs/plugin-react": "^5.1.0",
     "autoprefixer": "^10.5.0",
+    "pixelmatch": "^7.1.0",
+    "playwright": "^1.56.1",
+    "pngjs": "^7.0.0",
     "postcss": "^8.5.13",
     "tailwindcss": "^3.4.19",
     "typescript": "^5.9.3",
