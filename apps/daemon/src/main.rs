@@ -74,7 +74,7 @@ async fn handle_socket_command(service: &SmsService, line: &str) -> String {
                 wrap_socket_plain_result(service.provider_manifest(&provider))
             }
             SocketCommand::SaveProviderManifest { provider, manifest } => {
-                wrap_socket_plain_result(service.save_provider_manifest(&provider, manifest))
+                wrap_socket_plain_result(service.save_provider_manifest(&provider, manifest).await)
             }
             SocketCommand::ReloadProviders => wrap_socket_plain_result(service.reload_provider_registry()),
         };

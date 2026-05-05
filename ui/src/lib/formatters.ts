@@ -1,5 +1,36 @@
 export type TicketPhase = 'received' | 'waiting' | 'failed';
 
+const SERVICE_LABELS: Record<string, string> = {
+  openai: 'OpenAI (GPT)',
+  dr: 'OpenAI (GPT)',
+  telegram: 'Telegram',
+  tg: 'Telegram',
+  whatsapp: 'WhatsApp',
+  wa: 'WhatsApp',
+  paypal: 'PayPal',
+  discord: 'Discord',
+};
+
+const COUNTRY_LABELS: Record<string, string> = {
+  any: 'All countries',
+  local: 'Local',
+  usa: 'United States',
+  us: 'United States',
+  '50': 'United States',
+  england: 'United Kingdom',
+  uk: 'United Kingdom',
+  '44': 'United Kingdom',
+  germany: 'Germany',
+  japan: 'Japan',
+  canada: 'Canada',
+  australia: 'Australia',
+  '61': 'Australia',
+  russia: 'Russia',
+  '0': 'Russia',
+  argentina: 'Argentina',
+  ar: 'Argentina',
+};
+
 export function normalizeTicketStatus(status: string) {
   return status
     .replace(/([a-z])([A-Z])/g, '$1_$2')
@@ -47,17 +78,7 @@ export function countryBadge(country: string) {
 
 export function formatServiceLabel(service: string) {
   const normalized = service.toLowerCase();
-  const labels: Record<string, string> = {
-    openai: 'OpenAI (ChatGPT)',
-    dr: 'OpenAI (ChatGPT)',
-    telegram: 'Telegram',
-    tg: 'Telegram',
-    whatsapp: 'WhatsApp',
-    wa: 'WhatsApp',
-    paypal: 'PayPal',
-    discord: 'Discord',
-  };
-  return labels[normalized] ?? service;
+  return SERVICE_LABELS[normalized] ?? titleCaseToken(service);
 }
 
 export function formatProviderLabel(provider: string) {
@@ -72,14 +93,39 @@ export function formatProviderLabel(provider: string) {
 
 export function formatCountryLabel(country: string) {
   const normalized = country.toLowerCase();
-  const labels: Record<string, string> = {
-    any: 'any — auto select',
+  return COUNTRY_LABELS[normalized] ?? titleCaseToken(country);
+}
+
+export function canonicalCountryValue(country: string) {
+  const normalized = country.trim().toLowerCase();
+  const aliases: Record<string, string> = {
+    ar: 'argentina',
+    argentina: 'argentina',
+    any: 'any',
     usa: 'usa',
+    us: 'usa',
+    '50': 'usa',
     england: 'uk',
     uk: 'uk',
-    '50': 'usa',
     '44': 'uk',
     local: 'local',
+    germany: 'germany',
+    japan: 'japan',
+    canada: 'canada',
+    australia: 'australia',
+    '61': 'australia',
+    russia: 'russia',
+    '0': 'russia',
   };
-  return labels[normalized] ?? country;
+  return aliases[normalized] ?? normalized;
+}
+
+function titleCaseToken(value: string) {
+  return value
+    .replace(/[_-]+/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim()
+    .split(' ')
+    .map((part) => part ? part[0].toUpperCase() + part.slice(1).toLowerCase() : part)
+    .join(' ');
 }

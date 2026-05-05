@@ -109,17 +109,22 @@ impl SmsProvider for MockProvider {
                 value: "openai".into(),
                 label: "OpenAI".into(),
                 hint: "openai".into(),
+                provider_value: Some("openai".into()),
             }],
             countries: vec![OptionItem {
                 value: "local".into(),
                 label: "Local".into(),
                 hint: "local".into(),
+                provider_value: Some("local".into()),
             }],
             operators: vec![OptionItem {
                 value: "mock".into(),
                 label: "Mock".into(),
                 hint: "mock".into(),
+                provider_value: Some("mock".into()),
             }],
+            cache_state: crate::models::OptionCacheState::Fresh,
+            fetched_at: None,
         })
     }
 
@@ -210,7 +215,12 @@ impl HandlerApiProvider {
                     .unwrap_or(&value)
                     .to_string();
                 let hint = item.pointer("/eng").and_then(Value::as_str).unwrap_or(&value).to_string();
-                Some(OptionItem { value, label, hint })
+                Some(OptionItem {
+                    provider_value: Some(value.clone()),
+                    value,
+                    label,
+                    hint,
+                })
             })
             .collect())
     }
@@ -234,6 +244,7 @@ impl HandlerApiProvider {
                                 .or_else(|| item.pointer("/title").and_then(Value::as_str))
                                 .unwrap_or(value);
                             Some(OptionItem {
+                                provider_value: Some(value.to_string()),
                                 value: value.to_string(),
                                 label: label.to_string(),
                                 hint: value.to_string(),
@@ -500,6 +511,7 @@ impl SmsProvider for HandlerApiProvider {
                     value: self.manifest.defaults.service.clone(),
                     label: self.manifest.defaults.service.clone(),
                     hint: self.manifest.defaults.service.clone(),
+                    provider_value: Some(self.manifest.defaults.service.clone()),
                 }]
             } else {
                 services
@@ -509,6 +521,7 @@ impl SmsProvider for HandlerApiProvider {
                     value: self.manifest.defaults.country.clone(),
                     label: self.manifest.defaults.country.clone(),
                     hint: self.manifest.defaults.country.clone(),
+                    provider_value: Some(self.manifest.defaults.country.clone()),
                 }]
             } else {
                 countries
@@ -517,7 +530,10 @@ impl SmsProvider for HandlerApiProvider {
                 value: "any".into(),
                 label: "Any Operator".into(),
                 hint: "any".into(),
+                provider_value: Some("any".into()),
             }],
+            cache_state: crate::models::OptionCacheState::Fresh,
+            fetched_at: None,
         })
     }
 }
@@ -596,6 +612,7 @@ impl FiveSimProvider {
                 let qty = item.pointer("/Qty").or_else(|| item.pointer("/qty")).and_then(|v| v.as_u64().or_else(|| v.as_str().and_then(|s| s.parse().ok()))).unwrap_or(0);
                 let price = item.pointer("/Price").or_else(|| item.pointer("/price")).and_then(coerce_f64).unwrap_or(0.0);
                 Some(OptionItem {
+                    provider_value: Some(value.to_string()),
                     value: value.to_string(),
                     label: value.to_string(),
                     hint: format!("qty={qty}, price={price:.3}"),
@@ -801,6 +818,7 @@ impl SmsProvider for FiveSimProvider {
         for item in &prices {
             if !countries.iter().any(|entry| entry.value == item.country) {
                 countries.push(OptionItem {
+                    provider_value: Some(item.country.clone()),
                     value: item.country.clone(),
                     label: item.display_name.clone(),
                     hint: item.country.clone(),
@@ -808,6 +826,7 @@ impl SmsProvider for FiveSimProvider {
             }
             if !operators.iter().any(|entry| entry.value == item.operator) {
                 operators.push(OptionItem {
+                    provider_value: Some(item.operator.clone()),
                     value: item.operator.clone(),
                     label: item.operator.clone(),
                     hint: item.operator.clone(),
@@ -822,6 +841,7 @@ impl SmsProvider for FiveSimProvider {
                     value: self.manifest.defaults.service.clone(),
                     label: self.manifest.defaults.service.clone(),
                     hint: self.manifest.defaults.service.clone(),
+                    provider_value: Some(self.manifest.defaults.service.clone()),
                 }]
             });
         Ok(ProviderDynamicOptions {
@@ -832,6 +852,7 @@ impl SmsProvider for FiveSimProvider {
                     value: self.manifest.defaults.country.clone(),
                     label: self.manifest.defaults.country.clone(),
                     hint: self.manifest.defaults.country.clone(),
+                    provider_value: Some(self.manifest.defaults.country.clone()),
                 }]
             } else {
                 countries
@@ -841,10 +862,13 @@ impl SmsProvider for FiveSimProvider {
                     value: self.config.buy_operator.clone(),
                     label: self.config.buy_operator.clone(),
                     hint: self.config.buy_operator.clone(),
+                    provider_value: Some(self.config.buy_operator.clone()),
                 }]
             } else {
                 operators
             },
+            cache_state: crate::models::OptionCacheState::Fresh,
+            fetched_at: None,
         })
     }
 }

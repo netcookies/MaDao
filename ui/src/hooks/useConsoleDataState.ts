@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import type {
   LogEntry,
+  OptionCacheOverview,
   PriceSortKey,
   ProviderDynamicOptions,
   ProviderManifest,
@@ -22,6 +23,14 @@ export function useConsoleDataState() {
   const [runtimeSettings, setRuntimeSettings] = useState<RuntimeSettings>({
     routing_strategy: 'ordered_priority',
     auto_fallback: true,
+    option_cache_enabled: true,
+    option_cache_poll_interval_minutes: 30,
+  });
+  const [optionCacheOverview, setOptionCacheOverview] = useState<OptionCacheOverview>({
+    fresh_providers: 0,
+    stale_providers: 0,
+    missing_providers: 0,
+    last_refresh_at: null,
   });
   const [providerOptions, setProviderOptions] = useState<Record<string, ProviderDynamicOptions>>({});
   const [storeQueries, setStoreQueries] = useState<Record<string, StoreQueryState>>({});
@@ -45,6 +54,8 @@ export function useConsoleDataState() {
     setNotifications,
     runtimeSettings,
     setRuntimeSettings,
+    optionCacheOverview,
+    setOptionCacheOverview,
     providerOptions,
     setProviderOptions,
     storeQueries,

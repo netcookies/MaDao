@@ -5,6 +5,8 @@ use sms_core::config::ServerConfig;
 use sms_core::registry::ProviderRegistry;
 use sms_core::service::SmsService;
 use sms_server::spawn_http_server;
+use std::fs;
+use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use tauri::Emitter;
 use tauri::Manager;
@@ -26,6 +28,10 @@ const MENU_SCREEN_MESSAGES_ID: &str = "screen.messages";
 const MENU_SCREEN_SETTINGS_ID: &str = "screen.settings";
 const MENU_SCREEN_LOGS_ID: &str = "screen.logs";
 const MENU_PROVIDER_PREFIX: &str = "provider.";
+const DEFAULT_CONFIG_RESOURCE_PATH: &str = "defaults/config/server.toml";
+const DEFAULT_PROVIDER_RESOURCE_DIR: &str = "defaults/providers";
+const RUNTIME_SETTINGS_FILE_NAME: &str = "runtime-settings.json";
+const PROVIDER_OPTIONS_CACHE_FILE_NAME: &str = "provider-options-cache.json";
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 enum MenuAction {
@@ -87,6 +93,69 @@ fn hide_main_window(app: &tauri::AppHandle) -> Result<(), String> {
 fn emit_menu_command(app: &tauri::AppHandle, payload: MenuCommandPayload) -> Result<(), String> {
     app.emit(MENU_COMMAND_EVENT, payload)
         .map_err(|err| err.to_string())
+}
+
+fn init_user_config(app: &tauri::AppHandle) -> Result<(PathBuf, PathBuf), String> {
+    let app_config_dir = app
+        .path()
+        .app_config_dir()
+        .map_err(|err| format!("resolve app config dir failed: {err}"))?;
+    let config_path = app_config_dir.join("config.toml");
+    let providers_dir = app_config_dir.join("providers");
+
+    fs::create_dir_all(&app_config_dir)
+        .map_err(|err| format!("create app config dir failed: {err}"))?;
+    fs::create_dir_all(&providers_dir)
+        .map_err(|err| format!("create app provider dir failed: {err}"))?;
+
+    if !config_path.exists() {
+        let resource_config = app
+            .path()
+            .resolve(DEFAULT_CONFIG_RESOURCE_PATH, tauri::path::BaseDirectory::Resource)
+            .map_err(|err| format!("resolve bundled config failed: {err}"))?;
+        let content = fs::read_to_string(&resource_config)
+            .map_err(|err| format!("read bundled config failed: {err}"))?;
+        let mut config: ServerConfig =
+            toml::from_str(&content).map_err(|err| format!("parse bundled config failed: {err}"))?;
+        config.provider_dir = PathBuf::from("providers");
+        let normalized = toml::to_string_pretty(&config)
+            .map_err(|err| format!("serialize normalized config failed: {err}"))?;
+        fs::write(&config_path, normalized)
+            .map_err(|err| format!("write initial config failed: {err}"))?;
+    }
+
+    seed_default_providers(app, &providers_dir)?;
+
+    Ok((config_path, providers_dir))
+}
+
+fn seed_default_providers(app: &tauri::AppHandle, target_dir: &Path) -> Result<(), String> {
+    let source_dir = app
+        .path()
+        .resolve(DEFAULT_PROVIDER_RESOURCE_DIR, tauri::path::BaseDirectory::Resource)
+        .map_err(|err| format!("resolve bundled providers failed: {err}"))?;
+
+    let entries = fs::read_dir(&source_dir)
+        .map_err(|err| format!("read bundled providers failed: {err}"))?;
+
+    for entry in entries {
+        let entry = entry.map_err(|err| format!("read bundled provider entry failed: {err}"))?;
+        let source_path = entry.path();
+        if source_path.extension().and_then(|value| value.to_str()) != Some("toml") {
+            continue;
+        }
+        let target_path = target_dir.join(
+            source_path
+                .file_name()
+                .ok_or_else(|| "provider template missing file name".to_string())?,
+        );
+        if !target_path.exists() {
+            fs::copy(&source_path, &target_path)
+                .map_err(|err| format!("copy bundled provider failed: {err}"))?;
+        }
+    }
+
+    Ok(())
 }
 
 fn build_app_menu(app: &tauri::AppHandle) -> Result<Menu<tauri::Wry>, String> {
@@ -329,6 +398,7 @@ async fn save_provider_manifest(
     let service = app.state::<Arc<SmsService>>();
     let value = service
         .save_provider_manifest(&provider, manifest)
+        .await
         .map_err(|err| err.to_string())?;
     sync_menu_bar(&app)?;
     serde_json::to_value(value).map_err(|err| err.to_string())
@@ -350,6 +420,41 @@ async fn refresh_menu_bar(app: tauri::AppHandle) -> Result<(), String> {
 }
 
 #[tauri::command]
+async fn app_config_directory(app: tauri::AppHandle) -> Result<String, String> {
+    app.path()
+        .app_config_dir()
+        .map(|path| path.display().to_string())
+        .map_err(|err| err.to_string())
+}
+
+#[tauri::command]
+async fn open_app_config_directory(app: tauri::AppHandle) -> Result<(), String> {
+    let path = app
+        .path()
+        .app_config_dir()
+        .map_err(|err| format!("resolve app config dir failed: {err}"))?;
+
+    let mut command = if cfg!(target_os = "macos") {
+        let mut command = std::process::Command::new("open");
+        command.arg(&path);
+        command
+    } else if cfg!(target_os = "windows") {
+        let mut command = std::process::Command::new("explorer");
+        command.arg(&path);
+        command
+    } else {
+        let mut command = std::process::Command::new("xdg-open");
+        command.arg(&path);
+        command
+    };
+
+    command
+        .spawn()
+        .map_err(|err| format!("open config dir failed: {err}"))?;
+    Ok(())
+}
+
+#[tauri::command]
 async fn window_action(window: WebviewWindow, action: String) -> Result<(), String> {
     match action.as_str() {
         "minimize" => window.minimize().map_err(|err| err.to_string()),
@@ -367,20 +472,16 @@ async fn window_action(window: WebviewWindow, action: String) -> Result<(), Stri
 }
 
 pub fn run() {
-    let cwd = std::env::current_dir().expect("read current dir");
-    let config = ServerConfig::load_from_file(cwd.join("config/server.toml")).expect("load config");
-    let registry = ProviderRegistry::load_from_dir(cwd.join(&config.provider_dir)).expect("load providers");
-    let service = Arc::new(SmsService::new(registry, config.log_buffer));
-
     tauri::Builder::default()
         .enable_macos_default_menu(false)
-        .manage(service)
         .invoke_handler(tauri::generate_handler![
             runtime_snapshot,
             list_provider_manifests,
             save_provider_manifest,
             reload_provider_registry,
             refresh_menu_bar,
+            app_config_directory,
+            open_app_config_directory,
             window_action
         ])
         .on_tray_icon_event(|app, event| {
@@ -417,9 +518,27 @@ pub fn run() {
             }
         })
         .setup(move |app| {
+            let (config_path, providers_dir) = init_user_config(&app.handle())?;
+            let config = ServerConfig::load_from_file(&config_path).map_err(|err| err.to_string())?;
+            let registry = ProviderRegistry::load_from_dir(&providers_dir).map_err(|err| err.to_string())?;
+            let runtime_settings_path = config_path
+                .parent()
+                .ok_or_else(|| "resolve config parent dir failed".to_string())?
+                .join(RUNTIME_SETTINGS_FILE_NAME);
+            let provider_options_path = config_path
+                .parent()
+                .ok_or_else(|| "resolve config parent dir failed".to_string())?
+                .join(PROVIDER_OPTIONS_CACHE_FILE_NAME);
+            let service = Arc::new(SmsService::with_persistence_paths(
+                registry,
+                config.log_buffer,
+                Some(runtime_settings_path),
+                Some(provider_options_path),
+            ));
+            app.manage(Arc::clone(&service));
             let app_handle = app.handle().clone();
-            let service = app.state::<Arc<SmsService>>().inner().clone();
             let config = config.clone();
+            let cache_service = Arc::clone(&service);
             tauri::async_runtime::spawn(async move {
                 match spawn_http_server(service, &config).await {
                     Ok((addr, _handle)) => {
@@ -429,6 +548,12 @@ pub fn run() {
                         eprintln!("embedded http server failed to start: {error}");
                         let _ = app_handle.emit("runtime-error", error.to_string());
                     }
+                }
+            });
+            tauri::async_runtime::spawn(async move {
+                loop {
+                    let _ = cache_service.maybe_poll_provider_options().await;
+                    tokio::time::sleep(std::time::Duration::from_secs(60)).await;
                 }
             });
             if let Some(window) = app.get_webview_window("main") {

@@ -15,6 +15,7 @@ import type {
 } from '../app/types';
 import {
   fetchNotifications,
+  fetchOptionCacheOverview,
   fetchProviderBalance,
   fetchProviderManifests,
   fetchProviderOptions as fetchProviderOptionsRequest,
@@ -47,6 +48,12 @@ type DataState = {
   setNotifications: (value: Array<{ timestamp: string; scope: string; level: string; message: string }> | ((prev: Array<{ timestamp: string; scope: string; level: string; message: string }>) => Array<{ timestamp: string; scope: string; level: string; message: string }>)) => void;
   runtimeSettings: RuntimeSettings;
   setRuntimeSettings: (value: RuntimeSettings | ((prev: RuntimeSettings) => RuntimeSettings)) => void;
+  optionCacheOverview: import('../app/types').OptionCacheOverview;
+  setOptionCacheOverview: (
+    value:
+      | import('../app/types').OptionCacheOverview
+      | ((prev: import('../app/types').OptionCacheOverview) => import('../app/types').OptionCacheOverview)
+  ) => void;
   providerOptions: Record<string, ProviderDynamicOptions>;
   setProviderOptions: (value: Record<string, ProviderDynamicOptions> | ((prev: Record<string, ProviderDynamicOptions>) => Record<string, ProviderDynamicOptions>)) => void;
   storeQueries: Record<string, StoreQueryState>;
@@ -66,17 +73,25 @@ export function useProviderRuntime(
   data: DataState,
   ui: UiState,
 ) {
-  const visibleProviders = useMemo(
+  const manageableProviders = useMemo(
     () => Object.values(data.manifests).filter((provider) => provider.id !== 'mock' && provider.kind !== 'mock'),
     [data.manifests],
   );
 
+  const selectableProviders = useMemo(
+    () => manageableProviders.filter((provider) => {
+      const summary = data.snapshot?.providers.find((item) => item.id === provider.id);
+      return provider.enabled && (summary?.can_enable ?? true);
+    }),
+    [manageableProviders, data.snapshot],
+  );
+
   const orderedProviders = useMemo(() => {
-    const byId = Object.fromEntries(visibleProviders.map((provider) => [provider.id, provider]));
+    const byId = Object.fromEntries(manageableProviders.map((provider) => [provider.id, provider]));
     const ordered = data.providerOrder.map((id) => byId[id]).filter(Boolean) as ProviderManifest[];
-    const rest = visibleProviders.filter((provider) => !data.providerOrder.includes(provider.id));
+    const rest = manageableProviders.filter((provider) => !data.providerOrder.includes(provider.id));
     return [...ordered, ...rest];
-  }, [visibleProviders, data.providerOrder]);
+  }, [manageableProviders, data.providerOrder]);
 
   const selectedManifest = data.manifests[ui.selectedProvider];
   const selectedSummary = data.snapshot?.providers.find((provider) => provider.id === ui.selectedProvider);
@@ -146,11 +161,20 @@ export function useProviderRuntime(
         data.setRawEditors(editors);
         data.setProviderOrder(sorted);
       });
-      const optionsList = await Promise.all(
-        list.manifests
-          .filter((manifest) => manifest.kind !== 'mock')
-          .map((manifest) => fetchProviderOptions(manifest.id)),
-      );
+      const optionsList = (
+        await Promise.all(
+          list.manifests
+            .filter((manifest) => manifest.kind !== 'mock')
+            .map(async (manifest) => {
+              try {
+                return await fetchProviderOptions(manifest.id);
+              } catch {
+                return null;
+              }
+            }),
+        )
+      ).filter(Boolean) as ProviderDynamicOptions[];
+      const cacheOverview = await fetchOptionCacheOverview();
       data.setProviderOptions((current) => {
         const nextOptions = { ...current };
         optionsList.forEach((item) => {
@@ -158,7 +182,10 @@ export function useProviderRuntime(
         });
         return nextOptions;
       });
-      const firstProvider = sorted[0];
+      data.setOptionCacheOverview(cacheOverview);
+      const firstProvider = list.manifests
+        .filter((manifest) => manifest.kind !== 'mock' && manifest.enabled)
+        .sort((left, right) => (left.priority ?? 100) - (right.priority ?? 100) || left.id.localeCompare(right.id))[0]?.id;
       if (firstProvider) {
         const defaults = optionsList.find((item) => item.provider === firstProvider);
         ui.setActivationForm((current) => ({
@@ -199,6 +226,8 @@ export function useProviderRuntime(
     try {
       const settings = await fetchRuntimeSettings();
       data.setRuntimeSettings(settings);
+      const cacheOverview = await fetchOptionCacheOverview();
+      data.setOptionCacheOverview(cacheOverview);
     } catch {
       ui.setStatusMessage('Failed to load routing rules.');
     }
@@ -235,8 +264,24 @@ export function useProviderRuntime(
     try {
       ui.setBusyAction(`save-${providerId}`);
       const manifest = JSON.parse(data.rawEditors[providerId] ?? '{}') as ProviderManifest;
-      await saveProviderManifest(providerId, manifest);
-      ui.setStatusMessage(`Saved ${providerId} and hot-reloaded.`);
+      const result = await saveProviderManifest(providerId, manifest);
+      data.setProviderOptions((current) => {
+        const existing = current[providerId];
+        if (!existing) return current;
+        return {
+          ...current,
+          [providerId]: {
+            ...existing,
+            cache_state: result.option_cache_state,
+            fetched_at: result.option_cache_fetched_at ?? null,
+          },
+        };
+      });
+      if (result.cache_refresh_error) {
+        ui.setStatusMessage(`Saved ${providerId}, but cache refresh failed: ${result.cache_refresh_error}`);
+      } else {
+        ui.setStatusMessage(`Saved ${providerId}, hot-reloaded, and refreshed provider cache.`);
+      }
       await Promise.all([loadManifests(), loadSnapshot(), loadNotifications()]);
       ui.setShowManifestModal(false);
     } catch (error) {
@@ -264,6 +309,7 @@ export function useProviderRuntime(
       ui.setBusyAction('routing-settings');
       const dataNext = await persistRuntimeSettings(next);
       data.setRuntimeSettings(dataNext);
+      data.setOptionCacheOverview(await fetchOptionCacheOverview());
       ui.setStatusMessage('Routing rules saved.');
       await loadNotifications();
     } catch (error) {
@@ -344,7 +390,8 @@ export function useProviderRuntime(
   }
 
   return {
-    visibleProviders,
+    visibleProviders: selectableProviders,
+    manageableProviders,
     orderedProviders,
     selectedManifest,
     selectedSummary,

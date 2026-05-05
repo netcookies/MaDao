@@ -1,8 +1,10 @@
 import type {
   NotificationFeed,
+  OptionCacheOverview,
   ProviderBalance,
   ProviderDynamicOptions,
   ProviderManifest,
+  ProviderManifestSaveResponse,
   ProviderManifestList,
   ProviderPriceResponse,
   RuntimeSettings,
@@ -26,7 +28,7 @@ export async function fetchProviderManifests(): Promise<ProviderManifestList> {
   return readJson<ProviderManifestList>(await fetch(`${API_BASE}/api/provider-manifests`));
 }
 
-export async function saveProviderManifest(providerId: string, manifest: ProviderManifest): Promise<void> {
+export async function saveProviderManifest(providerId: string, manifest: ProviderManifest): Promise<ProviderManifestSaveResponse> {
   const response = await fetch(`${API_BASE}/api/providers/${providerId}/manifest`, {
     method: 'PUT',
     headers: { 'Content-Type': 'application/json' },
@@ -36,6 +38,7 @@ export async function saveProviderManifest(providerId: string, manifest: Provide
     const error = (await response.json()) as { message?: string };
     throw new Error(error.message ?? response.statusText);
   }
+  return (await response.json()) as ProviderManifestSaveResponse;
 }
 
 export async function reloadProviderRegistry(): Promise<void> {
@@ -61,6 +64,10 @@ export async function saveRuntimeSettings(next: RuntimeSettingsUpdate): Promise<
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(next),
   }));
+}
+
+export async function fetchOptionCacheOverview(): Promise<OptionCacheOverview> {
+  return readJson<OptionCacheOverview>(await fetch(`${API_BASE}/api/settings/option-cache`));
 }
 
 export async function fetchProviderBalance(providerId: string): Promise<ProviderBalance> {

@@ -29,6 +29,9 @@ export type ProviderSummary = {
   homepage?: string | null;
   description?: string | null;
   priority: number;
+  option_cache_state?: OptionCacheState;
+  option_cache_fetched_at?: string | null;
+  can_enable?: boolean;
 };
 
 export type TicketRecord = {
@@ -87,12 +90,42 @@ export type ProviderManifestList = { manifests: ProviderManifest[] };
 export type ProviderBalance = { provider: string; amount: number; currency: string };
 export type ProviderPriceItem = { country: string; display_name: string; operator: string; price: number; stock: number };
 export type ProviderPriceResponse = { provider: string; service: string; items: ProviderPriceItem[] };
-export type OptionItem = { value: string; label: string; hint: string };
+export type OptionCacheState = 'missing' | 'fresh' | 'stale';
+export type OptionItem = { value: string; label: string; hint: string; provider_value?: string | null };
 export type SelectorState = { kind: SelectorKind; title: string; options: OptionItem[] };
 export type NotificationFeed = { items: LogEntry[] };
-export type RuntimeSettings = { routing_strategy: RoutingStrategy; auto_fallback: boolean };
-export type RuntimeSettingsUpdate = { routing_strategy: RoutingStrategy; auto_fallback: boolean };
-export type ProviderDynamicOptions = { provider: string; services: OptionItem[]; countries: OptionItem[]; operators: OptionItem[] };
+export type RuntimeSettings = {
+  routing_strategy: RoutingStrategy;
+  auto_fallback: boolean;
+  option_cache_enabled: boolean;
+  option_cache_poll_interval_minutes: number;
+};
+export type RuntimeSettingsUpdate = {
+  routing_strategy: RoutingStrategy;
+  auto_fallback: boolean;
+  option_cache_enabled: boolean;
+  option_cache_poll_interval_minutes: number;
+};
+export type ProviderDynamicOptions = {
+  provider: string;
+  services: OptionItem[];
+  countries: OptionItem[];
+  operators: OptionItem[];
+  cache_state?: OptionCacheState;
+  fetched_at?: string | null;
+};
+export type ProviderManifestSaveResponse = {
+  manifest: ProviderManifest;
+  option_cache_state: OptionCacheState;
+  option_cache_fetched_at?: string | null;
+  cache_refresh_error?: string | null;
+};
+export type OptionCacheOverview = {
+  fresh_providers: number;
+  stale_providers: number;
+  missing_providers: number;
+  last_refresh_at?: string | null;
+};
 export type StoreQueryState = { service: string; country: string; operator: string; search: string };
 
 export type MenuCommandPayload =

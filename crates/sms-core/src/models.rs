@@ -117,6 +117,8 @@ pub struct OptionItem {
     pub value: String,
     pub label: String,
     pub hint: String,
+    #[serde(default)]
+    pub provider_value: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -125,6 +127,35 @@ pub struct ProviderDynamicOptions {
     pub services: Vec<OptionItem>,
     pub countries: Vec<OptionItem>,
     pub operators: Vec<OptionItem>,
+    #[serde(default)]
+    pub cache_state: OptionCacheState,
+    #[serde(default)]
+    pub fetched_at: Option<DateTime<Utc>>,
+}
+
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, Default)]
+#[serde(rename_all = "snake_case")]
+pub enum OptionCacheState {
+    #[default]
+    Missing,
+    Fresh,
+    Stale,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ProviderOptionCacheEntry {
+    pub provider: String,
+    pub fetched_at: DateTime<Utc>,
+    pub options: ProviderDynamicOptions,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct OptionCacheOverview {
+    pub fresh_providers: u32,
+    pub stale_providers: u32,
+    pub missing_providers: u32,
+    #[serde(default)]
+    pub last_refresh_at: Option<DateTime<Utc>>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -140,6 +171,12 @@ pub struct ProviderSummary {
     pub homepage: Option<String>,
     pub description: Option<String>,
     pub priority: u32,
+    #[serde(default)]
+    pub option_cache_state: OptionCacheState,
+    #[serde(default)]
+    pub option_cache_fetched_at: Option<DateTime<Utc>>,
+    #[serde(default)]
+    pub can_enable: bool,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -172,12 +209,26 @@ pub struct WindowActionRequest {
 pub struct RuntimeSettings {
     pub routing_strategy: String,
     pub auto_fallback: bool,
+    pub option_cache_enabled: bool,
+    pub option_cache_poll_interval_minutes: u32,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct RuntimeSettingsUpdate {
     pub routing_strategy: String,
     pub auto_fallback: bool,
+    pub option_cache_enabled: bool,
+    pub option_cache_poll_interval_minutes: u32,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ProviderManifestSaveResponse {
+    pub manifest: ProviderManifest,
+    pub option_cache_state: OptionCacheState,
+    #[serde(default)]
+    pub option_cache_fetched_at: Option<DateTime<Utc>>,
+    #[serde(default)]
+    pub cache_refresh_error: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

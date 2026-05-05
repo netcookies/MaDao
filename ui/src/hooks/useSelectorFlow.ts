@@ -7,6 +7,12 @@ import type {
   SelectorState,
 } from '../app/types';
 import { mergeOptionItems } from '../app/utils';
+import { formatCountryLabel } from '../lib/formatters';
+
+const ALL_COUNTRIES_OPTION: OptionItem = { value: '', label: 'All countries', hint: 'Clear country filter' };
+const ALL_OPERATORS_OPTION: OptionItem = { value: '', label: 'All operators', hint: 'Clear operator filter' };
+const AUTO_PROVIDER_OPTION: OptionItem = { value: 'auto', label: 'Auto — follow routing rules', hint: 'Use routing strategy' };
+const AUTO_COUNTRY_OPTION: OptionItem = { value: '', label: 'Any country', hint: 'Auto select country' };
 
 type SelectorUiState = {
   selectorState: SelectorState | null;
@@ -44,20 +50,23 @@ export function useSelectorFlow(
       options = runtime.selectedOptions?.countries ?? [];
       title = 'Select Default Country';
     } else if (kind === 'provider') {
-      options = runtime.visibleProviders.map((provider) => ({
+      options = [
+        AUTO_PROVIDER_OPTION,
+        ...runtime.visibleProviders.map((provider) => ({
         value: provider.id,
         label: provider.name,
         hint: provider.kind,
-      }));
+      })),
+      ];
       title = 'Select Provider';
     } else if (kind === 'store-service') {
       options = runtime.selectedOptions?.services ?? [];
       title = 'Select Store Service';
     } else if (kind === 'store-country') {
-      options = runtime.selectedOptions?.countries ?? [];
+      options = [ALL_COUNTRIES_OPTION, ...(runtime.selectedOptions?.countries ?? [])];
       title = 'Select Store Country';
     } else if (kind === 'store-operator') {
-      options = runtime.selectedOptions?.operators ?? [];
+      options = [ALL_OPERATORS_OPTION, ...(runtime.selectedOptions?.operators ?? [])];
       title = 'Select Store Operator';
     } else if (kind === 'activation-service') {
       if (ui.activationForm.provider === 'auto') {
@@ -68,9 +77,9 @@ export function useSelectorFlow(
       title = 'Select Activation Service';
     } else if (kind === 'activation-country') {
       if (ui.activationForm.provider === 'auto') {
-        options = mergeOptionItems(Object.values(runtime.providerOptions).map((item) => item.countries));
+        options = [AUTO_COUNTRY_OPTION, ...mergeOptionItems(Object.values(runtime.providerOptions).map((item) => item.countries))];
       } else {
-        options = runtime.providerOptions[ui.activationForm.provider]?.countries ?? [];
+        options = [AUTO_COUNTRY_OPTION, ...(runtime.providerOptions[ui.activationForm.provider]?.countries ?? [])];
       }
       title = 'Select Activation Country';
     } else if (kind === 'activation-operator') {
@@ -100,9 +109,9 @@ export function useSelectorFlow(
       ui.setActivationForm((current) => ({
         ...current,
         provider: option.value,
-        service: options?.services[0]?.value ?? current.service,
-        country: options?.countries[0]?.value ?? current.country,
-        operator: options?.operators[0]?.value ?? current.operator,
+        service: option.value === 'auto' ? '' : (options?.services[0]?.value ?? current.service),
+        country: option.value === 'auto' ? '' : (options?.countries[0]?.value ?? current.country),
+        operator: option.value === 'auto' ? '' : (options?.operators[0]?.value ?? current.operator),
       }));
     } else if (ui.selectorState.kind === 'activation-service') {
       ui.setActivationForm((current) => ({ ...current, service: option.value }));

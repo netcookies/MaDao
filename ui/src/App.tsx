@@ -76,6 +76,7 @@ import {
   API_BASE,
   SOCKET_PATH,
 } from './services/runtimeApi';
+import { getAppConfigDirectory, openAppConfigDirectory } from './services/appConfigApi';
 import { windowAction } from './services/windowApi';
 import { listenMenuCommand } from './services/menuBarApi';
 
@@ -116,6 +117,7 @@ const LOG_FILTERS: Array<{ id: LogFilter; label: string }> = [
 ];
 
 export function App() {
+  const [configDirectory, setConfigDirectory] = useState('Loading…');
   const {
     snapshot,
     setSnapshot,
@@ -135,6 +137,8 @@ export function App() {
     setNotifications,
     runtimeSettings,
     setRuntimeSettings,
+    optionCacheOverview,
+    setOptionCacheOverview,
     providerOptions,
     setProviderOptions,
     storeQueries,
@@ -192,6 +196,7 @@ export function App() {
   } = useConsoleUiState();
   const {
     visibleProviders,
+    manageableProviders,
     orderedProviders,
     selectedManifest,
     selectedSummary,
@@ -233,6 +238,8 @@ export function App() {
       setNotifications,
       runtimeSettings,
       setRuntimeSettings,
+      optionCacheOverview,
+      setOptionCacheOverview,
       providerOptions,
       setProviderOptions,
       storeQueries,
@@ -299,6 +306,12 @@ export function App() {
 
   useEffect(() => {
     void Promise.all([loadSnapshot(), loadManifests(), loadNotifications(), loadRuntimeSettings()]);
+  }, []);
+
+  useEffect(() => {
+    void getAppConfigDirectory()
+      .then(setConfigDirectory)
+      .catch(() => setConfigDirectory('Unavailable'));
   }, []);
 
   useEffect(() => {
@@ -571,6 +584,8 @@ export function App() {
             {activeScreen === 'providers' && providerView === 'list' && (
               <ProvidersListScreen
                 providers={orderedProviders}
+                summaries={snapshot?.providers}
+                onToggleEnabled={(id, enabled) => updateManifestField(id, 'root', 'enabled', enabled)}
                 onConfigure={(id) => {
                   setSelectedProvider(id);
                   setProviderView('workspace');
@@ -599,6 +614,7 @@ export function App() {
                   updateManifestField(selectedProvider, section, field, value)
                 }
                 onApiKeyChange={(value) => setApiKey(selectedProvider, value)}
+                onToggleEnabled={(enabled) => updateManifestField(selectedProvider, 'root', 'enabled', enabled)}
                 onFetchBalance={() => void fetchBalance(selectedProvider)}
                 onFetchPrices={() => void fetchPrices(selectedProvider)}
                 onSave={() => void saveProvider(selectedProvider)}
@@ -649,20 +665,43 @@ export function App() {
                 setAppearanceTheme={setAppearanceTheme}
                 routingStrategy={runtimeSettings.routing_strategy}
                 autoFallback={runtimeSettings.auto_fallback}
+                optionCacheEnabled={runtimeSettings.option_cache_enabled}
+                optionCachePollIntervalMinutes={runtimeSettings.option_cache_poll_interval_minutes}
+                optionCacheOverview={optionCacheOverview}
                 onStrategyChange={(strategy) =>
                   void updateRuntimeSettings({
                     routing_strategy: strategy,
                     auto_fallback: runtimeSettings.auto_fallback,
+                    option_cache_enabled: runtimeSettings.option_cache_enabled,
+                    option_cache_poll_interval_minutes: runtimeSettings.option_cache_poll_interval_minutes,
                   })}
                 onAutoFallbackChange={(enabled) =>
                   void updateRuntimeSettings({
                     routing_strategy: runtimeSettings.routing_strategy,
                     auto_fallback: enabled,
+                    option_cache_enabled: runtimeSettings.option_cache_enabled,
+                    option_cache_poll_interval_minutes: runtimeSettings.option_cache_poll_interval_minutes,
+                  })}
+                onOptionCacheEnabledChange={(enabled) =>
+                  void updateRuntimeSettings({
+                    routing_strategy: runtimeSettings.routing_strategy,
+                    auto_fallback: runtimeSettings.auto_fallback,
+                    option_cache_enabled: enabled,
+                    option_cache_poll_interval_minutes: runtimeSettings.option_cache_poll_interval_minutes,
+                  })}
+                onOptionCachePollIntervalChange={(minutes) =>
+                  void updateRuntimeSettings({
+                    routing_strategy: runtimeSettings.routing_strategy,
+                    auto_fallback: runtimeSettings.auto_fallback,
+                    option_cache_enabled: runtimeSettings.option_cache_enabled,
+                    option_cache_poll_interval_minutes: minutes,
                   })}
                 onReload={() => void reloadProviders()}
                 reloadBusy={busyAction === 'reload'}
                 apiBase={API_BASE}
                 socketPath={SOCKET_PATH}
+                configDirectory={configDirectory}
+                onOpenConfigDirectory={() => void openAppConfigDirectory()}
                 routingStrategies={ROUTING_STRATEGIES}
               />
             )}

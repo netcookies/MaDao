@@ -5,9 +5,9 @@ use axum::{Json, Router};
 use serde::Serialize;
 use sms_core::config::ServerConfig;
 use sms_core::models::{
-    AcquireCodeRequest, NotificationFeed, PollCodeRequest, ProviderDynamicOptions, ProviderManifestList,
-    ProviderPriceQuery, ProviderReorderRequest, ReleaseCodeRequest, RuntimeSettings, RuntimeSettingsUpdate,
-    RuntimeSnapshot,
+    AcquireCodeRequest, NotificationFeed, OptionCacheOverview, PollCodeRequest, ProviderDynamicOptions,
+    ProviderManifestList, ProviderPriceQuery, ProviderReorderRequest, ReleaseCodeRequest, RuntimeSettings,
+    RuntimeSettingsUpdate, RuntimeSnapshot,
 };
 use sms_core::service::SmsService;
 use std::net::SocketAddr;
@@ -35,6 +35,7 @@ pub fn build_router(service: Arc<SmsService>) -> Router {
         .route("/api/providers/reorder", post(reorder_providers))
         .route("/api/notifications", get(get_notifications))
         .route("/api/settings/runtime", get(get_runtime_settings).post(update_runtime_settings))
+        .route("/api/settings/option-cache", get(get_option_cache_overview))
         .route("/api/acquire", post(acquire_code))
         .route("/api/poll", post(poll_code))
         .route("/api/release", post(release_code))
@@ -95,6 +96,10 @@ async fn update_runtime_settings(
     Json(update): Json<RuntimeSettingsUpdate>,
 ) -> Json<RuntimeSettings> {
     Json(state.service.update_runtime_settings(update))
+}
+
+async fn get_option_cache_overview(State(state): State<ApiState>) -> Json<OptionCacheOverview> {
+    Json(state.service.option_cache_overview())
 }
 
 async fn reload_provider_manifests(
@@ -184,12 +189,10 @@ async fn get_provider_options(
     State(state): State<ApiState>,
     Path(provider): Path<String>,
 ) -> Result<Json<ProviderDynamicOptions>, (StatusCode, Json<ApiError>)> {
-    state
-        .service
-        .provider_dynamic_options(&provider)
-        .await
-        .map(Json)
-        .map_err(to_api_error)
+    match state.service.provider_dynamic_options(&provider).await {
+        Ok(value) => Ok(Json(value)),
+        Err(error) => Err(to_api_error(error)),
+    }
 }
 
 async fn get_manifest(
@@ -208,11 +211,10 @@ async fn put_manifest(
     Path(provider): Path<String>,
     Json(manifest): Json<plugin_sdk::ProviderManifest>,
 ) -> Result<Json<serde_json::Value>, (StatusCode, Json<ApiError>)> {
-    state
-        .service
-        .save_provider_manifest(&provider, manifest)
-        .map(|value| Json(serde_json::json!(value)))
-        .map_err(to_api_error)
+    match state.service.save_provider_manifest(&provider, manifest).await {
+        Ok(value) => Ok(Json(serde_json::json!(value))),
+        Err(error) => Err(to_api_error(error)),
+    }
 }
 
 fn to_api_error(error: sms_core::error::SmsError) -> (StatusCode, Json<ApiError>) {

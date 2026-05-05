@@ -11,9 +11,13 @@ node_modules/
 .claude/
 .artifacts/
 .ccw/
+.codexlens/
 src-tauri/icons/icon.iconset/
 plugins/providers/herosms.toml
 plugins/providers/smsbower.toml
+designs/screenshots/.pen-export/
+designs/screenshots/.pen-export-1x/
+designs/screenshots/archive-2026-05-03-pre-pen-export/
 *.bak
 *.patch
 patch.js

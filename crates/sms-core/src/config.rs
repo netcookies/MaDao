@@ -14,8 +14,21 @@ pub struct ServerConfig {
 
 impl ServerConfig {
     pub fn load_from_file(path: impl AsRef<Path>) -> Result<Self, SmsError> {
-        let content = fs::read_to_string(path.as_ref())
+        let path = path.as_ref();
+        let content = fs::read_to_string(path)
             .map_err(|err| SmsError::Io(format!("read config failed: {err}")))?;
-        toml::from_str(&content).map_err(|err| SmsError::Config(format!("parse config failed: {err}")))
+        let mut config: Self =
+            toml::from_str(&content).map_err(|err| SmsError::Config(format!("parse config failed: {err}")))?;
+        let base_dir = path
+            .parent()
+            .map(Path::to_path_buf)
+            .unwrap_or_else(|| PathBuf::from("."));
+        if config.provider_dir.is_relative() {
+            config.provider_dir = base_dir.join(&config.provider_dir);
+        }
+        if config.socket_path.is_relative() {
+            config.socket_path = base_dir.join(&config.socket_path);
+        }
+        Ok(config)
     }
 }
