@@ -1,6 +1,5 @@
 import {
   ChevronsUpDown,
-  MessageSquare,
   ShoppingCart,
   Sliders,
   Wallet,
@@ -15,6 +14,7 @@ import {
   SectionHeader,
   SelectTrigger,
   StatusBadge,
+  ToggleSwitch,
 } from '../ui-bridge';
 import type {
   PriceSortKey,
@@ -59,6 +59,7 @@ export type ProviderWorkspaceScreenProps = {
     value: string | number | boolean,
   ) => void;
   onApiKeyChange: (value: string) => void;
+  onToggleEnabled: (enabled: boolean) => void;
   onFetchBalance: () => void;
   onFetchPrices: () => void;
   onSave: () => void;
@@ -97,16 +98,18 @@ export function ProviderWorkspaceScreen(props: ProviderWorkspaceScreenProps) {
         </div>
       </div>
 
-      <div className="bg-ds-surface px-8 py-7 max-[760px]:px-5">
+      <div className="bg-ds-surface px-10 py-8 max-[760px]:px-5">
         {section === 'config' && (
           <WorkspaceConfig
             manifest={manifest}
+            summary={props.summary}
             isConnected={isConnected}
             busyAction={props.busyAction}
             apiKeyValue={props.apiKeyValue}
             showAdvancedEditor={props.showAdvancedEditor}
             onManifestFieldChange={props.onManifestFieldChange}
             onApiKeyChange={props.onApiKeyChange}
+            onToggleEnabled={props.onToggleEnabled}
             onSave={props.onSave}
             onOpenRawJson={props.onOpenRawJson}
             onOpenSelector={props.onOpenSelector}
@@ -141,6 +144,7 @@ export function ProviderWorkspaceScreen(props: ProviderWorkspaceScreenProps) {
 
 function WorkspaceConfig(props: {
   manifest: ProviderManifest;
+  summary?: ProviderSummary;
   isConnected: boolean;
   busyAction: string;
   apiKeyValue: string;
@@ -151,31 +155,75 @@ function WorkspaceConfig(props: {
     value: string | number | boolean,
   ) => void;
   onApiKeyChange: (value: string) => void;
+  onToggleEnabled: (enabled: boolean) => void;
   onSave: () => void;
   onOpenRawJson: () => void;
   onOpenSelector: (kind: SelectorKind) => void;
 }) {
   const { manifest } = props;
+  const enableLocked = !props.isConnected && props.summary?.can_enable === false;
+  const cacheState = props.summary?.option_cache_state ?? 'missing';
+  const cacheLabel = cacheState === 'fresh'
+    ? 'Fresh Cache'
+    : cacheState === 'stale'
+      ? 'Stale Cache'
+      : 'No Cache';
+  const toggleLabel = props.isConnected ? 'Enabled' : 'Disabled';
 
   return (
     <div className="flex flex-col gap-5">
-      <SectionHeader
-        eyebrow="Provider Workspace"
-        title={manifest.name}
-        description={manifest.description ?? `${manifest.kind} provider`}
-        icon={<MessageSquare size={28} className="text-ds-accent-blue" />}
-        badge={<StatusBadge tone={props.isConnected ? 'green' : 'gray'}>{props.isConnected ? 'Connected' : 'Disabled'}</StatusBadge>}
-        actions={(
-          <>
+      <div className="overflow-hidden rounded-lg border border-ds-border bg-ds-surface shadow-[0_1px_2px_rgba(0,0,0,0.04)]">
+        <div className="flex flex-col gap-3 px-5 py-5">
+          <div className="flex items-center justify-between gap-4">
+            <span className="font-text text-[11px] font-semibold uppercase tracking-[0.08em] text-ds-text-secondary">
+              Provider Workspace
+            </span>
+            <div className="inline-flex items-center gap-2">
+              <span className="font-text text-[11px] font-semibold tracking-[0] text-ds-text-primary">
+                {toggleLabel}
+              </span>
+              <ToggleSwitch
+                checked={props.isConnected}
+                onChange={(enabled) => {
+                  if (enableLocked && enabled) return;
+                  props.onToggleEnabled(enabled);
+                }}
+                ariaLabel={`Toggle ${props.manifest.name}`}
+              />
+            </div>
+          </div>
+
+          <div className="flex flex-col gap-1">
+            <h2 className="m-0 text-page-title text-ds-text-primary">
+              {manifest.name}
+            </h2>
+          </div>
+
+          <div className="flex flex-wrap items-center gap-2">
+            <span className="rounded-pill bg-ds-accent-blue-soft px-2.5 py-1 text-[10px] font-semibold uppercase tracking-[0.06em] text-ds-accent-blue">
+              Config Tab
+            </span>
+            <StatusBadge tone={props.isConnected ? 'green' : 'gray'}>
+              {props.isConnected ? 'Connected' : 'Disabled'}
+            </StatusBadge>
+            <StatusBadge tone={cacheState === 'fresh' ? 'green' : cacheState === 'stale' ? 'orange' : 'gray'}>
+              {cacheLabel}
+            </StatusBadge>
+            <span className="rounded-pill bg-ds-surface-subtle px-2.5 py-1 text-[10px] font-semibold uppercase tracking-[0.06em] text-ds-text-secondary">
+              Provider Defaults
+            </span>
+          </div>
+
+          <div className="flex flex-wrap justify-end gap-2">
             {props.showAdvancedEditor && (
               <AppButton variant="outline" size="utility" onClick={props.onOpenRawJson}>Raw JSON</AppButton>
             )}
             <AppButton variant="primary" size="utility" onClick={props.onSave} disabled={props.busyAction.includes('save')}>
               {props.busyAction.includes('save') ? 'Saving…' : 'Save'}
             </AppButton>
-          </>
-        )}
-      />
+          </div>
+        </div>
+      </div>
 
       <div className="overflow-hidden rounded-lg border border-ds-border bg-ds-surface">
         <ConfigRow label="Provider Name">

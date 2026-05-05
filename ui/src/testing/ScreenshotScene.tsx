@@ -203,6 +203,8 @@ const PROVIDER_SUMMARIES: ProviderSummary[] = [
     homepage: 'https://5sim.net',
     description: 'Primary marketplace provider for global OTP supply.',
     priority: 1,
+    option_cache_state: 'fresh',
+    can_enable: true,
   },
   {
     id: 'herosms',
@@ -216,6 +218,8 @@ const PROVIDER_SUMMARIES: ProviderSummary[] = [
     homepage: 'https://internal.example/herosms',
     description: 'Fallback private gateway for Telegram-heavy traffic.',
     priority: 2,
+    option_cache_state: 'stale',
+    can_enable: false,
   },
   {
     id: 'smsbower',
@@ -229,6 +233,8 @@ const PROVIDER_SUMMARIES: ProviderSummary[] = [
     homepage: 'https://internal.example/smsbower',
     description: 'Backup lane used for WhatsApp and regional overflow.',
     priority: 3,
+    option_cache_state: 'fresh',
+    can_enable: true,
   },
 ];
 
@@ -534,8 +540,10 @@ function renderPageTarget(target: ScreenshotTarget) {
       'Providers',
       <ProvidersListScreen
         providers={PROVIDERS}
+        summaries={PROVIDER_SUMMARIES}
         onConfigure={noop}
         onReorder={noop}
+        onToggleEnabled={noop}
       />,
     );
   }
@@ -557,6 +565,7 @@ function renderPageTarget(target: ScreenshotTarget) {
         onSelectSection={noop}
         onManifestFieldChange={noop}
         onApiKeyChange={noop}
+        onToggleEnabled={noop}
         onFetchBalance={noop}
         onFetchPrices={noop}
         onSave={noop}
@@ -598,6 +607,7 @@ function renderPageTarget(target: ScreenshotTarget) {
         onSelectSection={noop}
         onManifestFieldChange={noop}
         onApiKeyChange={noop}
+        onToggleEnabled={noop}
         onFetchBalance={noop}
         onFetchPrices={noop}
         onSave={noop}
@@ -639,6 +649,7 @@ function renderPageTarget(target: ScreenshotTarget) {
         onSelectSection={noop}
         onManifestFieldChange={noop}
         onApiKeyChange={noop}
+        onToggleEnabled={noop}
         onFetchBalance={noop}
         onFetchPrices={noop}
         onSave={noop}
@@ -697,12 +708,19 @@ function renderPageTarget(target: ScreenshotTarget) {
         setAppearanceTheme={noop}
         routingStrategy="ordered_priority"
         autoFallback
+        optionCacheEnabled
+        optionCachePollIntervalMinutes={30}
+        optionCacheOverview={{ fresh_providers: 2, stale_providers: 1, missing_providers: 0, last_refresh_at: null }}
         onStrategyChange={noop}
         onAutoFallbackChange={noop}
+        onOptionCacheEnabledChange={noop}
+        onOptionCachePollIntervalChange={noop}
         onReload={noop}
         reloadBusy={false}
         apiBase="http://127.0.0.1:7822"
         socketPath="/tmp/madao-sms.sock"
+        configDirectory="~/Library/Application Support/com.madao.sms"
+        onOpenConfigDirectory={noop}
         routingStrategies={ROUTING_STRATEGIES}
       />,
     );
