@@ -209,6 +209,7 @@ export function App() {
     loadNotifications,
     loadRuntimeSettings,
     updateManifestField,
+    toggleProviderEnabled,
     saveProvider,
     reloadProviders,
     updateRuntimeSettings,
@@ -333,9 +334,9 @@ export function App() {
     let disposed = false;
     let unlisten: (() => void) | undefined;
 
-    void listenMenuCommand((payload) => {
+    function handleMenuCommand(payload: Parameters<Parameters<typeof listenMenuCommand>[0]>[0]) {
       if (payload.kind === 'new_activation') {
-        setShowActivationModal(true);
+        openActivationModal();
         return;
       }
 
@@ -353,7 +354,9 @@ export function App() {
       setProviderView('workspace');
       setActiveProviderSection(payload.section);
       setShowNotifications(false);
-    }).then((nextUnlisten) => {
+    }
+
+    void listenMenuCommand(handleMenuCommand).then((nextUnlisten) => {
       if (disposed) {
         nextUnlisten();
         return;
@@ -378,6 +381,17 @@ export function App() {
       }));
     }
   }, [visibleProviders, selectedProvider]);
+
+  useEffect(() => {
+    if (activationForm.provider === 'auto') return;
+    if (visibleProviders.some((provider) => provider.id === activationForm.provider)) return;
+    setActivationForm((current) => (current.provider === 'auto'
+      ? current
+      : {
+        ...current,
+        provider: 'auto',
+      }));
+  }, [activationForm.provider, visibleProviders, setActivationForm]);
 
   const filteredMessages = useMemo(() => {
     const tickets = (snapshot?.tickets ?? []).filter((ticket) => ticket.provider !== 'mock');
@@ -441,6 +455,41 @@ export function App() {
       [option.label, option.value, option.hint].some((value) => value.toLowerCase().includes(term)),
     );
   }, [selectorSearch, selectorState]);
+
+  function openActivationModal() {
+    if (activationForm.provider !== 'auto' && !visibleProviders.some((provider) => provider.id === activationForm.provider)) {
+      setActivationForm((current) => (current.provider === 'auto'
+        ? current
+        : {
+          ...current,
+          provider: 'auto',
+        }));
+    }
+    setActivationError(
+      visibleProviders.length === 0
+        ? 'No enabled providers available. Save an enabled provider first.'
+        : '',
+    );
+    setShowActivationModal(true);
+  }
+
+  function handleSubmitActivation() {
+    if (visibleProviders.length === 0) {
+      setActivationError('No enabled providers available. Save an enabled provider first.');
+      return;
+    }
+    if (activationForm.provider !== 'auto' && !visibleProviders.some((provider) => provider.id === activationForm.provider)) {
+      setActivationForm((current) => (current.provider === 'auto'
+        ? current
+        : {
+          ...current,
+          provider: 'auto',
+        }));
+      setActivationError(`Provider ${activationForm.provider} is no longer enabled. Pick Auto or another provider.`);
+      return;
+    }
+    void submitActivation();
+  }
 
   function markNotificationsRead() {
     setNotificationCursor(notifications.length);
@@ -550,7 +599,7 @@ export function App() {
           </div>
         )}
       </div>
-      <AppButton variant="primary" size="utility" onClick={() => setShowActivationModal(true)}>
+      <AppButton variant="primary" size="utility" onClick={openActivationModal}>
         <Plus size={14} />
         <span>New Activation</span>
       </AppButton>
@@ -585,7 +634,9 @@ export function App() {
               <ProvidersListScreen
                 providers={orderedProviders}
                 summaries={snapshot?.providers}
-                onToggleEnabled={(id, enabled) => updateManifestField(id, 'root', 'enabled', enabled)}
+                onToggleEnabled={(id, enabled) => {
+                  void toggleProviderEnabled(id, enabled);
+                }}
                 onConfigure={(id) => {
                   setSelectedProvider(id);
                   setProviderView('workspace');
@@ -614,7 +665,9 @@ export function App() {
                   updateManifestField(selectedProvider, section, field, value)
                 }
                 onApiKeyChange={(value) => setApiKey(selectedProvider, value)}
-                onToggleEnabled={(enabled) => updateManifestField(selectedProvider, 'root', 'enabled', enabled)}
+                onToggleEnabled={(enabled) => {
+                  void toggleProviderEnabled(selectedProvider, enabled);
+                }}
                 onFetchBalance={() => void fetchBalance(selectedProvider)}
                 onFetchPrices={() => void fetchPrices(selectedProvider)}
                 onSave={() => void saveProvider(selectedProvider)}
@@ -727,7 +780,7 @@ export function App() {
           error={activationError}
           onChange={updateActivationField}
           onClose={closeActivationModal}
-          onSubmit={() => void submitActivation()}
+          onSubmit={handleSubmitActivation}
           onOpenSelector={openSelector}
         />
       )}

@@ -81,7 +81,7 @@ export function useProviderRuntime(
   const selectableProviders = useMemo(
     () => manageableProviders.filter((provider) => {
       const summary = data.snapshot?.providers.find((item) => item.id === provider.id);
-      return provider.enabled && (summary?.can_enable ?? true);
+      return summary?.enabled ?? provider.enabled;
     }),
     [manageableProviders, data.snapshot],
   );
@@ -260,10 +260,9 @@ export function useProviderRuntime(
     });
   }
 
-  async function saveProvider(providerId: string) {
+  async function persistProvider(providerId: string, manifest: ProviderManifest, successMessage: string) {
     try {
       ui.setBusyAction(`save-${providerId}`);
-      const manifest = JSON.parse(data.rawEditors[providerId] ?? '{}') as ProviderManifest;
       const result = await saveProviderManifest(providerId, manifest);
       data.setProviderOptions((current) => {
         const existing = current[providerId];
@@ -278,16 +277,71 @@ export function useProviderRuntime(
         };
       });
       if (result.cache_refresh_error) {
-        ui.setStatusMessage(`Saved ${providerId}, but cache refresh failed: ${result.cache_refresh_error}`);
+        ui.setStatusMessage(`${successMessage} Cache refresh failed: ${result.cache_refresh_error}`);
       } else {
-        ui.setStatusMessage(`Saved ${providerId}, hot-reloaded, and refreshed provider cache.`);
+        ui.setStatusMessage(successMessage);
       }
       await Promise.all([loadManifests(), loadSnapshot(), loadNotifications()]);
+    } catch (error) {
+      throw error;
+    } finally {
+      ui.setBusyAction('');
+    }
+  }
+
+  async function saveProvider(providerId: string) {
+    try {
+      const manifest = JSON.parse(data.rawEditors[providerId] ?? '{}') as ProviderManifest;
+      await persistProvider(providerId, manifest, `Saved ${providerId}, hot-reloaded, and refreshed provider cache.`);
       ui.setShowManifestModal(false);
     } catch (error) {
       ui.setStatusMessage(`Save failed: ${String(error)}`);
-    } finally {
-      ui.setBusyAction('');
+    }
+  }
+
+  async function toggleProviderEnabled(providerId: string, enabled: boolean) {
+    const previousManifest = data.manifests[providerId];
+    if (!previousManifest) return;
+
+    const previousRaw = data.rawEditors[providerId] ?? JSON.stringify(previousManifest, null, 2);
+    let draft = previousManifest;
+    try {
+      draft = JSON.parse(previousRaw) as ProviderManifest;
+    } catch {
+      draft = previousManifest;
+    }
+
+    const nextManifest = structuredClone(draft) as ProviderManifest;
+    nextManifest.enabled = enabled;
+    const nextRaw = JSON.stringify(nextManifest, null, 2);
+
+    data.setManifests((current) => ({
+      ...current,
+      [providerId]: nextManifest,
+    }));
+    data.setRawEditors((current) => ({
+      ...current,
+      [providerId]: nextRaw,
+    }));
+
+    try {
+      await persistProvider(
+        providerId,
+        nextManifest,
+        enabled
+          ? `Enabled ${providerId}, hot-reloaded, and refreshed provider cache.`
+          : `Disabled ${providerId}.`,
+      );
+    } catch (error) {
+      data.setManifests((current) => ({
+        ...current,
+        [providerId]: previousManifest,
+      }));
+      data.setRawEditors((current) => ({
+        ...current,
+        [providerId]: previousRaw,
+      }));
+      ui.setStatusMessage(`Failed to update ${providerId}: ${String(error)}`);
     }
   }
 
@@ -405,6 +459,7 @@ export function useProviderRuntime(
     loadNotifications,
     loadRuntimeSettings,
     updateManifestField,
+    toggleProviderEnabled,
     saveProvider,
     reloadProviders,
     updateRuntimeSettings,
