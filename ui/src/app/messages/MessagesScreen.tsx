@@ -1,7 +1,14 @@
 import { Bot, Copy, Loader2, Send, Shield, Smartphone } from 'lucide-react';
+import { useEffect, useState } from 'react';
 import { AppButton, PageHeader, SegmentedControl } from '../ui-bridge';
 import type { MessageFilter, TicketRecord } from '../types';
-import { formatProviderLabel, formatServiceLabel, getTicketPhase } from '../../lib/formatters';
+import {
+  formatDurationMmSs,
+  formatProviderLabel,
+  formatServiceLabel,
+  getHeroCancelRemainingMs,
+  getTicketPhase,
+} from '../../lib/formatters';
 
 export type MessagesScreenProps = {
   tickets: TicketRecord[];
@@ -22,6 +29,21 @@ function serviceIcon(service: string) {
 }
 
 export function MessagesScreen(props: MessagesScreenProps) {
+  const [now, setNow] = useState(() => Date.now());
+
+  useEffect(() => {
+    const needsHeroCancelCountdown = props.tickets.some((ticket) =>
+      ticket.provider.toLowerCase() === 'herosms'
+      && getTicketPhase(ticket.status) === 'waiting'
+      && getHeroCancelRemainingMs(ticket.created_at, now) > 0);
+    if (!needsHeroCancelCountdown) return undefined;
+
+    const timer = window.setInterval(() => {
+      setNow(Date.now());
+    }, 1000);
+    return () => window.clearInterval(timer);
+  }, [now, props.tickets]);
+
   return (
     <div className="flex flex-col gap-6">
       <PageHeader
@@ -35,6 +57,11 @@ export function MessagesScreen(props: MessagesScreenProps) {
           const phase = getTicketPhase(ticket.status);
           const isReceived = phase === 'received';
           const isWaiting = phase === 'waiting';
+          const isHeroSms = ticket.provider.toLowerCase() === 'herosms';
+          const heroCancelRemainingMs = isWaiting && isHeroSms
+            ? getHeroCancelRemainingMs(ticket.created_at, now)
+            : 0;
+          const heroCancelLocked = heroCancelRemainingMs > 0;
 
           return (
             <div className="flex flex-col gap-5 rounded-[16px] border border-black/[0.08] bg-ds-surface px-6 py-6 shadow-[0_2px_8px_rgba(0,0,0,0.04)]" key={ticket.id}>
@@ -84,6 +111,11 @@ export function MessagesScreen(props: MessagesScreenProps) {
                   <span className="text-center text-[13px] tracking-[0.08em] text-ds-text-secondary">
                     {ticket.message ?? 'Check provider dashboard'}
                   </span>
+                  {heroCancelLocked && (
+                    <span className="text-center text-[12px] font-medium tracking-[0.04em] text-[#c27c18]">
+                      HeroSMS cancel unlocks in {formatDurationMmSs(heroCancelRemainingMs)}
+                    </span>
+                  )}
                 </div>
               )}
               {!isReceived && !isWaiting && (
@@ -114,9 +146,11 @@ export function MessagesScreen(props: MessagesScreenProps) {
                         variant="danger-outline"
                         size="utility"
                         onClick={() => props.onRelease(ticket.id, 'cancel')}
-                        disabled={props.busyAction === `cancel-${ticket.id}`}
+                        disabled={props.busyAction === `cancel-${ticket.id}` || heroCancelLocked}
                       >
-                        Cancel & Refund
+                        {heroCancelLocked
+                          ? `Cancel in ${formatDurationMmSs(heroCancelRemainingMs)}`
+                          : 'Cancel & Refund'}
                       </AppButton>
                       <AppButton variant="success" size="utility" onClick={() => props.onBuyAnother(ticket)}>
                         Buy Another

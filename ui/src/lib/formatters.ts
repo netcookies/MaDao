@@ -56,6 +56,20 @@ export function formatRelativeTime(input: string) {
   return `${hours} hr ago`;
 }
 
+export function getHeroCancelRemainingMs(createdAt?: string, now = Date.now()) {
+  if (!createdAt) return 0;
+  const createdAtMs = new Date(createdAt).getTime();
+  if (Number.isNaN(createdAtMs)) return 0;
+  return Math.max(0, createdAtMs + 120_000 - now);
+}
+
+export function formatDurationMmSs(durationMs: number) {
+  const totalSeconds = Math.max(0, Math.ceil(durationMs / 1000));
+  const minutes = Math.floor(totalSeconds / 60);
+  const seconds = totalSeconds % 60;
+  return `${minutes}:${seconds.toString().padStart(2, '0')}`;
+}
+
 export function countryBadge(country: string) {
   const normalized = country.toLowerCase();
   const map: Record<string, string> = {

@@ -41,6 +41,7 @@ export type TicketRecord = {
   country: string;
   phone_number: string;
   status: string;
+  created_at?: string;
   price?: number | null;
   code?: string | null;
   message?: string | null;
