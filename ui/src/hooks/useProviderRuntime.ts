@@ -229,7 +229,7 @@ export function useProviderRuntime(
       const cacheOverview = await fetchOptionCacheOverview();
       data.setOptionCacheOverview(cacheOverview);
     } catch {
-      ui.setStatusMessage('Failed to load routing rules.');
+      ui.setStatusMessage('Failed to load runtime settings.');
     }
   }
 
@@ -364,10 +364,10 @@ export function useProviderRuntime(
       const dataNext = await persistRuntimeSettings(next);
       data.setRuntimeSettings(dataNext);
       data.setOptionCacheOverview(await fetchOptionCacheOverview());
-      ui.setStatusMessage('Routing rules saved.');
+      ui.setStatusMessage('Runtime settings saved.');
       await loadNotifications();
     } catch (error) {
-      ui.setStatusMessage(`Failed to save routing rules: ${String(error)}`);
+      ui.setStatusMessage(`Failed to save runtime settings: ${String(error)}`);
     } finally {
       ui.setBusyAction('');
     }

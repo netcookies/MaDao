@@ -12,20 +12,13 @@ import {
   AppToolbar,
 } from './components/composites';
 import { NotificationPopover } from './components/overlays';
-import { Modal } from './components/overlays/Modal/Modal';
 import { IconButton } from './components/primitives';
 import {
   AppButton,
   ConfigRow,
   DataTable,
   DetailRow,
-  ModalField,
-  PageHeader,
   SearchField,
-  SectionHeader,
-  SegmentedControl,
-  SelectTrigger,
-  StatusBadge,
   StatusPill,
 } from './app/ui-bridge';
 import { MessagesScreen } from './app/messages/MessagesScreen';
@@ -36,6 +29,7 @@ import { OverviewScreen } from './app/overview/OverviewScreen';
 import { ProviderWorkspaceScreen } from './app/providers/ProviderWorkspaceScreen';
 import { ProvidersListScreen } from './app/providers/ProvidersListScreen';
 import { RoutingScreen } from './app/routing/RoutingScreen';
+import type { RoutingItemEditorState } from './app/routing/RoutingScreen';
 import type {
   ActivationFormState,
   AppearanceTheme,
@@ -52,6 +46,7 @@ import type {
   ProviderSummary,
   RoutingPlan,
   RoutingPlanItem,
+  RoutingPlanFilter,
   RoutingStrategy,
   ScreenId,
   SelectorKind,
@@ -390,14 +385,12 @@ export function App() {
   }, [orderedProviders, selectedProvider]);
 
   useEffect(() => {
-    if (activationForm.provider === 'auto') return;
+    if (!activationForm.provider) return;
     if (visibleProviders.some((provider) => provider.id === activationForm.provider)) return;
-    setActivationForm((current) => (current.provider === 'auto'
-      ? current
-      : {
-        ...current,
-        provider: 'auto',
-      }));
+    setActivationForm((current) => ({
+      ...current,
+      provider: '',
+    }));
   }, [activationForm.provider, visibleProviders, setActivationForm]);
 
   const filteredMessages = useMemo(() => {
@@ -475,25 +468,27 @@ export function App() {
     return [...services.entries()].map(([id, label]) => ({ id, label }));
   }, [providerOptions]);
 
+  const [routingView, setRoutingView] = useState<'matrix' | 'detail'>('matrix');
   const [selectedRoutingPlanId, setSelectedRoutingPlanId] = useState('');
+  const [routingFilter, setRoutingFilter] = useState<RoutingPlanFilter>('all');
+  const [routingSearch, setRoutingSearch] = useState('');
   const [routingEditorState, setRoutingEditorState] = useState<{
     itemId: string;
     field: 'provider' | 'country' | 'operator' | 'price';
     providerId: string;
   } | null>(null);
   const [activationRoutingPlanPickerOpen, setActivationRoutingPlanPickerOpen] = useState(false);
-  const [routingPriceDraft, setRoutingPriceDraft] = useState<{
-    itemId: string;
-    providerId: string;
-    service: string;
-    price: number;
-  } | null>(null);
+  const [routingItemEditor, setRoutingItemEditor] = useState<RoutingItemEditorState | null>(null);
+  const [routingItemPriceOptions, setRoutingItemPriceOptions] = useState<ProviderPriceItem[]>([]);
+  const [routingItemPriceLoading, setRoutingItemPriceLoading] = useState(false);
 
   async function loadRoutingPlans() {
     try {
       const payload = await fetchRoutingPlans();
       setRoutingPlans(payload.plans);
-      setSelectedRoutingPlanId((current) => current || payload.plans[0]?.id || '');
+      setSelectedRoutingPlanId((current) => current && payload.plans.some((plan) => plan.id === current)
+        ? current
+        : payload.plans[0]?.id || '');
     } catch (error) {
       setStatusMessage(`Failed to load routing plans: ${String(error)}`);
     }
@@ -543,6 +538,9 @@ export function App() {
       setBusyAction('save-routing-plan');
       const saved = await saveRoutingPlan(plan);
       setRoutingPlans((current) => {
+        if (!plan.id) {
+          return [...current.filter((item) => item.id !== ''), saved];
+        }
         const existing = current.find((item) => item.id === saved.id);
         if (existing) {
           return current.map((item) => item.id === saved.id ? saved : item);
@@ -550,6 +548,7 @@ export function App() {
         return [...current, saved];
       });
       setSelectedRoutingPlanId(saved.id);
+      setRoutingView('detail');
       setStatusMessage(`Saved routing plan ${saved.name}.`);
     } catch (error) {
       setStatusMessage(`Failed to save routing plan: ${String(error)}`);
@@ -565,6 +564,8 @@ export function App() {
       const payload = await deleteRoutingPlan(planId);
       setRoutingPlans(payload.plans);
       setSelectedRoutingPlanId(payload.plans[0]?.id ?? '');
+      setRoutingView('matrix');
+      setRoutingItemEditor(null);
       setStatusMessage(`Deleted routing plan ${planId}.`);
     } catch (error) {
       setStatusMessage(`Failed to delete routing plan: ${String(error)}`);
@@ -591,10 +592,23 @@ export function App() {
     return plan.id === selectedRoutingPlanId || (!plan.id && selectedRoutingPlanId === '');
   }
 
+  function openRoutingPlanDetail(planId: string) {
+    setSelectedRoutingPlanId(planId);
+    setRoutingView('detail');
+    setActiveScreen('routing');
+  }
+
+  function closeRoutingPlanDetail() {
+    setRoutingView('matrix');
+    setRoutingItemEditor(null);
+    setRoutingItemPriceOptions([]);
+  }
+
   function createRoutingPlan() {
     const draft = createDraftRoutingPlan();
     setRoutingPlans((current) => [...current.filter((item) => item.id !== ''), draft]);
     setSelectedRoutingPlanId(draft.id);
+    setRoutingView('detail');
     setActiveScreen('routing');
   }
 
@@ -660,83 +674,112 @@ export function App() {
     }));
   }
 
-  async function openRoutingItemSelector(itemId: string, field: 'provider' | 'country' | 'operator' | 'price') {
+  function openRoutingItemEditor(itemId: string) {
     const plan = routingPlans.find((item) => selectedRoutingPlanMatcher(item));
     const item = plan?.items.find((entry) => entry.id === itemId);
-    if (!plan || !item) return;
-    const providerId = field === 'provider' ? item.provider : item.provider || visibleProviders[0]?.id || '';
-    if (!providerId && field !== 'provider') {
-      setStatusMessage('Select a provider first.');
+    if (!item) return;
+
+    setRoutingItemEditor({
+      itemId,
+      providerId: item.provider,
+      country: item.country,
+      operator: item.operator,
+      minPrice: item.min_price != null ? String(item.min_price) : '',
+      maxPrice: item.max_price != null ? String(item.max_price) : '',
+    });
+    setRoutingItemPriceOptions([]);
+  }
+
+  function closeRoutingItemEditor() {
+    setRoutingItemEditor(null);
+    setRoutingItemPriceOptions([]);
+    setRoutingItemPriceLoading(false);
+  }
+
+  function updateRoutingItemEditor(patch: Partial<RoutingItemEditorState>) {
+    setRoutingItemEditor((current) => current ? { ...current, ...patch } : current);
+  }
+
+  function applyRoutingItemEditor() {
+    if (!routingItemEditor) return;
+
+    const minPrice = routingItemEditor.minPrice.trim() === '' ? null : Number(routingItemEditor.minPrice);
+    const maxPrice = routingItemEditor.maxPrice.trim() === '' ? null : Number(routingItemEditor.maxPrice);
+    if ((minPrice != null && Number.isNaN(minPrice)) || (maxPrice != null && Number.isNaN(maxPrice))) {
+      setStatusMessage('Price 必须是有效数字。');
       return;
     }
-    setRoutingEditorState({ itemId, field, providerId });
-
-    if (field === 'provider') {
-      setSelectorSearch('');
-      setSelectorState({
-        kind: 'routing-item-provider',
-        title: 'Select Provider',
-        options: visibleProviders.map((provider) => ({
-          value: provider.id,
-          label: provider.name,
-          hint: provider.kind,
-        })),
-      });
-      return;
-    }
-
-    if (!providerOptions[providerId]) {
-      await loadProviderOptions(providerId);
-    }
-    const options = providerOptions[providerId];
-    if (!options) {
-      setStatusMessage(`No provider options available for ${providerId}.`);
-      return;
-    }
-
-    if (field === 'country') {
-      setSelectorSearch('');
-      setSelectorState({
-        kind: 'routing-item-country',
-        title: 'Select Country',
-        options: [{ value: '', label: 'Any country', hint: 'No country restriction' }, ...options.countries],
-      });
+    if (minPrice != null && maxPrice != null && minPrice > maxPrice) {
+      setStatusMessage('最小金额不能大于最大金额。');
       return;
     }
 
-    if (field === 'operator') {
-      setSelectorSearch('');
-      setSelectorState({
-        kind: 'routing-item-operator',
-        title: 'Select Operator',
-        options: [{ value: '', label: 'Any operator', hint: 'No operator restriction' }, ...options.operators],
-      });
-      return;
-    }
+    updateRoutingPlanItem(routingItemEditor.itemId, (item) => {
+      const nextPriceMode = minPrice == null && maxPrice == null
+        ? 'any'
+        : minPrice != null && maxPrice != null && minPrice === maxPrice
+          ? 'fixed'
+          : 'range';
+      const fixedPrice = nextPriceMode === 'fixed' ? minPrice : null;
+      return {
+        ...item,
+        country: routingItemEditor.country.trim(),
+        operator: routingItemEditor.operator.trim(),
+        price_mode: nextPriceMode,
+        min_price: minPrice,
+        max_price: maxPrice,
+        fixed_price: fixedPrice,
+      };
+    });
+    closeRoutingItemEditor();
+  }
 
-    const service = plan.service || visibleProviders.find((provider) => provider.id === providerId)?.defaults.service;
+  async function loadRoutingItemPriceOptions() {
+    if (!routingItemEditor) return;
+    const plan = routingPlans.find((item) => selectedRoutingPlanMatcher(item));
+    const service = plan?.service || visibleProviders.find((provider) => provider.id === routingItemEditor.providerId)?.defaults.service;
     if (!service) {
-      setStatusMessage('Set plan service before selecting price.');
+      setStatusMessage('先为方案选择 service，再加载价格清单。');
       return;
     }
     try {
-      const prices = await fetchProviderPrices(providerId, service);
-      setSelectorSearch('');
-      setSelectorState({
-        kind: 'routing-item-price',
-        title: 'Select Price Row',
-        options: [
-          { value: '', label: 'Any price', hint: 'No price restriction' },
-          ...prices.items.map((price) => ({
-            value: String(price.price),
-            label: `${formatCountryLabel(price.country)} · ${price.operator || 'any'} · $${price.price.toFixed(3)}`,
-            hint: `stock ${price.stock.toLocaleString()}`,
-          })),
-        ],
-      });
+      setRoutingItemPriceLoading(true);
+      const prices = await fetchProviderPrices(routingItemEditor.providerId, service);
+      setRoutingItemPriceOptions(prices.items);
+      setStatusMessage(`已加载 ${routingItemEditor.providerId} 的价格清单。`);
     } catch (error) {
-      setStatusMessage(`Failed to load prices for ${providerId}: ${String(error)}`);
+      setStatusMessage(`Failed to load prices for ${routingItemEditor.providerId}: ${String(error)}`);
+    } finally {
+      setRoutingItemPriceLoading(false);
     }
+  }
+
+  function quickFillRoutingItemPrice(kind: 'min' | 'max', price: number) {
+    if (!routingItemEditor) return;
+    setRoutingItemEditor({
+      ...routingItemEditor,
+      minPrice: kind === 'min' ? String(price) : routingItemEditor.minPrice,
+      maxPrice: kind === 'max' ? String(price) : routingItemEditor.maxPrice,
+    });
+  }
+
+  async function openRoutingItemSelector(itemId: string, field: 'provider') {
+    const plan = routingPlans.find((item) => selectedRoutingPlanMatcher(item));
+    const item = plan?.items.find((entry) => entry.id === itemId);
+    if (!plan || !item) return;
+    const providerId = item.provider || visibleProviders[0]?.id || '';
+    setRoutingEditorState({ itemId, field, providerId });
+
+    setSelectorSearch('');
+    setSelectorState({
+      kind: 'routing-item-provider',
+      title: 'Select Provider',
+      options: visibleProviders.map((provider) => ({
+        value: provider.id,
+        label: provider.name,
+        hint: provider.kind,
+      })),
+    });
   }
 
   function openRoutingServiceSelector() {
@@ -754,42 +797,28 @@ export function App() {
 
   function applyRoutingSelectorOption(option: OptionItem) {
     if (!routingEditorState) return;
-    const { itemId, field } = routingEditorState;
-    if (field === 'provider') {
-      updateRoutingPlanItem(itemId, (item) => ({
-        ...item,
-        provider: option.value,
+    const { itemId } = routingEditorState;
+    updateRoutingPlanItem(itemId, (item) => ({
+      ...item,
+      provider: option.value,
+      country: '',
+      operator: '',
+      price_mode: 'any',
+      min_price: null,
+      max_price: null,
+      fixed_price: null,
+    }));
+    setRoutingItemEditor((current) => current && current.itemId === itemId
+      ? {
+        ...current,
+        providerId: option.value,
         country: '',
         operator: '',
-        price_mode: 'any',
-        min_price: null,
-        max_price: null,
-        fixed_price: null,
-      }));
-    } else if (field === 'country') {
-      updateRoutingPlanItem(itemId, (item) => ({ ...item, country: option.value }));
-    } else if (field === 'operator') {
-      updateRoutingPlanItem(itemId, (item) => ({ ...item, operator: option.value }));
-    } else if (field === 'price') {
-      if (!option.value) {
-        updateRoutingPlanItem(itemId, (item) => ({
-          ...item,
-          price_mode: 'any',
-          min_price: null,
-          max_price: null,
-          fixed_price: null,
-        }));
-      } else {
-        const fixed = Number(option.value);
-        const plan = routingPlans.find((item) => selectedRoutingPlanMatcher(item));
-        setRoutingPriceDraft({
-          itemId,
-          providerId: routingEditorState.providerId,
-          service: plan?.service ?? '',
-          price: fixed,
-        });
+        minPrice: '',
+        maxPrice: '',
       }
-    }
+      : current);
+    setRoutingItemPriceOptions([]);
     setRoutingEditorState(null);
     setSelectorState(null);
   }
@@ -809,13 +838,11 @@ export function App() {
   }
 
   function openActivationModal() {
-    if (activationForm.provider !== 'auto' && !visibleProviders.some((provider) => provider.id === activationForm.provider)) {
-      setActivationForm((current) => (current.provider === 'auto'
-        ? current
-        : {
-          ...current,
-          provider: 'auto',
-        }));
+    if (activationForm.provider && !visibleProviders.some((provider) => provider.id === activationForm.provider)) {
+      setActivationForm((current) => ({
+        ...current,
+        provider: '',
+      }));
     }
     setActivationError(
       visibleProviders.length === 0
@@ -831,14 +858,11 @@ export function App() {
     setSelectorState({
       kind: 'activation-routing-plan',
       title: 'Select Routing Plan',
-      options: [
-        { value: '', label: 'No routing plan', hint: 'Use provider / service fields below' },
-        ...routingPlans.filter((plan) => plan.enabled).map((plan) => ({
-          value: plan.id,
-          label: plan.name,
-          hint: `${formatServiceLabel(plan.service)} · ${plan.execution_mode === 'random' ? 'Random' : 'Sequential'}`,
-        })),
-      ],
+      options: routingPlans.filter((plan) => plan.enabled).map((plan) => ({
+        value: plan.id,
+        label: plan.name,
+        hint: `${formatServiceLabel(plan.service)} · ${plan.execution_mode === 'random' ? 'Random' : 'Sequential'}`,
+      })),
     });
   }
 
@@ -847,14 +871,12 @@ export function App() {
       setActivationError('No enabled providers available. Save an enabled provider first.');
       return;
     }
-    if (activationForm.provider !== 'auto' && !visibleProviders.some((provider) => provider.id === activationForm.provider)) {
-      setActivationForm((current) => (current.provider === 'auto'
-        ? current
-        : {
-          ...current,
-          provider: 'auto',
-        }));
-      setActivationError(`Provider ${activationForm.provider} is no longer enabled. Pick Auto or another provider.`);
+    if (activationForm.provider && !visibleProviders.some((provider) => provider.id === activationForm.provider)) {
+      setActivationForm((current) => ({
+        ...current,
+        provider: '',
+      }));
+      setActivationError(`Provider ${activationForm.provider} is no longer enabled. Pick another provider or use a routing plan.`);
       return;
     }
     void submitActivation();
@@ -1022,25 +1044,37 @@ export function App() {
 
             {activeScreen === 'routing' && (
               <RoutingScreen
+                view={routingView}
                 plans={routingPlans}
                 providers={orderedProviders}
                 providerOptions={providerOptions}
                 serviceOptions={routingServiceOptions}
                 selectedPlanId={selectedRoutingPlanId}
-                onSelectPlan={setSelectedRoutingPlanId}
+                routingFilter={routingFilter}
+                routingSearch={routingSearch}
+                itemEditor={routingItemEditor}
+                itemEditorLoading={routingItemPriceLoading}
+                itemPriceOptions={routingItemPriceOptions}
+                onSelectPlan={openRoutingPlanDetail}
+                onBackToList={closeRoutingPlanDetail}
                 onCreatePlan={createRoutingPlan}
                 onDeletePlan={(planId) => void removeRoutingPlan(planId)}
                 onUpdatePlan={updateRoutingPlanDraft}
+                onUpdateRoutingFilter={setRoutingFilter}
+                onUpdateRoutingSearch={setRoutingSearch}
                 onOpenServicePicker={openRoutingServiceSelector}
                 onSavePlan={(plan) => void persistRoutingPlan(plan)}
                 onOpenProviderPicker={(itemId) => void openRoutingItemSelector(itemId, 'provider')}
-                onOpenCountryPicker={(itemId) => void openRoutingItemSelector(itemId, 'country')}
-                onOpenOperatorPicker={(itemId) => void openRoutingItemSelector(itemId, 'operator')}
-                onOpenPricePicker={(itemId) => void openRoutingItemSelector(itemId, 'price')}
                 onAddItem={addRoutingPlanItem}
                 onRemoveItem={removeRoutingPlanItem}
                 onMoveItem={moveRoutingPlanItem}
                 onReorderItem={reorderRoutingPlanItem}
+                onOpenItemEditor={openRoutingItemEditor}
+                onCloseItemEditor={closeRoutingItemEditor}
+                onItemEditorChange={updateRoutingItemEditor}
+                onApplyItemEditor={applyRoutingItemEditor}
+                onLoadItemPriceOptions={() => void loadRoutingItemPriceOptions()}
+                onUseItemPriceQuickFill={quickFillRoutingItemPrice}
                 busyAction={busyAction}
               />
             )}
@@ -1113,25 +1147,9 @@ export function App() {
                 setLanguage={setLanguage}
                 appearanceTheme={appearanceTheme}
                 setAppearanceTheme={setAppearanceTheme}
-                routingStrategy={runtimeSettings.routing_strategy}
-                autoFallback={runtimeSettings.auto_fallback}
                 optionCacheEnabled={runtimeSettings.option_cache_enabled}
                 optionCachePollIntervalMinutes={runtimeSettings.option_cache_poll_interval_minutes}
                 optionCacheOverview={optionCacheOverview}
-                onStrategyChange={(strategy) =>
-                  void updateRuntimeSettings({
-                    routing_strategy: strategy,
-                    auto_fallback: runtimeSettings.auto_fallback,
-                    option_cache_enabled: runtimeSettings.option_cache_enabled,
-                    option_cache_poll_interval_minutes: runtimeSettings.option_cache_poll_interval_minutes,
-                  })}
-                onAutoFallbackChange={(enabled) =>
-                  void updateRuntimeSettings({
-                    routing_strategy: runtimeSettings.routing_strategy,
-                    auto_fallback: enabled,
-                    option_cache_enabled: runtimeSettings.option_cache_enabled,
-                    option_cache_poll_interval_minutes: runtimeSettings.option_cache_poll_interval_minutes,
-                  })}
                 onOptionCacheEnabledChange={(enabled) =>
                   void updateRuntimeSettings({
                     routing_strategy: runtimeSettings.routing_strategy,
@@ -1152,7 +1170,6 @@ export function App() {
                 socketPath={SOCKET_PATH}
                 configDirectory={configDirectory}
                 onOpenConfigDirectory={() => void openAppConfigDirectory()}
-                routingStrategies={ROUTING_STRATEGIES}
               />
             )}
 
@@ -1222,7 +1239,6 @@ export function App() {
               setActivationForm((current) => ({
                 ...current,
                 routing_plan_id: option.value,
-                provider: option.value ? 'auto' : current.provider,
                 service: option.value
                   ? routingPlans.find((plan) => plan.id === option.value)?.service ?? current.service
                   : current.service,
@@ -1236,64 +1252,6 @@ export function App() {
         />
       )}
 
-      {routingPriceDraft && (
-        <Modal
-          open
-          variant="selector"
-          title="Apply Price Selection"
-          subtitle={`Use $${routingPriceDraft.price.toFixed(3)} as fixed price, minimum, or maximum.`}
-          onClose={() => setRoutingPriceDraft(null)}
-          actions={<AppButton variant="ghost" size="utility" onClick={() => setRoutingPriceDraft(null)}>Close</AppButton>}
-        >
-          <div className="flex flex-col gap-3">
-            <AppButton
-              variant="outline"
-              onClick={() => {
-                updateRoutingPlanItem(routingPriceDraft.itemId, (item) => ({
-                  ...item,
-                  price_mode: 'fixed',
-                  min_price: routingPriceDraft.price,
-                  max_price: routingPriceDraft.price,
-                  fixed_price: routingPriceDraft.price,
-                }));
-                setRoutingPriceDraft(null);
-              }}
-            >
-              Use As Fixed Price
-            </AppButton>
-            <AppButton
-              variant="outline"
-              onClick={() => {
-                updateRoutingPlanItem(routingPriceDraft.itemId, (item) => ({
-                  ...item,
-                  price_mode: 'range',
-                  min_price: routingPriceDraft.price,
-                  max_price: item.max_price ?? null,
-                  fixed_price: null,
-                }));
-                setRoutingPriceDraft(null);
-              }}
-            >
-              Use As Minimum Price
-            </AppButton>
-            <AppButton
-              variant="outline"
-              onClick={() => {
-                updateRoutingPlanItem(routingPriceDraft.itemId, (item) => ({
-                  ...item,
-                  price_mode: 'range',
-                  min_price: item.min_price ?? null,
-                  max_price: routingPriceDraft.price,
-                  fixed_price: null,
-                }));
-                setRoutingPriceDraft(null);
-              }}
-            >
-              Use As Maximum Price
-            </AppButton>
-          </div>
-        </Modal>
-      )}
     </>
   );
 }

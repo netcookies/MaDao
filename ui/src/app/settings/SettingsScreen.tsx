@@ -8,7 +8,6 @@ import {
 } from '../ui-bridge';
 import type { OptionCacheOverview } from '../types';
 
-export type RoutingStrategy = 'ordered_priority' | 'lowest_price' | 'highest_stock';
 export type AppearanceTheme = 'light' | 'dark' | 'system';
 export type LanguageCode = 'en' | 'zh';
 
@@ -23,13 +22,9 @@ export type SettingsScreenProps = {
   setLanguage: (value: LanguageCode) => void;
   appearanceTheme: AppearanceTheme;
   setAppearanceTheme: (value: AppearanceTheme) => void;
-  routingStrategy: RoutingStrategy;
-  autoFallback: boolean;
   optionCacheEnabled: boolean;
   optionCachePollIntervalMinutes: number;
   optionCacheOverview: OptionCacheOverview;
-  onStrategyChange: (value: RoutingStrategy) => void;
-  onAutoFallbackChange: (enabled: boolean) => void;
   onOptionCacheEnabledChange: (enabled: boolean) => void;
   onOptionCachePollIntervalChange: (minutes: number) => void;
   onReload: () => void;
@@ -38,7 +33,6 @@ export type SettingsScreenProps = {
   socketPath: string;
   configDirectory: string;
   onOpenConfigDirectory: () => void;
-  routingStrategies: Array<{ id: RoutingStrategy; label: string }>;
 };
 
 export function SettingsScreen(props: SettingsScreenProps) {
@@ -66,17 +60,6 @@ export function SettingsScreen(props: SettingsScreenProps) {
           <ToggleSetting title="Auto Refresh" description="Refresh runtime snapshot every 4 seconds." checked={props.autoRefresh} onChange={props.setAutoRefresh} />
           <ToggleSetting title="Advanced Manifest Access" description="Allow opening the raw manifest editor modal." checked={props.showAdvancedEditor} onChange={props.setShowAdvancedEditor} />
           <ToggleSetting title="Compact Tables" description="Tighten spacing for activity, provider and inventory tables." checked={props.compactTables} onChange={props.setCompactTables} last />
-        </div>
-
-        <div className="flex flex-col gap-3 border-b border-solid border-ds-border border-x-0 border-t-0 px-6 py-4">
-          <h3 className="m-0 text-section-title font-semibold tracking-[var(--ds-type-section-title-tracking)] text-ds-text-primary">Legacy Routing</h3>
-          <p className="m-0 text-caption leading-[1.6] text-ds-text-secondary">
-            Global provider-order routing is being deprecated. Create and maintain acquisition logic from the dedicated Routing screen instead. The legacy runtime fields remain for compatibility only while plan-based routing is rolled out.
-          </p>
-          <div className="flex flex-wrap items-center gap-3 text-caption text-ds-text-secondary">
-            <span>Strategy: {props.routingStrategies.find((item) => item.id === props.routingStrategy)?.label ?? props.routingStrategy}</span>
-            <span>Auto-fallback: {props.autoFallback ? 'On' : 'Off'}</span>
-          </div>
         </div>
 
         <div className="flex flex-col gap-3 border-b border-solid border-ds-border border-x-0 border-t-0 px-6 py-4">

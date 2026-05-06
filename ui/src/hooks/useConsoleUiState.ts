@@ -31,7 +31,7 @@ export function useConsoleUiState() {
   const [activationForm, setActivationForm] = useState<ActivationFormState>({
     service: '',
     country: '',
-    provider: 'auto',
+    provider: '',
     routing_plan_id: '',
     operator: '',
     min_price: '',

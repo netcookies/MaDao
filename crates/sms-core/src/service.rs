@@ -21,6 +21,7 @@ use std::collections::{BTreeMap, VecDeque};
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
+use uuid::Uuid;
 
 const ROUTING_PLANS_FILE_NAME: &str = "routing-plans.json";
 
@@ -103,7 +104,9 @@ impl SmsService {
             return self.acquire_code_by_routing_plan(request).await;
         }
         if request.provider == "auto" {
-            return self.acquire_code_auto(request).await;
+            return Err(SmsError::InvalidRequest(
+                "routing_plan_id is required when provider is auto".to_string(),
+            ));
         }
         let cached_options = self
             .provider_option_cache
@@ -174,78 +177,6 @@ impl SmsService {
         }
         Err(last_error)
     }
-
-    async fn acquire_code_auto(&self, request: AcquireCodeRequest) -> Result<AcquireCodeResponse, SmsError> {
-        let candidates = {
-            let registry = self.registry.read();
-            registry
-                .list_manifests_by_priority()
-                .into_iter()
-                .filter(|m| m.enabled && m.kind != plugin_sdk::ProviderKind::Mock)
-                .map(|m| m.id.clone())
-                .collect::<Vec<_>>()
-        };
-        if candidates.is_empty() {
-            return Err(SmsError::InvalidRequest("no enabled providers available for auto-routing".into()));
-        }
-        let mut last_error = SmsError::InvalidRequest("no providers tried".into());
-        for provider_id in candidates {
-            let cached_options = self
-                .provider_option_cache
-                .read()
-                .entries
-                .get(&provider_id)
-                .cloned();
-            let provider = {
-                let registry = self.registry.read();
-                match registry.get(&provider_id) {
-                    Ok(p) => p,
-                    Err(_) => continue,
-                }
-            };
-            let manifest = provider.manifest();
-            if let Some(max) = request.max_price {
-                if manifest.defaults.max_price > 0.0 && manifest.defaults.max_price < max {
-                    continue;
-                }
-            }
-            let mut routed = request.clone();
-            routed.provider = provider_id.clone();
-            let translated = self.translate_acquire_request(&routed, cached_options.as_ref().map(|entry| &entry.options));
-            match provider.acquire(&translated).await {
-                Ok(ticket) => {
-                    let response = AcquireCodeResponse {
-                        ticket_id: ticket.id.clone(),
-                        provider: ticket.provider.clone(),
-                        service: ticket.service.clone(),
-                        country: ticket.country.clone(),
-                        phone_number: ticket.phone_number.clone(),
-                        upstream_id: ticket.upstream_id.clone(),
-                        price: ticket.price,
-                        status: ticket.status.clone(),
-                        created_at: ticket.created_at,
-                        routing_plan_id: ticket.routing_plan_id.clone(),
-                        routing_plan_name: ticket.routing_plan_name.clone(),
-                        routing_item_id: ticket.routing_item_id.clone(),
-                        routing_item_index: ticket.routing_item_index,
-                    };
-                    self.log(
-                        "router",
-                        "info",
-                        format!("auto-routed ticket {} → {}", ticket.id, provider_id),
-                    );
-                    self.tickets.write().insert(ticket.id.clone(), ticket);
-                    return Ok(response);
-                }
-                Err(err) => {
-                    self.log("router", "warn", format!("auto-route skipped {provider_id}: {err}"));
-                    last_error = err;
-                }
-            }
-        }
-        Err(last_error)
-    }
-
     async fn try_acquire_from_routing_item(
         &self,
         request: &AcquireCodeRequest,
@@ -623,7 +554,7 @@ impl SmsService {
 
     pub fn save_routing_plan(&self, mut plan: RoutingPlan) -> Result<RoutingPlan, SmsError> {
         if plan.id.trim().is_empty() {
-            plan.id = slugify_plan_id(&plan.name);
+            plan.id = generate_routing_plan_id();
         }
         if plan.name.trim().is_empty() {
             return Err(SmsError::InvalidRequest("routing plan name is required".to_string()));
@@ -948,19 +879,8 @@ fn save_routing_plans(path: &Path, store: &RoutingPlanStore) -> Result<(), SmsEr
         .map_err(|err| SmsError::Io(format!("write routing plans failed: {err}")))
 }
 
-fn slugify_plan_id(name: &str) -> String {
-    let mut slug = String::new();
-    let mut last_dash = false;
-    for ch in name.chars().flat_map(|c| c.to_lowercase()) {
-        if ch.is_ascii_alphanumeric() {
-            slug.push(ch);
-            last_dash = false;
-        } else if !last_dash {
-            slug.push('-');
-            last_dash = true;
-        }
-    }
-    slug.trim_matches('-').to_string()
+fn generate_routing_plan_id() -> String {
+    format!("plan-{}", Uuid::now_v7().simple())
 }
 
 fn ensure_routing_plan_enabled(plan: RoutingPlan) -> Result<RoutingPlan, SmsError> {
@@ -1110,6 +1030,19 @@ mod tests {
         assert_eq!(plans.plans[0].service, "openai");
     }
 
+    #[test]
+    fn routing_plan_without_id_gets_random_generated_id() {
+        let service = make_service();
+        let mut plan = routing_plan();
+        plan.id.clear();
+        plan.name = "Human Friendly Name".to_string();
+
+        let saved = service.save_routing_plan(plan).unwrap();
+
+        assert!(saved.id.starts_with("plan-"));
+        assert_ne!(saved.id, "human-friendly-name");
+    }
+
     #[tokio::test]
     async fn routing_plan_can_acquire_ticket() {
         let service = make_service();
@@ -1137,6 +1070,30 @@ mod tests {
         assert_eq!(acquire.routing_plan_id.as_deref(), Some("openai-plan"));
         assert_eq!(acquire.routing_item_id.as_deref(), Some("mock-first"));
         assert_eq!(acquire.routing_item_index, Some(0));
+    }
+
+    #[tokio::test]
+    async fn auto_provider_without_routing_plan_is_rejected() {
+        let service = make_service();
+
+        let error = service
+            .acquire_code(AcquireCodeRequest {
+                provider: "auto".to_string(),
+                service: Some("openai".to_string()),
+                country: None,
+                max_price: None,
+                min_price: None,
+                auto_pick_country: None,
+                reuse_phone: None,
+                reuse_key: None,
+                metadata: BTreeMap::new(),
+                routing_plan_id: None,
+                routing_plan_name: None,
+            })
+            .await
+            .unwrap_err();
+
+        assert!(error.to_string().contains("routing_plan_id is required"));
     }
 
     #[tokio::test]

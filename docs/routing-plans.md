@@ -28,6 +28,11 @@
 - `execution_mode`
 - `items[]`
 
+补充说明：
+
+- `id` 由系统生成随机值，用作稳定引用
+- `name` 由用户维护，用于界面展示和业务识别
+
 每个 `RoutingPlanItem` 包含：
 
 - `id`
@@ -144,4 +149,4 @@ Content-Type: application/json
 2. `Settings` 页面里的全局 `routing_strategy` 作为主要用户路由配置
 3. `SmsService::acquire_code_auto` 仅按 provider priority 的单一自动路由语义
 
-这些能力暂时仍可保留兼容，但后续产品和调用方应迁移到 `Routing Plans`。
+这些旧行为不再是产品主入口，前端应以 `Routing Plans` 作为唯一主配置界面。

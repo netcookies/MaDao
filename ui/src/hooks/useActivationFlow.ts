@@ -78,6 +78,9 @@ export function useActivationFlow(
           routing_plan_id: ui.activationForm.routing_plan_id,
         });
       } else {
+        if (!ui.activationForm.provider) {
+          throw new Error('Provider is required when no routing plan is selected.');
+        }
         const body: Record<string, unknown> = {
           provider: ui.activationForm.provider,
           service: ui.activationForm.service || undefined,

@@ -42,7 +42,7 @@ import type {
   ProviderSectionId,
   ProviderSummary,
   RoutingPlan,
-  RoutingStrategy,
+  RoutingPlanFilter,
   ScreenId,
   TicketRecord,
 } from '../app/types';
@@ -93,12 +93,6 @@ const NAV_ITEMS: SidebarItem[] = [
   { id: 'messages', label: 'Messages', icon: MessageSquare },
   { id: 'settings', label: 'Settings', icon: Settings },
   { id: 'logs', label: 'Logs', icon: Terminal },
-];
-
-const ROUTING_STRATEGIES: Array<{ id: RoutingStrategy; label: string }> = [
-  { id: 'ordered_priority', label: 'Ordered Priority' },
-  { id: 'lowest_price', label: 'Lowest Price' },
-  { id: 'highest_stock', label: 'Highest Stock' },
 ];
 
 const MESSAGE_FILTERS: Array<{ id: MessageFilter; label: string }> = [
@@ -486,12 +480,14 @@ const PRICE_ITEMS: ProviderPriceItem[] = [
 const ACTIVATION_FORM: ActivationFormState = {
   service: '',
   country: '',
-  provider: 'auto',
+  provider: '',
   routing_plan_id: 'openai-plan',
   operator: 'any',
   min_price: '',
   max_price: '',
 };
+
+const ROUTING_FILTER: RoutingPlanFilter = 'all';
 
 function noop() {}
 
@@ -742,25 +738,37 @@ function renderPageTarget(target: ScreenshotTarget) {
       'routing',
       'Routing',
       <RoutingScreen
+        view="detail"
         plans={ROUTING_PLANS}
         providers={PROVIDERS}
         providerOptions={PROVIDER_OPTIONS}
         serviceOptions={[{ id: 'openai', label: 'OpenAI (ChatGPT)' }, { id: 'telegram', label: 'Telegram' }]}
         selectedPlanId="openai-plan"
+        routingFilter={ROUTING_FILTER}
+        routingSearch=""
+        itemEditor={null}
+        itemEditorLoading={false}
+        itemPriceOptions={PRICE_ITEMS}
         onSelectPlan={noop}
+        onBackToList={noop}
         onCreatePlan={noop}
         onDeletePlan={noop}
         onUpdatePlan={noop}
+        onUpdateRoutingFilter={noop}
+        onUpdateRoutingSearch={noop}
         onOpenServicePicker={noop}
         onOpenProviderPicker={noop}
-        onOpenCountryPicker={noop}
-        onOpenOperatorPicker={noop}
-        onOpenPricePicker={noop}
         onAddItem={noop}
         onRemoveItem={noop}
         onMoveItem={noop}
         onReorderItem={noop}
         onSavePlan={noop}
+        onOpenItemEditor={noop}
+        onCloseItemEditor={noop}
+        onItemEditorChange={noop}
+        onApplyItemEditor={noop}
+        onLoadItemPriceOptions={noop}
+        onUseItemPriceQuickFill={noop}
         busyAction=""
       />,
     );
@@ -781,13 +789,9 @@ function renderPageTarget(target: ScreenshotTarget) {
         setLanguage={noop}
         appearanceTheme="light"
         setAppearanceTheme={noop}
-        routingStrategy="ordered_priority"
-        autoFallback
         optionCacheEnabled
         optionCachePollIntervalMinutes={30}
         optionCacheOverview={{ fresh_providers: 2, stale_providers: 1, missing_providers: 0, last_refresh_at: null }}
-        onStrategyChange={noop}
-        onAutoFallbackChange={noop}
         onOptionCacheEnabledChange={noop}
         onOptionCachePollIntervalChange={noop}
         onReload={noop}
@@ -796,7 +800,6 @@ function renderPageTarget(target: ScreenshotTarget) {
         socketPath="/tmp/madao-sms.sock"
         configDirectory="~/Library/Application Support/com.madao.sms"
         onOpenConfigDirectory={noop}
-        routingStrategies={ROUTING_STRATEGIES}
       />,
     );
   }

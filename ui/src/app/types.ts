@@ -169,6 +169,8 @@ export type RoutingPlanList = {
   plans: RoutingPlan[];
 };
 
+export type RoutingPlanFilter = 'all' | 'enabled' | 'disabled';
+
 export type MenuCommandPayload =
   | { kind: 'new_activation' }
   | { kind: 'open_screen'; screen: ScreenId }

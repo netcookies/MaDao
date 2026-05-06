@@ -21,9 +21,7 @@ export type NewActivationModalProps = {
 export function NewActivationModal(props: NewActivationModalProps) {
   const usesRoutingPlan = Boolean(props.form.routing_plan_id);
   const routingPlanLabel = props.routingPlans.find((plan) => plan.id === props.form.routing_plan_id)?.name ?? '';
-  const providerLabel = props.form.provider === 'auto'
-    ? 'Auto — follow routing rules'
-    : props.providers.find((provider) => provider.id === props.form.provider)?.name ?? props.form.provider;
+  const providerLabel = props.providers.find((provider) => provider.id === props.form.provider)?.name ?? props.form.provider;
 
   const card = (
     <div
@@ -49,7 +47,7 @@ export function NewActivationModal(props: NewActivationModalProps) {
           <SelectTrigger
             compact
             value={routingPlanLabel}
-            placeholder="optional — use named routing plan"
+            placeholder="select a routing plan"
             onClick={props.onOpenRoutingPlanSelector}
           />
         </ModalField>
@@ -66,7 +64,7 @@ export function NewActivationModal(props: NewActivationModalProps) {
           <SelectTrigger compact value={props.form.country ? formatCountryLabel(props.form.country) : ''} placeholder={usesRoutingPlan ? 'controlled by routing plan' : 'any — auto select'} onClick={() => props.onOpenSelector('activation-country')} disabled={usesRoutingPlan} />
         </ModalField>
         <ModalField label="PROVIDER">
-          <SelectTrigger compact value={providerLabel} muted={props.form.provider === 'auto'} onClick={() => props.onOpenSelector('provider')} disabled={usesRoutingPlan} />
+          <SelectTrigger compact value={providerLabel} placeholder={usesRoutingPlan ? 'controlled by routing plan' : 'select provider'} onClick={() => props.onOpenSelector('provider')} disabled={usesRoutingPlan} />
         </ModalField>
         <ModalField label="PRICE RANGE">
           <div className="grid grid-cols-[1fr_16px_1fr] items-center gap-2">
