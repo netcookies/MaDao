@@ -1,4 +1,5 @@
 import { mkdir, rm, readdir, copyFile } from 'node:fs/promises';
+import { existsSync } from 'node:fs';
 import path from 'node:path';
 import process from 'node:process';
 
@@ -14,6 +15,7 @@ export const TARGETS = {
   ProviderWorkspace_Config: { kind: 'page', baseline: 'MaDao_macOS_ProviderWorkspace_Config.png', nodeId: 'N6Lgb' },
   ProviderWorkspace_Store: { kind: 'page', baseline: 'MaDao_macOS_ProviderWorkspace_Store.png', nodeId: 'xpxuM' },
   ProviderWorkspace_Wallet: { kind: 'page', baseline: 'MaDao_macOS_ProviderWorkspace_Wallet.png', nodeId: 'I9nOw' },
+  Routing: { kind: 'page', baseline: 'MaDao_macOS_Routing.png', nodeId: 'routing-local' },
   Messages: { kind: 'page', baseline: 'MaDao_macOS_Messages.png', nodeId: 'cDuYZ' },
   Settings: { kind: 'page', baseline: 'MaDao_macOS_Settings.png', nodeId: '7PXST' },
   Logs: { kind: 'page', baseline: 'MaDao_macOS_Logs.png', nodeId: 'M2MDQ' },
@@ -88,6 +90,10 @@ export function diffPath(target) {
 export function exportedPath(target) {
   const spec = TARGETS[target];
   return path.join(PEN_EXPORT_DIR, `${spec.nodeId}.png`);
+}
+
+export function hasExportedBaseline(target) {
+  return existsSync(exportedPath(target));
 }
 
 export async function copyExportedBaselines(targets) {

@@ -6,6 +6,7 @@ import {
   copyExportedBaselines,
   diffPath,
   ensureDirs,
+  hasExportedBaseline,
   listAvailableExports,
   parseArgs,
   resolveTargets,
@@ -79,6 +80,10 @@ async function main() {
   const results = [];
 
   for (const target of targets) {
+    if (!hasExportedBaseline(target)) {
+      process.stdout.write(`${target}: skipped (no exported design baseline)\n`);
+      continue;
+    }
     const result = await compareOne(PNG, pixelmatch, target);
     results.push(result);
     const percent = (result.diffPixels / result.totalPixels) * 100;
