@@ -9,7 +9,8 @@
     "preview": "vite preview",
     "ui:design-baselines": "node scripts/ui-screenshot/fixtures.mjs",
     "ui:screenshot": "node scripts/ui-screenshot/capture.mjs",
-    "ui:screenshot:compare": "node scripts/ui-screenshot/compare.mjs"
+    "ui:screenshot:compare": "node scripts/ui-screenshot/compare.mjs",
+    "app": "npm run build && cargo run -p madao-tauri"
   },
   "dependencies": {
     "@tauri-apps/api": "^2.10.1",

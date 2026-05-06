@@ -706,11 +706,11 @@ export function App() {
     const minPrice = routingItemEditor.minPrice.trim() === '' ? null : Number(routingItemEditor.minPrice);
     const maxPrice = routingItemEditor.maxPrice.trim() === '' ? null : Number(routingItemEditor.maxPrice);
     if ((minPrice != null && Number.isNaN(minPrice)) || (maxPrice != null && Number.isNaN(maxPrice))) {
-      setStatusMessage('Price 必须是有效数字。');
+      setStatusMessage('Price must be a valid number.');
       return;
     }
     if (minPrice != null && maxPrice != null && minPrice > maxPrice) {
-      setStatusMessage('最小金额不能大于最大金额。');
+      setStatusMessage('Min price cannot be greater than max price.');
       return;
     }
 
@@ -739,14 +739,14 @@ export function App() {
     const plan = routingPlans.find((item) => selectedRoutingPlanMatcher(item));
     const service = plan?.service || visibleProviders.find((provider) => provider.id === routingItemEditor.providerId)?.defaults.service;
     if (!service) {
-      setStatusMessage('先为方案选择 service，再加载价格清单。');
+      setStatusMessage('Select a service for this plan before loading prices.');
       return;
     }
     try {
       setRoutingItemPriceLoading(true);
       const prices = await fetchProviderPrices(routingItemEditor.providerId, service);
       setRoutingItemPriceOptions(prices.items);
-      setStatusMessage(`已加载 ${routingItemEditor.providerId} 的价格清单。`);
+      setStatusMessage(`Loaded prices for ${routingItemEditor.providerId}.`);
     } catch (error) {
       setStatusMessage(`Failed to load prices for ${routingItemEditor.providerId}: ${String(error)}`);
     } finally {
@@ -990,10 +990,29 @@ export function App() {
           </div>
         )}
       </div>
-      <AppButton variant="primary" size="utility" onClick={openActivationModal}>
-        <Plus size={14} />
-        <span>New Activation</span>
-      </AppButton>
+      {activeScreen === 'routing' && routingView === 'matrix' ? (
+        <AppButton variant="primary" size="utility" onClick={createRoutingPlan}>
+          <Plus size={14} />
+          <span>New Plan</span>
+        </AppButton>
+      ) : activeScreen === 'routing' && routingView === 'detail' ? (
+        <AppButton
+          variant="primary"
+          size="utility"
+          onClick={() => {
+            const plan = routingPlans.find((item) => selectedRoutingPlanMatcher(item));
+            if (plan) void persistRoutingPlan(plan);
+          }}
+          disabled={busyAction === 'save-routing-plan'}
+        >
+          {busyAction === 'save-routing-plan' ? 'Saving...' : 'Save Changes'}
+        </AppButton>
+      ) : (
+        <AppButton variant="primary" size="utility" onClick={openActivationModal}>
+          <Plus size={14} />
+          <span>New Activation</span>
+        </AppButton>
+      )}
     </>
   );
 
