@@ -32,6 +32,7 @@ export function useConsoleUiState() {
     service: '',
     country: '',
     provider: 'auto',
+    routing_plan_id: '',
     operator: '',
     min_price: '',
     max_price: '',

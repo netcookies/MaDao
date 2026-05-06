@@ -48,8 +48,8 @@ export function SettingsScreen(props: SettingsScreenProps) {
         Configure global preferences and app behavior.
       </p>
 
-      <div className="overflow-hidden rounded-sm border border-black/[0.08] bg-ds-surface py-2 shadow-[0_1px_2px_rgba(0,0,0,0.04)]">
-        <div className="flex flex-col gap-0 border-b border-solid border-black/5 border-x-0 border-t-0 px-6 py-4">
+      <div className="overflow-hidden rounded-sm border border-ds-border bg-ds-surface py-2 shadow-[0_1px_2px_rgba(0,0,0,0.04)]">
+        <div className="flex flex-col gap-0 border-b border-solid border-ds-border border-x-0 border-t-0 px-6 py-4">
           <h3 className="m-0 text-section-title font-semibold tracking-[var(--ds-type-section-title-tracking)] text-ds-text-primary">Appearance</h3>
           <SettingChoiceRow
             label="Language"
@@ -61,29 +61,25 @@ export function SettingsScreen(props: SettingsScreenProps) {
           />
         </div>
 
-        <div className="flex flex-col gap-0 border-b border-solid border-black/5 border-x-0 border-t-0 px-6 py-4">
+        <div className="flex flex-col gap-0 border-b border-solid border-ds-border border-x-0 border-t-0 px-6 py-4">
           <h3 className="m-0 pb-4 text-section-title font-semibold tracking-[var(--ds-type-section-title-tracking)] text-ds-text-primary">General</h3>
           <ToggleSetting title="Auto Refresh" description="Refresh runtime snapshot every 4 seconds." checked={props.autoRefresh} onChange={props.setAutoRefresh} />
           <ToggleSetting title="Advanced Manifest Access" description="Allow opening the raw manifest editor modal." checked={props.showAdvancedEditor} onChange={props.setShowAdvancedEditor} />
           <ToggleSetting title="Compact Tables" description="Tighten spacing for activity, provider and inventory tables." checked={props.compactTables} onChange={props.setCompactTables} last />
         </div>
 
-        <div className="flex flex-col gap-3 border-b border-solid border-black/5 border-x-0 border-t-0 px-6 py-4">
-          <h3 className="m-0 text-section-title font-semibold tracking-[var(--ds-type-section-title-tracking)] text-ds-text-primary">Routing Rules</h3>
-          <SettingChoiceRow
-            label="Strategy"
-            control={<SegmentedControl items={props.routingStrategies} value={props.routingStrategy} onChange={props.onStrategyChange} appearance="rail" className="flex-nowrap" />}
-          />
-          <div className="flex items-center justify-between gap-4">
-            <span className="font-text text-utility font-normal tracking-[var(--ds-type-utility-tracking)] text-ds-text-primary opacity-70">Auto-fallback</span>
-            <ToggleSwitch checked={props.autoFallback} onChange={props.onAutoFallbackChange} ariaLabel="Toggle auto-fallback" />
-          </div>
-          <p className="m-0 text-caption leading-[1.5] text-ds-text-secondary">
-            Try providers in priority order. Skip to next if insufficient stock or request fails.
+        <div className="flex flex-col gap-3 border-b border-solid border-ds-border border-x-0 border-t-0 px-6 py-4">
+          <h3 className="m-0 text-section-title font-semibold tracking-[var(--ds-type-section-title-tracking)] text-ds-text-primary">Legacy Routing</h3>
+          <p className="m-0 text-caption leading-[1.6] text-ds-text-secondary">
+            Global provider-order routing is being deprecated. Create and maintain acquisition logic from the dedicated Routing screen instead. The legacy runtime fields remain for compatibility only while plan-based routing is rolled out.
           </p>
+          <div className="flex flex-wrap items-center gap-3 text-caption text-ds-text-secondary">
+            <span>Strategy: {props.routingStrategies.find((item) => item.id === props.routingStrategy)?.label ?? props.routingStrategy}</span>
+            <span>Auto-fallback: {props.autoFallback ? 'On' : 'Off'}</span>
+          </div>
         </div>
 
-        <div className="flex flex-col gap-3 border-b border-solid border-black/5 border-x-0 border-t-0 px-6 py-4">
+        <div className="flex flex-col gap-3 border-b border-solid border-ds-border border-x-0 border-t-0 px-6 py-4">
           <h3 className="m-0 text-section-title font-semibold tracking-[var(--ds-type-section-title-tracking)] text-ds-text-primary">Provider Option Cache</h3>
           <div className="flex items-center justify-between gap-4">
             <span className="font-text text-utility font-normal tracking-[var(--ds-type-utility-tracking)] text-ds-text-primary opacity-70">Enable cache</span>
@@ -98,7 +94,7 @@ export function SettingsScreen(props: SettingsScreenProps) {
                 step={1}
                 value={props.optionCachePollIntervalMinutes}
                 onChange={(event) => props.onOptionCachePollIntervalChange(Number(event.target.value || 30))}
-                className="w-[92px] rounded-sm border border-ds-border-strong bg-white px-3 py-2 text-[13px] text-ds-text-primary"
+                className="w-[92px] rounded-sm border border-ds-border-strong bg-ds-surface px-3 py-2 text-[13px] text-ds-text-primary"
               />
             )}
           />

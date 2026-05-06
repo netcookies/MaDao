@@ -4,8 +4,9 @@ use crate::models::{
     OptionCacheState, PollCodeRequest, PollCodeResponse, ProviderBalance, ProviderDynamicOptions,
     ProviderManifestList, ProviderManifestSaveResponse, ProviderOptionCacheEntry, ProviderPriceQuery,
     ProviderPriceResponse, ProviderReorderRequest, ProviderSummary, ReleaseCodeRequest,
-    ReleaseCodeResponse, RuntimeSettings, RuntimeSettingsUpdate, RuntimeSnapshot, TicketRecord,
-    TicketStatus,
+    ReleaseCodeResponse, RoutingExecutionMode, RoutingFailoverRequest, RoutingPlan, RoutingPlanItem,
+    RoutingPlanList, RoutingPlanStore, RuntimeSettings, RuntimeSettingsUpdate, RuntimeSnapshot,
+    TicketRecord, TicketStatus,
 };
 use crate::options::{
     build_cache_overview, cache_state, load_option_cache_store, normalize_price_items,
@@ -21,6 +22,8 @@ use std::fs;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
+const ROUTING_PLANS_FILE_NAME: &str = "routing-plans.json";
+
 pub struct SmsService {
     registry: Arc<RwLock<ProviderRegistry>>,
     tickets: RwLock<BTreeMap<String, TicketRecord>>,
@@ -28,13 +31,15 @@ pub struct SmsService {
     runtime_settings: RwLock<RuntimeSettings>,
     runtime_settings_path: Option<PathBuf>,
     provider_options_path: Option<PathBuf>,
+    routing_plans_path: Option<PathBuf>,
+    routing_plans: RwLock<RoutingPlanStore>,
     provider_option_cache: RwLock<ProviderOptionCacheStore>,
     log_buffer: usize,
 }
 
 impl SmsService {
     pub fn new(registry: ProviderRegistry, log_buffer: usize) -> Self {
-        Self::with_persistence_paths(registry, log_buffer, None, None)
+        Self::with_persistence_paths(registry, log_buffer, None, None, None)
     }
 
     pub fn with_runtime_settings_path(
@@ -42,7 +47,7 @@ impl SmsService {
         log_buffer: usize,
         runtime_settings_path: Option<PathBuf>,
     ) -> Self {
-        Self::with_persistence_paths(registry, log_buffer, runtime_settings_path, None)
+        Self::with_persistence_paths(registry, log_buffer, runtime_settings_path, None, None)
     }
 
     pub fn with_persistence_paths(
@@ -50,6 +55,7 @@ impl SmsService {
         log_buffer: usize,
         runtime_settings_path: Option<PathBuf>,
         provider_options_path: Option<PathBuf>,
+        routing_plans_path: Option<PathBuf>,
     ) -> Self {
         let runtime_settings = runtime_settings_path
             .as_ref()
@@ -64,6 +70,15 @@ impl SmsService {
             .as_ref()
             .and_then(|path| load_option_cache_store(path).ok())
             .unwrap_or_default();
+        let routing_plans_path = routing_plans_path.or_else(|| {
+            runtime_settings_path
+                .as_ref()
+                .and_then(|path| path.parent().map(|parent| parent.join(ROUTING_PLANS_FILE_NAME)))
+        });
+        let routing_plans = routing_plans_path
+            .as_ref()
+            .and_then(|path| load_routing_plans(path).ok())
+            .unwrap_or_default();
 
         Self {
             registry: Arc::new(RwLock::new(registry)),
@@ -72,6 +87,8 @@ impl SmsService {
             runtime_settings: RwLock::new(runtime_settings),
             runtime_settings_path,
             provider_options_path,
+            routing_plans_path,
+            routing_plans: RwLock::new(routing_plans),
             provider_option_cache: RwLock::new(provider_option_cache),
             log_buffer,
         }
@@ -82,6 +99,9 @@ impl SmsService {
     }
 
     pub async fn acquire_code(&self, request: AcquireCodeRequest) -> Result<AcquireCodeResponse, SmsError> {
+        if request.routing_plan_id.is_some() || request.routing_plan_name.is_some() {
+            return self.acquire_code_by_routing_plan(request).await;
+        }
         if request.provider == "auto" {
             return self.acquire_code_auto(request).await;
         }
@@ -111,10 +131,48 @@ impl SmsService {
             price: ticket.price,
             status: ticket.status.clone(),
             created_at: ticket.created_at,
+            routing_plan_id: ticket.routing_plan_id.clone(),
+            routing_plan_name: ticket.routing_plan_name.clone(),
+            routing_item_id: ticket.routing_item_id.clone(),
+            routing_item_index: ticket.routing_item_index,
         };
         self.log("system", "info", format!("ticket {} acquired by {}", ticket.id, ticket.provider));
         self.tickets.write().insert(ticket.id.clone(), ticket);
         Ok(response)
+    }
+
+    async fn acquire_code_by_routing_plan(&self, request: AcquireCodeRequest) -> Result<AcquireCodeResponse, SmsError> {
+        let plan = self.resolve_routing_plan(&request)?;
+        let item_order = self.routing_item_order(&plan);
+        if item_order.is_empty() {
+            return Err(SmsError::InvalidRequest(format!(
+                "routing plan `{}` has no enabled items",
+                plan.name
+            )));
+        }
+        let candidate_item_ids = item_order
+            .iter()
+            .map(|item| item.id.clone())
+            .collect::<Vec<_>>();
+
+        let mut last_error = SmsError::InvalidRequest("no routing plan items tried".into());
+        for (attempt_index, item) in item_order.iter().enumerate() {
+            let response = self
+                .try_acquire_from_routing_item(&request, &plan, item, attempt_index, &candidate_item_ids)
+                .await;
+            match response {
+                Ok(ticket) => return Ok(ticket),
+                Err(error) => {
+                    self.log(
+                        "router",
+                        "warn",
+                        format!("routing plan {} skipped {}: {}", plan.id, item.id, error),
+                    );
+                    last_error = error;
+                }
+            }
+        }
+        Err(last_error)
     }
 
     async fn acquire_code_auto(&self, request: AcquireCodeRequest) -> Result<AcquireCodeResponse, SmsError> {
@@ -166,6 +224,10 @@ impl SmsService {
                         price: ticket.price,
                         status: ticket.status.clone(),
                         created_at: ticket.created_at,
+                        routing_plan_id: ticket.routing_plan_id.clone(),
+                        routing_plan_name: ticket.routing_plan_name.clone(),
+                        routing_item_id: ticket.routing_item_id.clone(),
+                        routing_item_index: ticket.routing_item_index,
                     };
                     self.log(
                         "router",
@@ -182,6 +244,94 @@ impl SmsService {
             }
         }
         Err(last_error)
+    }
+
+    async fn try_acquire_from_routing_item(
+        &self,
+        request: &AcquireCodeRequest,
+        plan: &RoutingPlan,
+        item: &RoutingPlanItem,
+        attempt_index: usize,
+        candidate_item_ids: &[String],
+    ) -> Result<AcquireCodeResponse, SmsError> {
+        let cached_options = self
+            .provider_option_cache
+            .read()
+            .entries
+            .get(&item.provider)
+            .cloned();
+        let provider = {
+            let registry = self.registry.read();
+            registry.get(&item.provider)?
+        };
+        if !provider.manifest().enabled {
+            return Err(SmsError::ProviderDisabled(item.provider.clone()));
+        }
+
+        let mut routed = request.clone();
+        routed.provider = item.provider.clone();
+        routed.service = Some(plan.service.clone());
+        routed.country = if item.country.is_empty() {
+            request.country.clone()
+        } else {
+            Some(item.country.clone())
+        };
+        routed.metadata = request.metadata.clone();
+        if !item.operator.is_empty() {
+            routed
+                .metadata
+                .insert("operator".to_string(), item.operator.clone());
+        }
+        match item.price_mode {
+            crate::models::RoutingPriceMode::Any => {
+                routed.min_price = None;
+                routed.max_price = None;
+            }
+            crate::models::RoutingPriceMode::Range => {
+                routed.min_price = item.min_price;
+                routed.max_price = item.max_price;
+            }
+            crate::models::RoutingPriceMode::Fixed => {
+                routed.min_price = item.fixed_price;
+                routed.max_price = item.fixed_price;
+            }
+        }
+
+        let translated = self.translate_acquire_request(
+            &routed,
+            cached_options.as_ref().map(|entry| &entry.options),
+        );
+        let mut ticket = provider.acquire(&translated).await?;
+        ticket.routing_plan_id = Some(plan.id.clone());
+        ticket.routing_plan_name = Some(plan.name.clone());
+        ticket.routing_item_id = Some(item.id.clone());
+        ticket.routing_item_index = Some(attempt_index);
+        ticket.routing_execution_mode = Some(plan.execution_mode);
+        ticket.routing_candidate_item_ids = candidate_item_ids.to_vec();
+        ticket.routing_attempt_count = (attempt_index + 1) as u32;
+
+        let response = AcquireCodeResponse {
+            ticket_id: ticket.id.clone(),
+            provider: ticket.provider.clone(),
+            service: ticket.service.clone(),
+            country: ticket.country.clone(),
+            phone_number: ticket.phone_number.clone(),
+            upstream_id: ticket.upstream_id.clone(),
+            price: ticket.price,
+            status: ticket.status.clone(),
+            created_at: ticket.created_at,
+            routing_plan_id: ticket.routing_plan_id.clone(),
+            routing_plan_name: ticket.routing_plan_name.clone(),
+            routing_item_id: ticket.routing_item_id.clone(),
+            routing_item_index: ticket.routing_item_index,
+        };
+        self.log(
+            "router",
+            "info",
+            format!("routing plan {} matched item {} -> {}", plan.id, item.id, ticket.provider),
+        );
+        self.tickets.write().insert(ticket.id.clone(), ticket);
+        Ok(response)
     }
 
     pub async fn poll_code(&self, request: PollCodeRequest) -> Result<PollCodeResponse, SmsError> {
@@ -237,6 +387,95 @@ impl SmsService {
             status: next_status,
             message: Some(message),
         })
+    }
+
+    pub async fn failover_routing_attempt(
+        &self,
+        request: RoutingFailoverRequest,
+    ) -> Result<AcquireCodeResponse, SmsError> {
+        let current = self
+            .tickets
+            .read()
+            .get(&request.ticket_id)
+            .cloned()
+            .ok_or_else(|| SmsError::InvalidRequest(format!("unknown ticket {}", request.ticket_id)))?;
+        let plan_id = current
+            .routing_plan_id
+            .clone()
+            .ok_or_else(|| SmsError::InvalidRequest("ticket is not associated with a routing plan".to_string()))?;
+        let plan = self
+            .routing_plans
+            .read()
+            .plans
+            .iter()
+            .find(|plan| plan.id == plan_id)
+            .cloned()
+            .ok_or_else(|| SmsError::InvalidRequest(format!("routing plan `{plan_id}` not found")))?;
+
+        let current_item_id = request
+            .failed_item_id
+            .clone()
+            .or(current.routing_item_id.clone());
+        let candidates = self.routing_item_order_for_ticket(&plan, &current);
+        let start_index = current_item_id
+            .as_ref()
+            .and_then(|item_id| candidates.iter().position(|item| &item.id == item_id))
+            .map(|index| index + 1)
+            .unwrap_or(0);
+        let candidate_item_ids = candidates.iter().map(|item| item.id.clone()).collect::<Vec<_>>();
+
+        if let Some(reason) = request.reason.as_ref() {
+            self.log(
+                "router",
+                "warn",
+                format!("routing failover for ticket {}: {}", request.ticket_id, reason),
+            );
+        }
+
+        for (attempt_index, item) in candidates.iter().enumerate().skip(start_index) {
+            let mut acquire_request = AcquireCodeRequest {
+                provider: item.provider.clone(),
+                service: Some(plan.service.clone()),
+                country: None,
+                max_price: None,
+                min_price: None,
+                auto_pick_country: None,
+                reuse_phone: None,
+                reuse_key: None,
+                metadata: BTreeMap::new(),
+                routing_plan_id: Some(plan.id.clone()),
+                routing_plan_name: Some(plan.name.clone()),
+            };
+            if !item.country.is_empty() {
+                acquire_request.country = Some(item.country.clone());
+            }
+            if !item.operator.is_empty() {
+                acquire_request
+                    .metadata
+                    .insert("operator".to_string(), item.operator.clone());
+            }
+            match item.price_mode {
+                crate::models::RoutingPriceMode::Any => {}
+                crate::models::RoutingPriceMode::Range => {
+                    acquire_request.min_price = item.min_price;
+                    acquire_request.max_price = item.max_price;
+                }
+                crate::models::RoutingPriceMode::Fixed => {
+                    acquire_request.min_price = item.fixed_price;
+                    acquire_request.max_price = item.fixed_price;
+                }
+            }
+            let response = self
+                .try_acquire_from_routing_item(&acquire_request, &plan, item, attempt_index, &candidate_item_ids)
+                .await;
+            if response.is_ok() {
+                return response;
+            }
+        }
+        Err(SmsError::InvalidRequest(format!(
+            "routing plan `{}` exhausted all candidate items",
+            plan.name
+        )))
     }
 
     pub async fn get_balance(&self, provider_id: &str) -> Result<ProviderBalance, SmsError> {
@@ -364,6 +603,75 @@ impl SmsService {
         self.registry.write().reload()?;
         self.log("config", "info", "provider registry reloaded");
         Ok(self.list_provider_manifests())
+    }
+
+    pub fn list_routing_plans(&self) -> RoutingPlanList {
+        RoutingPlanList {
+            plans: self.routing_plans.read().plans.clone(),
+        }
+    }
+
+    pub fn routing_plan(&self, plan_id: &str) -> Result<RoutingPlan, SmsError> {
+        self.routing_plans
+            .read()
+            .plans
+            .iter()
+            .find(|plan| plan.id == plan_id)
+            .cloned()
+            .ok_or_else(|| SmsError::InvalidRequest(format!("routing plan `{plan_id}` not found")))
+    }
+
+    pub fn save_routing_plan(&self, mut plan: RoutingPlan) -> Result<RoutingPlan, SmsError> {
+        if plan.id.trim().is_empty() {
+            plan.id = slugify_plan_id(&plan.name);
+        }
+        if plan.name.trim().is_empty() {
+            return Err(SmsError::InvalidRequest("routing plan name is required".to_string()));
+        }
+        if plan.service.trim().is_empty() {
+            return Err(SmsError::InvalidRequest("routing plan service is required".to_string()));
+        }
+        if plan.items.is_empty() {
+            return Err(SmsError::InvalidRequest("routing plan must contain at least one item".to_string()));
+        }
+        if plan.enabled && !plan.items.iter().any(|item| item.enabled) {
+            return Err(SmsError::InvalidRequest(
+                "enabled routing plan must contain at least one enabled item".to_string(),
+            ));
+        }
+        for (index, item) in plan.items.iter_mut().enumerate() {
+            if item.id.trim().is_empty() {
+                item.id = format!("{}-item-{}", plan.id, index + 1);
+            }
+        }
+
+        let mut store = self.routing_plans.write();
+        if let Some(existing) = store.plans.iter_mut().find(|existing| existing.id == plan.id) {
+            *existing = plan.clone();
+        } else {
+            store.plans.push(plan.clone());
+        }
+        if let Some(path) = &self.routing_plans_path {
+            save_routing_plans(path, &store)?;
+        }
+        self.log("config", "info", format!("routing plan `{}` saved", plan.id));
+        Ok(plan)
+    }
+
+    pub fn delete_routing_plan(&self, plan_id: &str) -> Result<RoutingPlanList, SmsError> {
+        let mut store = self.routing_plans.write();
+        let before = store.plans.len();
+        store.plans.retain(|plan| plan.id != plan_id);
+        if before == store.plans.len() {
+            return Err(SmsError::InvalidRequest(format!("routing plan `{plan_id}` not found")));
+        }
+        if let Some(path) = &self.routing_plans_path {
+            save_routing_plans(path, &store)?;
+        }
+        self.log("config", "info", format!("routing plan `{plan_id}` deleted"));
+        Ok(RoutingPlanList {
+            plans: store.plans.clone(),
+        })
     }
 
     pub fn reorder_providers(&self, req: ProviderReorderRequest) -> Result<ProviderManifestList, SmsError> {
@@ -507,6 +815,67 @@ impl SmsService {
         !settings.option_cache_enabled || self.provider_option_cache_state_with_settings(provider_id, &settings) == OptionCacheState::Fresh
     }
 
+    fn resolve_routing_plan(&self, request: &AcquireCodeRequest) -> Result<RoutingPlan, SmsError> {
+        let store = self.routing_plans.read();
+        if let Some(plan_id) = request.routing_plan_id.as_ref() {
+            return store
+                .plans
+                .iter()
+                .find(|plan| &plan.id == plan_id)
+                .cloned()
+                .ok_or_else(|| SmsError::InvalidRequest(format!("routing plan `{plan_id}` not found")))
+                .and_then(ensure_routing_plan_enabled);
+        }
+        if let Some(plan_name) = request.routing_plan_name.as_ref() {
+            return store
+                .plans
+                .iter()
+                .find(|plan| plan.name == *plan_name)
+                .cloned()
+                .ok_or_else(|| SmsError::InvalidRequest(format!("routing plan `{plan_name}` not found")))
+                .and_then(ensure_routing_plan_enabled);
+        }
+        Err(SmsError::InvalidRequest(
+            "routing plan id or name is required".to_string(),
+        ))
+    }
+
+    fn routing_item_order<'a>(&self, plan: &'a RoutingPlan) -> Vec<&'a RoutingPlanItem> {
+        let mut items = plan
+            .items
+            .iter()
+            .filter(|item| item.enabled)
+            .collect::<Vec<_>>();
+        if plan.execution_mode == RoutingExecutionMode::Random {
+            items.sort_by(|left, right| left.id.cmp(&right.id));
+            if !items.is_empty() {
+                let rotate_by = (Utc::now().timestamp_subsec_nanos() as usize) % items.len();
+                items.rotate_left(rotate_by);
+            }
+        }
+        items
+    }
+
+    fn routing_item_order_for_ticket<'a>(&self, plan: &'a RoutingPlan, ticket: &TicketRecord) -> Vec<&'a RoutingPlanItem> {
+        if ticket.routing_candidate_item_ids.is_empty() {
+            return self.routing_item_order(plan);
+        }
+
+        let mut ordered = Vec::new();
+        for item_id in &ticket.routing_candidate_item_ids {
+            if let Some(item) = plan.items.iter().find(|item| item.enabled && &item.id == item_id) {
+                ordered.push(item);
+            }
+        }
+
+        for item in plan.items.iter().filter(|item| item.enabled) {
+            if !ordered.iter().any(|existing| existing.id == item.id) {
+                ordered.push(item);
+            }
+        }
+        ordered
+    }
+
     fn translate_acquire_request(
         &self,
         request: &AcquireCodeRequest,
@@ -558,13 +927,60 @@ fn save_runtime_settings(path: &Path, settings: &RuntimeSettings) -> Result<(), 
         .map_err(|err| SmsError::Io(format!("write runtime settings failed: {err}")))
 }
 
+fn load_routing_plans(path: &Path) -> Result<RoutingPlanStore, SmsError> {
+    if !path.exists() {
+        return Ok(RoutingPlanStore::default());
+    }
+    let content = fs::read_to_string(path)
+        .map_err(|err| SmsError::Io(format!("read routing plans failed: {err}")))?;
+    serde_json::from_str(&content)
+        .map_err(|err| SmsError::Config(format!("parse routing plans failed: {err}")))
+}
+
+fn save_routing_plans(path: &Path, store: &RoutingPlanStore) -> Result<(), SmsError> {
+    if let Some(parent) = path.parent() {
+        fs::create_dir_all(parent)
+            .map_err(|err| SmsError::Io(format!("create routing plans dir failed: {err}")))?;
+    }
+    let content = serde_json::to_string_pretty(store)
+        .map_err(|err| SmsError::Config(format!("serialize routing plans failed: {err}")))?;
+    fs::write(path, content)
+        .map_err(|err| SmsError::Io(format!("write routing plans failed: {err}")))
+}
+
+fn slugify_plan_id(name: &str) -> String {
+    let mut slug = String::new();
+    let mut last_dash = false;
+    for ch in name.chars().flat_map(|c| c.to_lowercase()) {
+        if ch.is_ascii_alphanumeric() {
+            slug.push(ch);
+            last_dash = false;
+        } else if !last_dash {
+            slug.push('-');
+            last_dash = true;
+        }
+    }
+    slug.trim_matches('-').to_string()
+}
+
+fn ensure_routing_plan_enabled(plan: RoutingPlan) -> Result<RoutingPlan, SmsError> {
+    if !plan.enabled {
+        return Err(SmsError::InvalidRequest(format!(
+            "routing plan `{}` is disabled",
+            plan.name
+        )));
+    }
+    Ok(plan)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
     use crate::registry::ProviderRegistry;
+    use crate::models::{RoutingExecutionMode, RoutingFailoverRequest, RoutingPlan, RoutingPlanItem, RoutingPriceMode};
     use std::fs;
     use std::path::PathBuf;
-    use std::time::{SystemTime, UNIX_EPOCH};
+    use uuid::Uuid;
 
     fn repo_root() -> PathBuf {
         PathBuf::from(env!("CARGO_MANIFEST_DIR"))
@@ -575,13 +991,7 @@ mod tests {
     }
 
     fn fixture_provider_dir() -> PathBuf {
-        let base = std::env::temp_dir().join(format!(
-            "madao-sms-test-{}",
-            SystemTime::now()
-                .duration_since(UNIX_EPOCH)
-                .unwrap()
-                .as_nanos()
-        ));
+        let base = std::env::temp_dir().join(format!("madao-sms-test-{}", Uuid::now_v7()));
         fs::create_dir_all(&base).unwrap();
         for name in ["mock.toml", "herosms.toml", "smsbower.toml", "fivesim.toml"] {
             fs::copy(
@@ -599,6 +1009,41 @@ mod tests {
         SmsService::new(registry, 32)
     }
 
+    fn routing_plan() -> RoutingPlan {
+        RoutingPlan {
+            id: "openai-plan".to_string(),
+            name: "OpenAI Plan".to_string(),
+            service: "openai".to_string(),
+            description: Some("test routing plan".to_string()),
+            enabled: true,
+            execution_mode: RoutingExecutionMode::Sequential,
+            items: vec![
+                RoutingPlanItem {
+                    id: "mock-first".to_string(),
+                    provider: "mock".to_string(),
+                    country: "usa".to_string(),
+                    operator: String::new(),
+                    enabled: true,
+                    price_mode: RoutingPriceMode::Fixed,
+                    min_price: Some(0.1),
+                    max_price: Some(0.1),
+                    fixed_price: Some(0.1),
+                },
+                RoutingPlanItem {
+                    id: "mock-second".to_string(),
+                    provider: "mock".to_string(),
+                    country: "canada".to_string(),
+                    operator: String::new(),
+                    enabled: true,
+                    price_mode: RoutingPriceMode::Any,
+                    min_price: None,
+                    max_price: None,
+                    fixed_price: None,
+                },
+            ],
+        }
+    }
+
     #[tokio::test]
     async fn mock_provider_can_acquire_and_poll() {
         let service = make_service();
@@ -613,6 +1058,8 @@ mod tests {
                 reuse_phone: None,
                 reuse_key: None,
                 metadata: BTreeMap::new(),
+                routing_plan_id: None,
+                routing_plan_name: None,
             })
             .await
             .unwrap();
@@ -631,6 +1078,7 @@ mod tests {
     async fn manifest_can_be_saved_and_reloaded() {
         let service = make_service();
         let mut manifest = service.provider_manifest("mock").unwrap();
+        service.refresh_provider_options("mock").await.unwrap();
         manifest.description = Some("updated manifest".to_string());
         let saved = service.save_provider_manifest("mock", manifest).await.unwrap();
         assert_eq!(saved.manifest.description.as_deref(), Some("updated manifest"));
@@ -650,5 +1098,122 @@ mod tests {
 
         let after = service.provider_manifest("herosms").unwrap();
         assert_eq!(after.handler_api.as_ref().map(|cfg| cfg.base_url.clone()), before.handler_api.as_ref().map(|cfg| cfg.base_url.clone()));
+    }
+
+    #[test]
+    fn routing_plan_can_be_saved_and_listed() {
+        let service = make_service();
+        let saved = service.save_routing_plan(routing_plan()).unwrap();
+        assert_eq!(saved.id, "openai-plan");
+        let plans = service.list_routing_plans();
+        assert_eq!(plans.plans.len(), 1);
+        assert_eq!(plans.plans[0].service, "openai");
+    }
+
+    #[tokio::test]
+    async fn routing_plan_can_acquire_ticket() {
+        let service = make_service();
+        service.save_routing_plan(routing_plan()).unwrap();
+
+        let acquire = service
+            .acquire_code(AcquireCodeRequest {
+                provider: "auto".to_string(),
+                service: None,
+                country: None,
+                max_price: None,
+                min_price: None,
+                auto_pick_country: None,
+                reuse_phone: None,
+                reuse_key: None,
+                metadata: BTreeMap::new(),
+                routing_plan_id: Some("openai-plan".to_string()),
+                routing_plan_name: None,
+            })
+            .await
+            .unwrap();
+
+        assert_eq!(acquire.provider, "mock");
+        assert_eq!(acquire.service, "openai");
+        assert_eq!(acquire.routing_plan_id.as_deref(), Some("openai-plan"));
+        assert_eq!(acquire.routing_item_id.as_deref(), Some("mock-first"));
+        assert_eq!(acquire.routing_item_index, Some(0));
+    }
+
+    #[tokio::test]
+    async fn routing_failover_moves_to_next_item() {
+        let service = make_service();
+        service.save_routing_plan(routing_plan()).unwrap();
+
+        let acquire = service
+            .acquire_code(AcquireCodeRequest {
+                provider: "auto".to_string(),
+                service: None,
+                country: None,
+                max_price: None,
+                min_price: None,
+                auto_pick_country: None,
+                reuse_phone: None,
+                reuse_key: None,
+                metadata: BTreeMap::new(),
+                routing_plan_id: Some("openai-plan".to_string()),
+                routing_plan_name: None,
+            })
+            .await
+            .unwrap();
+
+        let failover = service
+            .failover_routing_attempt(RoutingFailoverRequest {
+                ticket_id: acquire.ticket_id,
+                reason: Some("upstream reject".to_string()),
+                failed_item_id: Some("mock-first".to_string()),
+            })
+            .await
+            .unwrap();
+
+        assert_eq!(failover.routing_item_id.as_deref(), Some("mock-second"));
+        assert_eq!(failover.routing_item_index, Some(1));
+        assert_eq!(failover.country, "canada");
+    }
+
+    #[tokio::test]
+    async fn routing_failover_preserves_ticket_candidate_order() {
+        let service = make_service();
+        let mut plan = routing_plan();
+        plan.execution_mode = RoutingExecutionMode::Random;
+        service.save_routing_plan(plan).unwrap();
+
+        let acquire = service
+            .acquire_code(AcquireCodeRequest {
+                provider: "auto".to_string(),
+                service: None,
+                country: None,
+                max_price: None,
+                min_price: None,
+                auto_pick_country: None,
+                reuse_phone: None,
+                reuse_key: None,
+                metadata: BTreeMap::new(),
+                routing_plan_id: Some("openai-plan".to_string()),
+                routing_plan_name: None,
+            })
+            .await
+            .unwrap();
+
+        let first_item_id = acquire.routing_item_id.clone().unwrap();
+        let current_ticket = service.tickets.read().get(&acquire.ticket_id).cloned().unwrap();
+        let candidate_ids = current_ticket.routing_candidate_item_ids.clone();
+        assert_eq!(candidate_ids.len(), 2);
+        assert_eq!(candidate_ids[0], first_item_id);
+
+        let failover = service
+            .failover_routing_attempt(RoutingFailoverRequest {
+                ticket_id: acquire.ticket_id,
+                reason: Some("ordered failover".to_string()),
+                failed_item_id: Some(first_item_id.clone()),
+            })
+            .await
+            .unwrap();
+
+        assert_eq!(failover.routing_item_id.as_deref(), Some(candidate_ids[1].as_str()));
     }
 }

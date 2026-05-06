@@ -5,6 +5,7 @@ import {
   MessageSquare,
   PanelLeft,
   Plus,
+  Shuffle,
   Server,
   Settings,
   Sliders,
@@ -25,6 +26,7 @@ import { NewActivationModal } from '../app/overlays/NewActivationModal';
 import { OverviewScreen } from '../app/overview/OverviewScreen';
 import { ProviderWorkspaceScreen } from '../app/providers/ProviderWorkspaceScreen';
 import { ProvidersListScreen } from '../app/providers/ProvidersListScreen';
+import { RoutingScreen } from '../app/routing/RoutingScreen';
 import { SettingsScreen } from '../app/settings/SettingsScreen';
 import { AppButton } from '../app/ui-bridge';
 import type {
@@ -39,6 +41,7 @@ import type {
   ProviderPriceItem,
   ProviderSectionId,
   ProviderSummary,
+  RoutingPlan,
   RoutingStrategy,
   ScreenId,
   TicketRecord,
@@ -50,6 +53,7 @@ export type ScreenshotTarget =
   | 'ProviderWorkspace_Config'
   | 'ProviderWorkspace_Store'
   | 'ProviderWorkspace_Wallet'
+  | 'Routing'
   | 'Messages'
   | 'Settings'
   | 'Logs'
@@ -74,6 +78,7 @@ const CANVAS_SPECS: Record<ScreenshotTarget, CanvasSpec> = {
   ProviderWorkspace_Config: { width: 1104, height: 848, padding: 40 },
   ProviderWorkspace_Store: { width: 1104, height: 848, padding: 40 },
   ProviderWorkspace_Wallet: { width: 1104, height: 848, padding: 40 },
+  Routing: { width: 1104, height: 848, padding: 40 },
   Messages: { width: 1104, height: 848, padding: 40 },
   Settings: { width: 1104, height: 848, padding: 40 },
   Logs: { width: 1104, height: 848, padding: 40 },
@@ -84,6 +89,7 @@ const CANVAS_SPECS: Record<ScreenshotTarget, CanvasSpec> = {
 const NAV_ITEMS: SidebarItem[] = [
   { id: 'overview', label: 'Overview', icon: LayoutDashboard },
   { id: 'providers', label: 'Providers', icon: Server },
+  { id: 'routing', label: 'Routing', icon: Shuffle },
   { id: 'messages', label: 'Messages', icon: MessageSquare },
   { id: 'settings', label: 'Settings', icon: Settings },
   { id: 'logs', label: 'Logs', icon: Terminal },
@@ -271,6 +277,10 @@ const TICKETS: TicketRecord[] = [
     price: null,
     code: null,
     message: 'You were not charged for this request.',
+    routing_plan_id: 'openai-plan',
+    routing_plan_name: 'OpenGPT Plan 1',
+    routing_item_id: 'fivesim-us',
+    routing_item_index: 1,
   },
 ];
 
@@ -429,6 +439,41 @@ const PROVIDER_OPTIONS: Record<string, ProviderDynamicOptions> = {
   },
 };
 
+const ROUTING_PLANS: RoutingPlan[] = [
+  {
+    id: 'openai-plan',
+    name: 'OpenGPT Plan 1',
+    service: 'openai',
+    description: 'Primary acquisition plan for OpenAI-style services.',
+    enabled: true,
+    execution_mode: 'sequential',
+    items: [
+      {
+        id: 'hero-ca',
+        provider: 'herosms',
+        country: 'canada',
+        operator: '',
+        enabled: true,
+        price_mode: 'range',
+        min_price: 0.5,
+        max_price: 1.0,
+        fixed_price: null,
+      },
+      {
+        id: 'fivesim-us',
+        provider: 'fivesim',
+        country: 'usa',
+        operator: 'verizon',
+        enabled: true,
+        price_mode: 'fixed',
+        min_price: 0.889,
+        max_price: 0.889,
+        fixed_price: 0.889,
+      },
+    ],
+  },
+];
+
 const PRICE_ITEMS: ProviderPriceItem[] = [
   { country: 'usa', display_name: 'United States', operator: 'verizon', price: 0.889, stock: 1420 },
   { country: 'england', display_name: 'United Kingdom', operator: 'o2', price: 1.129, stock: 884 },
@@ -442,6 +487,7 @@ const ACTIVATION_FORM: ActivationFormState = {
   service: '',
   country: '',
   provider: 'auto',
+  routing_plan_id: 'openai-plan',
   operator: 'any',
   min_price: '',
   max_price: '',
@@ -691,6 +737,35 @@ function renderPageTarget(target: ScreenshotTarget) {
     );
   }
 
+  if (target === 'Routing') {
+    return buildShell(
+      'routing',
+      'Routing',
+      <RoutingScreen
+        plans={ROUTING_PLANS}
+        providers={PROVIDERS}
+        providerOptions={PROVIDER_OPTIONS}
+        serviceOptions={[{ id: 'openai', label: 'OpenAI (ChatGPT)' }, { id: 'telegram', label: 'Telegram' }]}
+        selectedPlanId="openai-plan"
+        onSelectPlan={noop}
+        onCreatePlan={noop}
+        onDeletePlan={noop}
+        onUpdatePlan={noop}
+        onOpenServicePicker={noop}
+        onOpenProviderPicker={noop}
+        onOpenCountryPicker={noop}
+        onOpenOperatorPicker={noop}
+        onOpenPricePicker={noop}
+        onAddItem={noop}
+        onRemoveItem={noop}
+        onMoveItem={noop}
+        onReorderItem={noop}
+        onSavePlan={noop}
+        busyAction=""
+      />,
+    );
+  }
+
   if (target === 'Settings') {
     return buildShell(
       'settings',
@@ -786,6 +861,7 @@ function renderComponentTarget(target: ScreenshotTarget) {
     return (
       <NewActivationModal
         providers={PROVIDERS}
+        routingPlans={ROUTING_PLANS}
         form={ACTIVATION_FORM}
         busy={false}
         error=""
@@ -795,6 +871,7 @@ function renderComponentTarget(target: ScreenshotTarget) {
         onClose={noop}
         onSubmit={noop}
         onOpenSelector={noop}
+        onOpenRoutingPlanSelector={noop}
       />
     );
   }

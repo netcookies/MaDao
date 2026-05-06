@@ -108,6 +108,7 @@ export function useSelectorFlow(
       const options = runtime.providerOptions[option.value];
       ui.setActivationForm((current) => ({
         ...current,
+        routing_plan_id: '',
         provider: option.value,
         service: option.value === 'auto' ? '' : (options?.services[0]?.value ?? current.service),
         country: option.value === 'auto' ? '' : (options?.countries[0]?.value ?? current.country),

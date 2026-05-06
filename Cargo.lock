@@ -3486,8 +3486,10 @@ dependencies = [
  "serde_json",
  "sms-core",
  "tokio",
+ "tower",
  "tower-http",
  "tracing",
+ "uuid",
 ]
 
 [[package]]

@@ -6,8 +6,9 @@ use serde::Serialize;
 use sms_core::config::ServerConfig;
 use sms_core::models::{
     AcquireCodeRequest, NotificationFeed, OptionCacheOverview, PollCodeRequest, ProviderDynamicOptions,
-    ProviderManifestList, ProviderPriceQuery, ProviderReorderRequest, ReleaseCodeRequest, RuntimeSettings,
-    RuntimeSettingsUpdate, RuntimeSnapshot,
+    ProviderManifestList, ProviderPriceQuery, ProviderReorderRequest, ReleaseCodeRequest,
+    RoutingFailoverRequest, RoutingPlan, RoutingPlanList, RuntimeSettings, RuntimeSettingsUpdate,
+    RuntimeSnapshot,
 };
 use sms_core::service::SmsService;
 use std::net::SocketAddr;
@@ -33,12 +34,15 @@ pub fn build_router(service: Arc<SmsService>) -> Router {
         .route("/api/provider-manifests", get(list_provider_manifests))
         .route("/api/provider-manifests/reload", post(reload_provider_manifests))
         .route("/api/providers/reorder", post(reorder_providers))
+        .route("/api/routing-plans", get(list_routing_plans).post(save_routing_plan))
+        .route("/api/routing-plans/{plan_id}", get(get_routing_plan).delete(delete_routing_plan))
         .route("/api/notifications", get(get_notifications))
         .route("/api/settings/runtime", get(get_runtime_settings).post(update_runtime_settings))
         .route("/api/settings/option-cache", get(get_option_cache_overview))
         .route("/api/acquire", post(acquire_code))
         .route("/api/poll", post(poll_code))
         .route("/api/release", post(release_code))
+        .route("/api/routing/failover", post(failover_routing))
         .route("/api/providers/{provider}/balance", get(get_balance))
         .route("/api/providers/{provider}/prices", post(get_prices))
         .route("/api/providers/{provider}/options", get(get_provider_options))
@@ -85,6 +89,43 @@ async fn list_provider_manifests(State(state): State<ApiState>) -> Json<Provider
 
 async fn get_notifications(State(state): State<ApiState>) -> Json<NotificationFeed> {
     Json(state.service.notification_feed())
+}
+
+async fn list_routing_plans(State(state): State<ApiState>) -> Json<RoutingPlanList> {
+    Json(state.service.list_routing_plans())
+}
+
+async fn get_routing_plan(
+    State(state): State<ApiState>,
+    Path(plan_id): Path<String>,
+) -> Result<Json<serde_json::Value>, (StatusCode, Json<ApiError>)> {
+    state
+        .service
+        .routing_plan(&plan_id)
+        .map(|value| Json(serde_json::json!(value)))
+        .map_err(to_api_error)
+}
+
+async fn save_routing_plan(
+    State(state): State<ApiState>,
+    Json(plan): Json<RoutingPlan>,
+) -> Result<Json<serde_json::Value>, (StatusCode, Json<ApiError>)> {
+    state
+        .service
+        .save_routing_plan(plan)
+        .map(|value| Json(serde_json::json!(value)))
+        .map_err(to_api_error)
+}
+
+async fn delete_routing_plan(
+    State(state): State<ApiState>,
+    Path(plan_id): Path<String>,
+) -> Result<Json<serde_json::Value>, (StatusCode, Json<ApiError>)> {
+    state
+        .service
+        .delete_routing_plan(&plan_id)
+        .map(|value| Json(serde_json::json!(value)))
+        .map_err(to_api_error)
 }
 
 async fn get_runtime_settings(State(state): State<ApiState>) -> Json<RuntimeSettings> {
@@ -159,6 +200,18 @@ async fn release_code(
         .map_err(to_api_error)
 }
 
+async fn failover_routing(
+    State(state): State<ApiState>,
+    Json(request): Json<RoutingFailoverRequest>,
+) -> Result<Json<serde_json::Value>, (StatusCode, Json<ApiError>)> {
+    state
+        .service
+        .failover_routing_attempt(request)
+        .await
+        .map(|value| Json(serde_json::json!(value)))
+        .map_err(to_api_error)
+}
+
 async fn get_balance(
     State(state): State<ApiState>,
     Path(provider): Path<String>,
@@ -219,4 +272,256 @@ async fn put_manifest(
 
 fn to_api_error(error: sms_core::error::SmsError) -> (StatusCode, Json<ApiError>) {
     (StatusCode::BAD_REQUEST, Json(ApiError { message: error.to_string() }))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use axum::body::Body;
+    use axum::http::{Method, Request};
+    use serde_json::json;
+    use sms_core::registry::ProviderRegistry;
+    use sms_core::service::SmsService;
+    use std::fs;
+    use std::path::PathBuf;
+    use tower::util::ServiceExt;
+    use uuid::Uuid;
+
+    fn repo_root() -> PathBuf {
+        PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+            .join("..")
+            .join("..")
+            .canonicalize()
+            .unwrap()
+    }
+
+    fn fixture_provider_dir() -> PathBuf {
+        let base = std::env::temp_dir().join(format!("madao-sms-server-test-{}", Uuid::now_v7()));
+        fs::create_dir_all(&base).unwrap();
+        for name in ["mock.toml", "herosms.toml", "smsbower.toml", "fivesim.toml"] {
+            fs::copy(repo_root().join("plugins/providers").join(name), base.join(name)).unwrap();
+        }
+        base
+    }
+
+    fn test_router() -> Router {
+        let provider_dir = fixture_provider_dir();
+        let registry = ProviderRegistry::load_from_dir(provider_dir).unwrap();
+        let service = Arc::new(SmsService::new(registry, 32));
+        build_router(service)
+    }
+
+    #[tokio::test]
+    async fn can_save_and_list_routing_plans_over_http() {
+        let app = test_router();
+        let payload = json!({
+            "id": "openai-plan",
+            "name": "OpenAI Plan",
+            "service": "openai",
+            "enabled": true,
+            "execution_mode": "sequential",
+            "items": [
+                {
+                    "id": "mock-item",
+                    "provider": "mock",
+                    "country": "usa",
+                    "operator": "",
+                    "enabled": true,
+                    "price_mode": "fixed",
+                    "min_price": 0.1,
+                    "max_price": 0.1,
+                    "fixed_price": 0.1
+                }
+            ]
+        });
+
+        let save_response = app
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .method(Method::POST)
+                    .uri("/api/routing-plans")
+                    .header("content-type", "application/json")
+                    .body(Body::from(payload.to_string()))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(save_response.status(), StatusCode::OK);
+
+        let list_response = app
+            .oneshot(
+                Request::builder()
+                    .method(Method::GET)
+                    .uri("/api/routing-plans")
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(list_response.status(), StatusCode::OK);
+    }
+
+    #[tokio::test]
+    async fn acquire_and_failover_work_over_http() {
+        let app = test_router();
+        let plan = json!({
+            "id": "openai-plan",
+            "name": "OpenAI Plan",
+            "service": "openai",
+            "enabled": true,
+            "execution_mode": "sequential",
+            "items": [
+                {
+                    "id": "mock-first",
+                    "provider": "mock",
+                    "country": "usa",
+                    "operator": "",
+                    "enabled": true,
+                    "price_mode": "fixed",
+                    "min_price": 0.1,
+                    "max_price": 0.1,
+                    "fixed_price": 0.1
+                },
+                {
+                    "id": "mock-second",
+                    "provider": "mock",
+                    "country": "canada",
+                    "operator": "",
+                    "enabled": true,
+                    "price_mode": "any"
+                }
+            ]
+        });
+
+        let save_response = app
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .method(Method::POST)
+                    .uri("/api/routing-plans")
+                    .header("content-type", "application/json")
+                    .body(Body::from(plan.to_string()))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(save_response.status(), StatusCode::OK);
+
+        let acquire_response = app
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .method(Method::POST)
+                    .uri("/api/acquire")
+                    .header("content-type", "application/json")
+                    .body(Body::from(
+                        json!({
+                            "provider": "auto",
+                            "routing_plan_id": "openai-plan"
+                        })
+                        .to_string(),
+                    ))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(acquire_response.status(), StatusCode::OK);
+        let acquire_body = axum::body::to_bytes(acquire_response.into_body(), usize::MAX)
+            .await
+            .unwrap();
+        let acquire_json: serde_json::Value = serde_json::from_slice(&acquire_body).unwrap();
+        let ticket_id = acquire_json.pointer("/ticket_id").and_then(serde_json::Value::as_str).unwrap();
+        assert_eq!(
+            acquire_json.pointer("/routing_plan_id").and_then(serde_json::Value::as_str),
+            Some("openai-plan")
+        );
+        assert_eq!(
+            acquire_json.pointer("/routing_item_id").and_then(serde_json::Value::as_str),
+            Some("mock-first")
+        );
+
+        let failover_response = app
+            .oneshot(
+                Request::builder()
+                    .method(Method::POST)
+                    .uri("/api/routing/failover")
+                    .header("content-type", "application/json")
+                    .body(Body::from(
+                        json!({
+                            "ticket_id": ticket_id,
+                            "failed_item_id": "mock-first",
+                            "reason": "http integration test"
+                        })
+                        .to_string(),
+                    ))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(failover_response.status(), StatusCode::OK);
+        let failover_body = axum::body::to_bytes(failover_response.into_body(), usize::MAX)
+            .await
+            .unwrap();
+        let failover_json: serde_json::Value = serde_json::from_slice(&failover_body).unwrap();
+        assert_eq!(
+            failover_json.pointer("/routing_item_id").and_then(serde_json::Value::as_str),
+            Some("mock-second")
+        );
+    }
+
+    #[tokio::test]
+    async fn disabled_routing_plan_is_rejected_over_http() {
+        let app = test_router();
+        let plan = json!({
+            "id": "disabled-plan",
+            "name": "Disabled Plan",
+            "service": "openai",
+            "enabled": false,
+            "execution_mode": "sequential",
+            "items": [
+                {
+                    "id": "mock-item",
+                    "provider": "mock",
+                    "country": "usa",
+                    "operator": "",
+                    "enabled": true,
+                    "price_mode": "any"
+                }
+            ]
+        });
+
+        let save_response = app
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .method(Method::POST)
+                    .uri("/api/routing-plans")
+                    .header("content-type", "application/json")
+                    .body(Body::from(plan.to_string()))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(save_response.status(), StatusCode::OK);
+
+        let acquire_response = app
+            .oneshot(
+                Request::builder()
+                    .method(Method::POST)
+                    .uri("/api/acquire")
+                    .header("content-type", "application/json")
+                    .body(Body::from(
+                        json!({
+                            "provider": "auto",
+                            "routing_plan_id": "disabled-plan"
+                        })
+                        .to_string(),
+                    ))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(acquire_response.status(), StatusCode::BAD_REQUEST);
+    }
 }

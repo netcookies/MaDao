@@ -3,6 +3,7 @@ use plugin_sdk::ProviderManifest;
 use sms_core::config::ServerConfig;
 use sms_core::models::{
     AcquireCodeRequest, PollCodeRequest, ProviderPriceQuery, ReleaseCodeRequest,
+    RoutingFailoverRequest, RoutingPlan,
 };
 use sms_core::registry::ProviderRegistry;
 use sms_core::service::SmsService;
@@ -16,9 +17,19 @@ use tokio::net::UnixListener;
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
     let cwd = std::env::current_dir().context("read current dir failed")?;
-    let config = ServerConfig::load_from_file(cwd.join("config/server.toml"))?;
+    let config_path = cwd.join("config/server.toml");
+    let config = ServerConfig::load_from_file(&config_path)?;
     let registry = ProviderRegistry::load_from_dir(cwd.join(&config.provider_dir))?;
-    let service = Arc::new(SmsService::new(registry, config.log_buffer));
+    let config_dir = config_path
+        .parent()
+        .context("resolve config directory failed")?;
+    let service = Arc::new(SmsService::with_persistence_paths(
+        registry,
+        config.log_buffer,
+        Some(config_dir.join("runtime-settings.json")),
+        Some(config_dir.join("provider-options-cache.json")),
+        Some(config_dir.join("routing-plans.json")),
+    ));
 
     let (http_addr, _http_handle) = spawn_http_server(Arc::clone(&service), &config)
         .await
@@ -65,10 +76,23 @@ async fn handle_socket_command(service: &SmsService, line: &str) -> String {
             SocketCommand::Acquire { request } => wrap_socket_result(service.acquire_code(request).await),
             SocketCommand::Poll { request } => wrap_socket_result(service.poll_code(request).await),
             SocketCommand::Release { request } => wrap_socket_result(service.release_code(request).await),
+            SocketCommand::RoutingFailover { request } => {
+                wrap_socket_result(service.failover_routing_attempt(request).await)
+            }
             SocketCommand::Balance { provider } => wrap_socket_result(service.get_balance(&provider).await),
             SocketCommand::Prices { request } => wrap_socket_result(service.get_prices(request).await),
             SocketCommand::ProviderManifests => {
                 wrap_socket_plain_result(Ok(service.list_provider_manifests()))
+            }
+            SocketCommand::RoutingPlans => wrap_socket_plain_result(Ok(service.list_routing_plans())),
+            SocketCommand::RoutingPlan { plan_id } => {
+                wrap_socket_plain_result(service.routing_plan(&plan_id))
+            }
+            SocketCommand::SaveRoutingPlan { plan } => {
+                wrap_socket_plain_result(service.save_routing_plan(plan))
+            }
+            SocketCommand::DeleteRoutingPlan { plan_id } => {
+                wrap_socket_plain_result(service.delete_routing_plan(&plan_id))
             }
             SocketCommand::ProviderManifest { provider } => {
                 wrap_socket_plain_result(service.provider_manifest(&provider))
@@ -107,9 +131,14 @@ enum SocketCommand {
     Acquire { request: AcquireCodeRequest },
     Poll { request: PollCodeRequest },
     Release { request: ReleaseCodeRequest },
+    RoutingFailover { request: RoutingFailoverRequest },
     Balance { provider: String },
     Prices { request: ProviderPriceQuery },
     ProviderManifests,
+    RoutingPlans,
+    RoutingPlan { plan_id: String },
+    SaveRoutingPlan { plan: RoutingPlan },
+    DeleteRoutingPlan { plan_id: String },
     ProviderManifest { provider: String },
     SaveProviderManifest { provider: String, manifest: ProviderManifest },
     ReloadProviders,

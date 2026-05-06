@@ -36,6 +36,7 @@
   - `POST /api/providers/{id}/prices`
 - 前端已重构为 Apple 风格控制台，支持：
   - provider 切换
+  - routing plans 主功能页
   - manifest 表单编辑
   - 原始 JSON 编辑
   - 保存并热重载
@@ -157,4 +158,5 @@ npx getdesign@latest add apple --out ./DESIGN.md
 
 - [架构说明](docs/architecture.md)
 - [Provider 协议兼容说明](docs/providers.md)
+- [Routing Plans 说明](docs/routing-plans.md)
 - [开发与验证说明](docs/development.md)

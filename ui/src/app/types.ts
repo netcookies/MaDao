@@ -1,4 +1,4 @@
-export type ScreenId = 'overview' | 'providers' | 'messages' | 'settings' | 'logs';
+export type ScreenId = 'overview' | 'providers' | 'routing' | 'messages' | 'settings' | 'logs';
 export type ProviderSectionId = 'config' | 'store' | 'wallet';
 export type MessageFilter = 'all' | 'received' | 'waiting' | 'failed';
 export type LogFilter = 'all' | 'info' | 'warn' | 'error';
@@ -10,8 +10,14 @@ export type SelectorKind =
   | 'store-country'
   | 'store-operator'
   | 'activation-service'
+  | 'activation-routing-plan'
   | 'activation-country'
-  | 'activation-operator';
+  | 'activation-operator'
+  | 'routing-service'
+  | 'routing-item-provider'
+  | 'routing-item-country'
+  | 'routing-item-operator'
+  | 'routing-item-price';
 export type PriceSortKey = 'country' | 'price' | 'stock';
 export type RoutingStrategy = 'ordered_priority' | 'lowest_price' | 'highest_stock';
 export type AppearanceTheme = 'light' | 'dark' | 'system';
@@ -45,6 +51,11 @@ export type TicketRecord = {
   price?: number | null;
   code?: string | null;
   message?: string | null;
+  routing_plan_id?: string | null;
+  routing_plan_name?: string | null;
+  routing_item_id?: string | null;
+  routing_item_index?: number | null;
+  routing_execution_mode?: RoutingExecutionMode | null;
 };
 
 export type LogEntry = {
@@ -129,6 +140,35 @@ export type OptionCacheOverview = {
 };
 export type StoreQueryState = { service: string; country: string; operator: string; search: string };
 
+export type RoutingExecutionMode = 'sequential' | 'random';
+export type RoutingPriceMode = 'any' | 'range' | 'fixed';
+
+export type RoutingPlanItem = {
+  id: string;
+  provider: string;
+  country: string;
+  operator: string;
+  enabled: boolean;
+  price_mode: RoutingPriceMode;
+  min_price?: number | null;
+  max_price?: number | null;
+  fixed_price?: number | null;
+};
+
+export type RoutingPlan = {
+  id: string;
+  name: string;
+  service: string;
+  description?: string | null;
+  enabled: boolean;
+  execution_mode: RoutingExecutionMode;
+  items: RoutingPlanItem[];
+};
+
+export type RoutingPlanList = {
+  plans: RoutingPlan[];
+};
+
 export type MenuCommandPayload =
   | { kind: 'new_activation' }
   | { kind: 'open_screen'; screen: ScreenId }
@@ -138,6 +178,7 @@ export type ActivationFormState = {
   service: string;
   country: string;
   provider: string;
+  routing_plan_id: string;
   operator: string;
   min_price: string;
   max_price: string;

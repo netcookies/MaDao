@@ -1,132 +1,126 @@
-import { useRef } from 'react';
-import { GripVertical } from 'lucide-react';
-import { AppButton, DataTable, ToggleSwitch } from '../ui-bridge';
+import type { ReactNode } from 'react';
+import { Link2, Server } from 'lucide-react';
+import { AppButton, StatusBadge, ToggleSwitch } from '../ui-bridge';
 import type { ProviderManifest, ProviderSummary } from '../types';
-import { formatServiceLabel } from '../../lib/formatters';
+import { formatProviderLabel } from '../../lib/formatters';
 
 export type ProvidersListScreenProps = {
   providers: ProviderManifest[];
   summaries?: ProviderSummary[];
+  balances?: Record<string, string>;
   onConfigure: (id: string) => void;
+  onRefreshBalance: (id: string) => void;
   onReorder: (ids: string[]) => void;
   onToggleEnabled: (id: string, enabled: boolean) => void;
 };
 
 export function ProvidersListScreen(props: ProvidersListScreenProps) {
-  const dragIndex = useRef<number | null>(null);
-
-  function handleDragStart(index: number) {
-    dragIndex.current = index;
-  }
-
-  function handleDragOver(event: React.DragEvent, index: number) {
-    event.preventDefault();
-    if (dragIndex.current === null || dragIndex.current === index) return;
-    const next = [...props.providers];
-    const [moved] = next.splice(dragIndex.current, 1);
-    next.splice(index, 0, moved);
-    dragIndex.current = index;
-    props.onReorder(next.map((provider) => provider.id));
-  }
-
-  function handleDrop() {
-    dragIndex.current = null;
-  }
-
   return (
-    <div className="flex flex-col gap-4">
-      <p className="m-0 max-w-[640px] font-text text-utility font-normal tracking-[var(--ds-type-utility-tracking)] text-ds-text-secondary">
-        Manage your SMS gateway connections and routing rules.
+    <div className="flex flex-col gap-6">
+      <p className="m-0 max-w-[720px] font-text text-utility font-normal tracking-[var(--ds-type-utility-tracking)] text-ds-text-secondary">
+        Configure provider credentials and health from a card matrix. Routing priority is moving to the dedicated Routing workspace, so this screen now focuses on provider setup and connectivity.
       </p>
 
-      <div className="flex items-center justify-between gap-3 rounded-sm border border-solid border-ds-border bg-ds-content px-3 py-2">
-        <span className="font-text text-[11px] font-medium tracking-[0] text-ds-text-secondary">
-          Routing order follows the list from top to bottom.
-        </span>
-        <span className="rounded-pill bg-ds-surface px-2.5 py-1 text-[10px] font-semibold uppercase tracking-[0.06em] text-ds-text-primary/80">
-          Drag to sort
-        </span>
-      </div>
+      <div className="grid grid-cols-1 gap-3 min-[760px]:grid-cols-2 min-[1180px]:grid-cols-3">
+        {props.providers.map((provider) => {
+          const summary = props.summaries?.find((item) => item.id === provider.id);
+          const enableLocked = !provider.enabled && summary?.can_enable === false;
+          const cacheState = summary?.option_cache_state ?? 'missing';
+          const endpoint = summary?.primary_endpoint ?? provider.homepage ?? 'No endpoint';
+          const protocolTag = summary?.protocol ?? provider.kind;
+          const balanceLabel = props.balances?.[provider.id] ?? '—';
 
-      <div className="overflow-hidden rounded-sm border border-solid border-ds-border-strong bg-ds-surface shadow-[0_1px_2px_rgba(0,0,0,0.04)]">
-        <DataTable
-          headerClassName="grid grid-cols-1 items-center gap-[10px] border-b border-solid border-ds-border-strong border-x-0 border-t-0 bg-ds-content px-[14px] py-[10px] text-[10px] font-medium uppercase tracking-[0.08em] text-[#8c8c92] min-[760px]:grid-cols-[52px_206px_148px_64px_86px]"
-          header={(
-            <>
-              <span>Priority</span>
-              <span>Provider</span>
-              <span>Status</span>
-              <span className="min-[760px]:text-center">Enabled</span>
-              <span className="min-[760px]:text-right">Action</span>
-            </>
-          )}
-        >
-          {props.providers.map((provider, index) => (
-            (() => {
-              const summary = props.summaries?.find((item) => item.id === provider.id);
-              const enableLocked = !provider.enabled && summary?.can_enable === false;
-              const cacheState = summary?.option_cache_state ?? 'missing';
-              return (
+          return (
             <div
               key={provider.id}
-              className="grid grid-cols-1 items-center gap-[10px] border-b border-solid border-ds-border border-x-0 border-t-0 px-[14px] py-3 last:border-b-0 min-[760px]:grid-cols-[52px_206px_148px_64px_86px]"
-              draggable
-              onDragStart={() => handleDragStart(index)}
-              onDragOver={(event) => handleDragOver(event, index)}
-              onDrop={handleDrop}
+              className="group relative flex min-h-[224px] cursor-pointer flex-col justify-between overflow-hidden rounded-[20px] border border-ds-border bg-[linear-gradient(180deg,var(--ds-color-surface-default)_0%,var(--ds-color-surface-subtle)_100%)] p-4 shadow-[0_8px_24px_rgba(0,0,0,0.05)] transition-transform duration-fast ease-[var(--ds-motion-transition-fast)] hover:-translate-y-[1px]"
+              onClick={() => props.onConfigure(provider.id)}
             >
-              <div className="inline-flex items-center gap-2">
-                <GripVertical size={14} className="shrink-0 opacity-30" />
-                <span className="inline-flex w-4 text-[12px] font-semibold opacity-40">
-                  {index + 1}
-                </span>
-              </div>
-
-              <div className="flex min-w-0 flex-col gap-1">
-                <span className="truncate text-[13px] font-semibold tracking-[0] text-ds-text-primary">
-                  {provider.name}
-                </span>
-                <span className="truncate text-[11px] leading-[1.4] tracking-[0] text-ds-text-secondary">
-                  {provider.kind} · {formatServiceLabel(provider.defaults.service)}
-                </span>
-              </div>
-
-              <div className="flex min-w-0 flex-col gap-1">
-                <div className="inline-flex w-fit items-center gap-1.5 rounded-pill bg-ds-surface-subtle px-2 py-1">
-                  <span className={provider.enabled ? 'inline-flex h-1.5 w-1.5 rounded-full bg-[#27c93f]' : 'inline-flex h-1.5 w-1.5 rounded-full bg-[#ff9500]'} />
-                  <span className="text-[10px] font-semibold tracking-[0] text-ds-text-primary">
-                    {provider.enabled ? 'Connected' : 'Standby'}
-                  </span>
+              <div className="absolute inset-x-0 top-0 h-1 bg-[linear-gradient(90deg,var(--ds-color-accent-blue)_0%,var(--ds-color-accent-blue-focus)_100%)] opacity-70" />
+              <div className="flex flex-col gap-3">
+                <div className="flex items-start justify-between gap-4">
+                  <div className="flex min-w-0 items-start gap-3">
+                    <div className="inline-flex h-10 w-10 items-center justify-center rounded-[14px] bg-ds-accent-blue-soft text-ds-text-primary shadow-[inset_0_0_0_1px_var(--ds-color-accent-blue-soft)]">
+                      <Server size={18} className="opacity-70" />
+                    </div>
+                    <div className="min-w-0">
+                      <strong className="block truncate text-[17px] font-semibold tracking-[-0.02em] text-ds-text-primary">
+                        {formatProviderLabel(provider.name)}
+                      </strong>
+                      <span className="mt-1 block truncate text-[12px] uppercase tracking-[0.08em] text-ds-text-secondary">
+                        {protocolTag}
+                      </span>
+                    </div>
+                  </div>
+                  <ToggleSwitch
+                    checked={provider.enabled}
+                    onChange={(enabled) => {
+                      if (enableLocked && enabled) return;
+                      props.onToggleEnabled(provider.id, enabled);
+                    }}
+                    ariaLabel={`Toggle ${provider.name}`}
+                  />
                 </div>
-                <span className="truncate text-[9px] text-ds-text-secondary">
-                  {provider.enabled
-                    ? 'Cache ready'
-                    : cacheState === 'fresh'
-                      ? 'Cache ready'
-                      : cacheState === 'stale'
-                        ? 'Cache stale'
-                        : 'No cache'}
-                </span>
+
+                <div className="flex flex-wrap items-center gap-2">
+                  <StatusBadge tone={provider.enabled ? 'green' : 'gray'}>
+                    {provider.enabled ? 'Connected' : 'Standby'}
+                  </StatusBadge>
+                  <StatusBadge tone={cacheState === 'fresh' ? 'green' : cacheState === 'stale' ? 'orange' : 'gray'}>
+                    {cacheState === 'fresh' ? 'Cache ready' : cacheState === 'stale' ? 'Cache stale' : 'No cache'}
+                  </StatusBadge>
+                </div>
+
+                <div className="grid grid-cols-1 gap-2 rounded-[16px] bg-ds-surface p-3 shadow-[inset_0_0_0_1px_var(--ds-color-border-default)] backdrop-blur">
+                  <InfoRow icon={<Link2 size={14} className="opacity-55" />} label="Endpoint" value={endpoint} mono />
+                </div>
               </div>
 
-              <div className="flex justify-start min-[760px]:justify-center">
-                <ToggleSwitch
-                  checked={provider.enabled}
-                  onChange={(enabled) => {
-                    if (enableLocked && enabled) return;
-                    props.onToggleEnabled(provider.id, enabled);
+              <div className="mt-4 flex items-end justify-between gap-3 border-t border-ds-border pt-3">
+                <button
+                  type="button"
+                  className="flex flex-col gap-1 text-left"
+                  onClick={(event) => {
+                    event.stopPropagation();
+                    props.onRefreshBalance(provider.id);
                   }}
-                  ariaLabel={`Toggle ${provider.name}`}
-                />
-              </div>
-
-              <div className="flex justify-start min-[760px]:justify-end">
-                <AppButton variant="outline" size="utility" onClick={() => props.onConfigure(provider.id)}>Configure</AppButton>
+                >
+                  <span className="text-[11px] uppercase tracking-[0.08em] text-ds-text-secondary">
+                    Balance
+                  </span>
+                  <span className="text-[16px] font-semibold tracking-[-0.02em] text-ds-text-primary">
+                    {balanceLabel}
+                  </span>
+                </button>
+                <AppButton variant="outline" size="utility" onClick={(event) => {
+                  event.stopPropagation();
+                  props.onConfigure(provider.id);
+                }}>
+                  Configure
+                </AppButton>
               </div>
             </div>
-          )})()
-          ))}
-        </DataTable>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
+function InfoRow(props: {
+  icon: ReactNode;
+  label: string;
+  value: string;
+  mono?: boolean;
+}) {
+  return (
+    <div className="flex items-start gap-2">
+      <div className="mt-[1px] shrink-0 text-ds-text-secondary">{props.icon}</div>
+      <div className="min-w-0">
+        <div className="text-[11px] uppercase tracking-[0.08em] text-ds-text-secondary">{props.label}</div>
+        <div className={props.mono ? 'truncate font-mono text-[12px] text-ds-text-primary' : 'truncate text-[12px] text-ds-text-primary'}>
+          {props.value}
+        </div>
       </div>
     </div>
   );

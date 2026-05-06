@@ -4,6 +4,10 @@ use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
 use uuid::Uuid;
 
+fn default_true() -> bool {
+    true
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct AcquireCodeRequest {
     pub provider: String,
@@ -23,6 +27,10 @@ pub struct AcquireCodeRequest {
     pub reuse_key: Option<String>,
     #[serde(default)]
     pub metadata: BTreeMap<String, String>,
+    #[serde(default)]
+    pub routing_plan_id: Option<String>,
+    #[serde(default)]
+    pub routing_plan_name: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -38,6 +46,14 @@ pub struct AcquireCodeResponse {
     pub price: Option<f64>,
     pub status: TicketStatus,
     pub created_at: DateTime<Utc>,
+    #[serde(default)]
+    pub routing_plan_id: Option<String>,
+    #[serde(default)]
+    pub routing_plan_name: Option<String>,
+    #[serde(default)]
+    pub routing_item_id: Option<String>,
+    #[serde(default)]
+    pub routing_item_index: Option<usize>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -62,6 +78,15 @@ pub struct PollCodeResponse {
 pub struct ReleaseCodeRequest {
     pub ticket_id: String,
     pub action: ReleaseAction,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct RoutingFailoverRequest {
+    pub ticket_id: String,
+    #[serde(default)]
+    pub reason: Option<String>,
+    #[serde(default)]
+    pub failed_item_id: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -205,6 +230,69 @@ pub struct WindowActionRequest {
     pub action: String,
 }
 
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, Default)]
+#[serde(rename_all = "snake_case")]
+pub enum RoutingExecutionMode {
+    #[default]
+    Sequential,
+    Random,
+}
+
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, Default)]
+#[serde(rename_all = "snake_case")]
+pub enum RoutingPriceMode {
+    #[default]
+    Any,
+    Range,
+    Fixed,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct RoutingPlanItem {
+    pub id: String,
+    pub provider: String,
+    #[serde(default)]
+    pub country: String,
+    #[serde(default)]
+    pub operator: String,
+    #[serde(default)]
+    pub enabled: bool,
+    #[serde(default)]
+    pub price_mode: RoutingPriceMode,
+    #[serde(default)]
+    pub min_price: Option<f64>,
+    #[serde(default)]
+    pub max_price: Option<f64>,
+    #[serde(default)]
+    pub fixed_price: Option<f64>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct RoutingPlan {
+    pub id: String,
+    pub name: String,
+    pub service: String,
+    #[serde(default)]
+    pub description: Option<String>,
+    #[serde(default = "default_true")]
+    pub enabled: bool,
+    #[serde(default)]
+    pub execution_mode: RoutingExecutionMode,
+    #[serde(default)]
+    pub items: Vec<RoutingPlanItem>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+pub struct RoutingPlanStore {
+    #[serde(default)]
+    pub plans: Vec<RoutingPlan>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct RoutingPlanList {
+    pub plans: Vec<RoutingPlan>,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct RuntimeSettings {
     pub routing_strategy: String,
@@ -256,6 +344,20 @@ pub struct TicketRecord {
     pub code: Option<String>,
     #[serde(default)]
     pub message: Option<String>,
+    #[serde(default)]
+    pub routing_plan_id: Option<String>,
+    #[serde(default)]
+    pub routing_plan_name: Option<String>,
+    #[serde(default)]
+    pub routing_item_id: Option<String>,
+    #[serde(default)]
+    pub routing_item_index: Option<usize>,
+    #[serde(default)]
+    pub routing_execution_mode: Option<RoutingExecutionMode>,
+    #[serde(default)]
+    pub routing_candidate_item_ids: Vec<String>,
+    #[serde(default)]
+    pub routing_attempt_count: u32,
 }
 
 impl TicketRecord {
@@ -281,6 +383,13 @@ impl TicketRecord {
             updated_at: now,
             code: None,
             message: None,
+            routing_plan_id: None,
+            routing_plan_name: None,
+            routing_item_id: None,
+            routing_item_index: None,
+            routing_execution_mode: None,
+            routing_candidate_item_ids: Vec::new(),
+            routing_attempt_count: 0,
         }
     }
 }

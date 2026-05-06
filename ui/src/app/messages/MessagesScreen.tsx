@@ -17,7 +17,7 @@ export type MessagesScreenProps = {
   filters: Array<{ id: MessageFilter; label: string }>;
   busyAction: string;
   onCopy: (value: string, label: string) => void;
-  onRelease: (ticketId: string, action: 'finish' | 'cancel' | 'retry') => void;
+  onRelease: (ticket: TicketRecord, action: 'finish' | 'cancel' | 'retry') => void;
   onBuyAnother: (ticket: TicketRecord) => void;
 };
 
@@ -58,13 +58,14 @@ export function MessagesScreen(props: MessagesScreenProps) {
           const isReceived = phase === 'received';
           const isWaiting = phase === 'waiting';
           const isHeroSms = ticket.provider.toLowerCase() === 'herosms';
+          const usesRoutingPlan = Boolean(ticket.routing_plan_id);
           const heroCancelRemainingMs = isWaiting && isHeroSms
             ? getHeroCancelRemainingMs(ticket.created_at, now)
             : 0;
           const heroCancelLocked = heroCancelRemainingMs > 0;
 
           return (
-            <div className="flex flex-col gap-5 rounded-[16px] border border-black/[0.08] bg-ds-surface px-6 py-6 shadow-[0_2px_8px_rgba(0,0,0,0.04)]" key={ticket.id}>
+            <div className="flex flex-col gap-5 rounded-[16px] border border-ds-border bg-ds-surface px-6 py-6 shadow-[0_2px_8px_rgba(0,0,0,0.04)]" key={ticket.id}>
               <div className="flex flex-col gap-4 min-[760px]:flex-row min-[760px]:items-center min-[760px]:justify-between">
                 <div className="flex items-center gap-3">
                   {serviceIcon(ticket.service)}
@@ -78,8 +79,8 @@ export function MessagesScreen(props: MessagesScreenProps) {
                       <Smartphone size={14} className="opacity-60" />
                       {ticket.phone_number}
                     </span>
-                    <button className="inline-flex h-[24px] w-[24px] items-center justify-center rounded-pill bg-white shadow-[0_1px_2px_rgba(0,0,0,0.08)]" onClick={() => props.onCopy(ticket.phone_number, 'Phone number')} aria-label="Copy phone number">
-                      <Copy size={14} color="#0066cc" />
+                    <button className="inline-flex h-[24px] w-[24px] items-center justify-center rounded-pill bg-ds-surface shadow-[0_1px_2px_rgba(0,0,0,0.08)]" onClick={() => props.onCopy(ticket.phone_number, 'Phone number')} aria-label="Copy phone number">
+                      <Copy size={14} className="text-ds-accent-blue" />
                     </button>
                   </div>
                   {ticket.price && (
@@ -88,7 +89,7 @@ export function MessagesScreen(props: MessagesScreenProps) {
                     </span>
                   )}
                   {!isReceived && !isWaiting && (
-                    <span className="text-[15px] font-semibold tracking-[0] text-[#e0443e]">Refunded</span>
+                    <span className="text-[15px] font-semibold tracking-[0] text-ds-state-danger">Refunded</span>
                   )}
                 </div>
               </div>
@@ -97,22 +98,22 @@ export function MessagesScreen(props: MessagesScreenProps) {
                 <div className="flex w-full flex-col items-center justify-center gap-3 rounded-[12px] border-2 border-ds-state-success bg-ds-surface-subtle px-5 py-8">
                   <div className="flex items-center gap-4">
                     <span className="text-[48px] font-bold leading-none tracking-[6px] text-ds-text-primary">{ticket.code ?? '------'}</span>
-                    <button className="inline-flex h-11 w-11 items-center justify-center rounded-pill border border-black/[0.08] bg-white shadow-[0_1px_2px_rgba(0,0,0,0.08)]" onClick={() => props.onCopy(ticket.code ?? '', 'SMS code')} disabled={!ticket.code}>
-                      <Copy size={20} color="#0066cc" />
+                    <button className="inline-flex h-11 w-11 items-center justify-center rounded-pill border border-ds-border bg-ds-surface shadow-[0_1px_2px_rgba(0,0,0,0.08)]" onClick={() => props.onCopy(ticket.code ?? '', 'SMS code')} disabled={!ticket.code}>
+                      <Copy size={20} className="text-ds-accent-blue" />
                     </button>
                   </div>
                   <span className="text-[14px] font-medium tracking-[0] text-ds-state-success">SMS received successfully</span>
                 </div>
               )}
               {isWaiting && (
-                <div className="flex w-full flex-col items-center justify-center gap-3 rounded-[12px] border-2 border-dashed border-ds-state-warning bg-[#fdf8f5] px-5 py-8">
-                  <Loader2 size={32} color="#ffbd2e" className="animate-[d-spin_0.9s_linear_infinite]" />
-                  <span className="text-[15px] font-semibold tracking-[0] text-[#dea123]">Waiting for SMS...</span>
+                <div className="flex w-full flex-col items-center justify-center gap-3 rounded-[12px] border-2 border-dashed border-ds-state-warning bg-ds-state-warning/10 px-5 py-8">
+                  <Loader2 size={32} className="animate-[d-spin_0.9s_linear_infinite] text-ds-state-warning" />
+                  <span className="text-[15px] font-semibold tracking-[0] text-ds-state-warning">Waiting for SMS...</span>
                   <span className="text-center text-[13px] tracking-[0.08em] text-ds-text-secondary">
                     {ticket.message ?? 'Check provider dashboard'}
                   </span>
                   {heroCancelLocked && (
-                    <span className="text-center text-[12px] font-medium tracking-[0.04em] text-[#c27c18]">
+                    <span className="text-center text-[12px] font-medium tracking-[0.04em] text-ds-state-warning">
                       HeroSMS cancel unlocks in {formatDurationMmSs(heroCancelRemainingMs)}
                     </span>
                   )}
@@ -128,13 +129,21 @@ export function MessagesScreen(props: MessagesScreenProps) {
               )}
 
               <div className="flex flex-col gap-3 pt-1 min-[760px]:flex-row min-[760px]:items-center min-[760px]:justify-between">
-                <span className="text-[13px] leading-[1.43] text-ds-text-secondary">Provider: {formatProviderLabel(ticket.provider)}</span>
+                <div className="flex flex-col gap-1">
+                  <span className="text-[13px] leading-[1.43] text-ds-text-secondary">Provider: {formatProviderLabel(ticket.provider)}</span>
+                  {usesRoutingPlan && (
+                    <span className="text-[12px] leading-[1.4] text-ds-text-secondary">
+                      Routing: {ticket.routing_plan_name ?? ticket.routing_plan_id}
+                      {ticket.routing_item_index != null ? ` · Item ${ticket.routing_item_index + 1}` : ''}
+                    </span>
+                  )}
+                </div>
                 <div className="inline-flex flex-wrap items-center justify-start gap-3 min-[760px]:justify-end">
                   {isReceived && (
                     <AppButton
                       variant="primary"
                       size="utility"
-                      onClick={() => props.onRelease(ticket.id, 'finish')}
+                      onClick={() => props.onRelease(ticket, 'finish')}
                       disabled={props.busyAction === `finish-${ticket.id}`}
                     >
                       Finish Activation
@@ -145,7 +154,7 @@ export function MessagesScreen(props: MessagesScreenProps) {
                       <AppButton
                         variant="danger-outline"
                         size="utility"
-                        onClick={() => props.onRelease(ticket.id, 'cancel')}
+                        onClick={() => props.onRelease(ticket, 'cancel')}
                         disabled={props.busyAction === `cancel-${ticket.id}` || heroCancelLocked}
                       >
                         {heroCancelLocked
@@ -158,8 +167,8 @@ export function MessagesScreen(props: MessagesScreenProps) {
                     </>
                   )}
                   {!isReceived && !isWaiting && (
-                    <AppButton variant="outline" size="utility" onClick={() => props.onRelease(ticket.id, 'retry')} disabled={props.busyAction === `retry-${ticket.id}`}>
-                      Try Again
+                    <AppButton variant="outline" size="utility" onClick={() => props.onRelease(ticket, 'retry')} disabled={props.busyAction === `retry-${ticket.id}`}>
+                      {usesRoutingPlan ? 'Try Next Route' : 'Try Again'}
                     </AppButton>
                   )}
                 </div>

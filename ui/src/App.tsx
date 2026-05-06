@@ -2,9 +2,9 @@ import {
   useEffect, useMemo, useRef, useState, type ReactNode,
 } from 'react';
 import {
-  Bell, Bot, ChevronLeft, ChevronsUpDown, Copy, GripVertical, LayoutDashboard,
+  Bell, Bot, ChevronLeft, Copy, LayoutDashboard,
   Loader2, MessageSquare, PanelLeftClose, PanelLeftOpen, Plus, Search, Send, Server, Settings,
-  Shield, ShoppingCart, Sliders, Smartphone, Square, Terminal, User, Wallet, X,
+  Shield, ShoppingCart, Shuffle, Sliders, Smartphone, Square, Terminal, User, Wallet, X,
 } from 'lucide-react';
 import {
   AppShell,
@@ -12,6 +12,7 @@ import {
   AppToolbar,
 } from './components/composites';
 import { NotificationPopover } from './components/overlays';
+import { Modal } from './components/overlays/Modal/Modal';
 import { IconButton } from './components/primitives';
 import {
   AppButton,
@@ -34,6 +35,7 @@ import { SearchSelectorModal } from './app/overlays/SearchSelectorModal';
 import { OverviewScreen } from './app/overview/OverviewScreen';
 import { ProviderWorkspaceScreen } from './app/providers/ProviderWorkspaceScreen';
 import { ProvidersListScreen } from './app/providers/ProvidersListScreen';
+import { RoutingScreen } from './app/routing/RoutingScreen';
 import type {
   ActivationFormState,
   AppearanceTheme,
@@ -48,6 +50,8 @@ import type {
   ProviderPriceItem,
   ProviderSectionId,
   ProviderSummary,
+  RoutingPlan,
+  RoutingPlanItem,
   RoutingStrategy,
   ScreenId,
   SelectorKind,
@@ -75,6 +79,10 @@ import { useSelectorFlow } from './hooks/useSelectorFlow';
 import {
   API_BASE,
   SOCKET_PATH,
+  deleteRoutingPlan,
+  fetchRoutingPlans,
+  fetchProviderPrices,
+  saveRoutingPlan,
 } from './services/runtimeApi';
 import { getAppConfigDirectory, openAppConfigDirectory } from './services/appConfigApi';
 import { windowAction } from './services/windowApi';
@@ -85,6 +93,7 @@ type SidebarItem = { id: ScreenId; label: string; Icon: typeof LayoutDashboard }
 const NAV_ITEMS: SidebarItem[] = [
   { id: 'overview', label: 'Overview', Icon: LayoutDashboard },
   { id: 'providers', label: 'Providers', Icon: Server },
+  { id: 'routing', label: 'Routing', Icon: Shuffle },
   { id: 'messages', label: 'Messages', Icon: MessageSquare },
   { id: 'settings', label: 'Settings', Icon: Settings },
   { id: 'logs', label: 'Logs', Icon: Terminal },
@@ -143,6 +152,8 @@ export function App() {
     setProviderOptions,
     storeQueries,
     setStoreQueries,
+    routingPlans,
+    setRoutingPlans,
   } = useConsoleDataState();
   const {
     selectedProvider,
@@ -214,6 +225,7 @@ export function App() {
     reloadProviders,
     updateRuntimeSettings,
     fetchBalance,
+    refreshProvider,
     fetchPrices,
     updateStoreQuery,
     reorderProviders,
@@ -306,7 +318,7 @@ export function App() {
   );
 
   useEffect(() => {
-    void Promise.all([loadSnapshot(), loadManifests(), loadNotifications(), loadRuntimeSettings()]);
+    void Promise.all([loadSnapshot(), loadManifests(), loadNotifications(), loadRuntimeSettings(), loadRoutingPlans()]);
   }, []);
 
   useEffect(() => {
@@ -371,16 +383,11 @@ export function App() {
   }, []);
 
   useEffect(() => {
-    if (visibleProviders.length === 0) return;
-    if (!visibleProviders.some((provider) => provider.id === selectedProvider)) {
-      const initial = visibleProviders[0].id;
-      setSelectedProvider(initial);
-      setActivationForm((current) => ({
-        ...current,
-        provider: 'auto',
-      }));
+    if (orderedProviders.length === 0) return;
+    if (!orderedProviders.some((provider) => provider.id === selectedProvider)) {
+      setSelectedProvider(orderedProviders[0].id);
     }
-  }, [visibleProviders, selectedProvider]);
+  }, [orderedProviders, selectedProvider]);
 
   useEffect(() => {
     if (activationForm.provider === 'auto') return;
@@ -456,6 +463,351 @@ export function App() {
     );
   }, [selectorSearch, selectorState]);
 
+  const routingServiceOptions = useMemo(() => {
+    const services = new Map<string, string>();
+    Object.values(providerOptions).forEach((options) => {
+      options.services.forEach((service) => {
+        if (!services.has(service.value)) {
+          services.set(service.value, service.label);
+        }
+      });
+    });
+    return [...services.entries()].map(([id, label]) => ({ id, label }));
+  }, [providerOptions]);
+
+  const [selectedRoutingPlanId, setSelectedRoutingPlanId] = useState('');
+  const [routingEditorState, setRoutingEditorState] = useState<{
+    itemId: string;
+    field: 'provider' | 'country' | 'operator' | 'price';
+    providerId: string;
+  } | null>(null);
+  const [activationRoutingPlanPickerOpen, setActivationRoutingPlanPickerOpen] = useState(false);
+  const [routingPriceDraft, setRoutingPriceDraft] = useState<{
+    itemId: string;
+    providerId: string;
+    service: string;
+    price: number;
+  } | null>(null);
+
+  async function loadRoutingPlans() {
+    try {
+      const payload = await fetchRoutingPlans();
+      setRoutingPlans(payload.plans);
+      setSelectedRoutingPlanId((current) => current || payload.plans[0]?.id || '');
+    } catch (error) {
+      setStatusMessage(`Failed to load routing plans: ${String(error)}`);
+    }
+  }
+
+  function createDraftRoutingPlan(): RoutingPlan {
+    const defaultProvider = visibleProviders[0];
+    return {
+      id: '',
+      name: `Plan ${routingPlans.length + 1}`,
+      service: defaultProvider?.defaults.service ?? '',
+      description: '',
+      enabled: true,
+      execution_mode: 'sequential',
+      items: defaultProvider ? [{
+        id: `draft-item-${Date.now()}`,
+        provider: defaultProvider.id,
+        country: defaultProvider.defaults.country,
+        operator: '',
+        enabled: true,
+        price_mode: 'any',
+        min_price: null,
+        max_price: null,
+        fixed_price: null,
+      }] : [],
+    };
+  }
+
+  async function persistRoutingPlan(plan: RoutingPlan) {
+    if (!plan.name.trim()) {
+      setStatusMessage('Routing plan name is required.');
+      return;
+    }
+    if (!plan.service.trim()) {
+      setStatusMessage('Routing plan service is required.');
+      return;
+    }
+    if (plan.items.length === 0) {
+      setStatusMessage('Routing plan must contain at least one item.');
+      return;
+    }
+    if (plan.enabled && !plan.items.some((item) => item.enabled)) {
+      setStatusMessage('Enabled routing plan must contain at least one enabled item.');
+      return;
+    }
+    try {
+      setBusyAction('save-routing-plan');
+      const saved = await saveRoutingPlan(plan);
+      setRoutingPlans((current) => {
+        const existing = current.find((item) => item.id === saved.id);
+        if (existing) {
+          return current.map((item) => item.id === saved.id ? saved : item);
+        }
+        return [...current, saved];
+      });
+      setSelectedRoutingPlanId(saved.id);
+      setStatusMessage(`Saved routing plan ${saved.name}.`);
+    } catch (error) {
+      setStatusMessage(`Failed to save routing plan: ${String(error)}`);
+    } finally {
+      setBusyAction('');
+    }
+  }
+
+  async function removeRoutingPlan(planId: string) {
+    if (!planId) return;
+    try {
+      setBusyAction('delete-routing-plan');
+      const payload = await deleteRoutingPlan(planId);
+      setRoutingPlans(payload.plans);
+      setSelectedRoutingPlanId(payload.plans[0]?.id ?? '');
+      setStatusMessage(`Deleted routing plan ${planId}.`);
+    } catch (error) {
+      setStatusMessage(`Failed to delete routing plan: ${String(error)}`);
+    } finally {
+      setBusyAction('');
+    }
+  }
+
+  function updateRoutingPlanDraft(plan: RoutingPlan) {
+    if (!plan.id) {
+      setRoutingPlans((current) => {
+        const draftIndex = current.findIndex((item) => item.id === '');
+        if (draftIndex >= 0) {
+          return current.map((item, index) => index === draftIndex ? plan : item);
+        }
+        return [...current, plan];
+      });
+      return;
+    }
+    setRoutingPlans((current) => current.map((item) => item.id === plan.id ? plan : item));
+  }
+
+  function selectedRoutingPlanMatcher(plan: RoutingPlan) {
+    return plan.id === selectedRoutingPlanId || (!plan.id && selectedRoutingPlanId === '');
+  }
+
+  function createRoutingPlan() {
+    const draft = createDraftRoutingPlan();
+    setRoutingPlans((current) => [...current.filter((item) => item.id !== ''), draft]);
+    setSelectedRoutingPlanId(draft.id);
+    setActiveScreen('routing');
+  }
+
+  function addRoutingPlanItem() {
+    setRoutingPlans((current) => current.map((plan) => {
+      const isSelected = selectedRoutingPlanMatcher(plan);
+      if (!isSelected) return plan;
+      return {
+        ...plan,
+        items: [
+          ...plan.items,
+          {
+            id: `draft-item-${Date.now()}-${plan.items.length + 1}`,
+            provider: visibleProviders[0]?.id ?? '',
+            country: '',
+            operator: '',
+            enabled: true,
+            price_mode: 'any',
+            min_price: null,
+            max_price: null,
+            fixed_price: null,
+          },
+        ],
+      };
+    }));
+  }
+
+  function removeRoutingPlanItem(itemId: string) {
+    setRoutingPlans((current) => current.map((plan) => {
+      if (!selectedRoutingPlanMatcher(plan)) return plan;
+      return {
+        ...plan,
+        items: plan.items.filter((item) => item.id !== itemId),
+      };
+    }));
+  }
+
+  function moveRoutingPlanItem(itemId: string, direction: 'up' | 'down') {
+    setRoutingPlans((current) => current.map((plan) => {
+      const isSelected = selectedRoutingPlanMatcher(plan);
+      if (!isSelected) return plan;
+      const index = plan.items.findIndex((item) => item.id === itemId);
+      if (index < 0) return plan;
+      const nextIndex = direction === 'up' ? index - 1 : index + 1;
+      if (nextIndex < 0 || nextIndex >= plan.items.length) return plan;
+      const nextItems = [...plan.items];
+      const [moved] = nextItems.splice(index, 1);
+      nextItems.splice(nextIndex, 0, moved);
+      return {
+        ...plan,
+        items: nextItems,
+      };
+    }));
+  }
+
+  function updateRoutingPlanItem(itemId: string, updater: (item: RoutingPlanItem) => RoutingPlanItem) {
+    setRoutingPlans((current) => current.map((plan) => {
+      if (!selectedRoutingPlanMatcher(plan)) return plan;
+      return {
+        ...plan,
+        items: plan.items.map((item) => item.id === itemId ? updater(item) : item),
+      };
+    }));
+  }
+
+  async function openRoutingItemSelector(itemId: string, field: 'provider' | 'country' | 'operator' | 'price') {
+    const plan = routingPlans.find((item) => selectedRoutingPlanMatcher(item));
+    const item = plan?.items.find((entry) => entry.id === itemId);
+    if (!plan || !item) return;
+    const providerId = field === 'provider' ? item.provider : item.provider || visibleProviders[0]?.id || '';
+    if (!providerId && field !== 'provider') {
+      setStatusMessage('Select a provider first.');
+      return;
+    }
+    setRoutingEditorState({ itemId, field, providerId });
+
+    if (field === 'provider') {
+      setSelectorSearch('');
+      setSelectorState({
+        kind: 'routing-item-provider',
+        title: 'Select Provider',
+        options: visibleProviders.map((provider) => ({
+          value: provider.id,
+          label: provider.name,
+          hint: provider.kind,
+        })),
+      });
+      return;
+    }
+
+    if (!providerOptions[providerId]) {
+      await loadProviderOptions(providerId);
+    }
+    const options = providerOptions[providerId];
+    if (!options) {
+      setStatusMessage(`No provider options available for ${providerId}.`);
+      return;
+    }
+
+    if (field === 'country') {
+      setSelectorSearch('');
+      setSelectorState({
+        kind: 'routing-item-country',
+        title: 'Select Country',
+        options: [{ value: '', label: 'Any country', hint: 'No country restriction' }, ...options.countries],
+      });
+      return;
+    }
+
+    if (field === 'operator') {
+      setSelectorSearch('');
+      setSelectorState({
+        kind: 'routing-item-operator',
+        title: 'Select Operator',
+        options: [{ value: '', label: 'Any operator', hint: 'No operator restriction' }, ...options.operators],
+      });
+      return;
+    }
+
+    const service = plan.service || visibleProviders.find((provider) => provider.id === providerId)?.defaults.service;
+    if (!service) {
+      setStatusMessage('Set plan service before selecting price.');
+      return;
+    }
+    try {
+      const prices = await fetchProviderPrices(providerId, service);
+      setSelectorSearch('');
+      setSelectorState({
+        kind: 'routing-item-price',
+        title: 'Select Price Row',
+        options: [
+          { value: '', label: 'Any price', hint: 'No price restriction' },
+          ...prices.items.map((price) => ({
+            value: String(price.price),
+            label: `${formatCountryLabel(price.country)} · ${price.operator || 'any'} · $${price.price.toFixed(3)}`,
+            hint: `stock ${price.stock.toLocaleString()}`,
+          })),
+        ],
+      });
+    } catch (error) {
+      setStatusMessage(`Failed to load prices for ${providerId}: ${String(error)}`);
+    }
+  }
+
+  function openRoutingServiceSelector() {
+    setSelectorSearch('');
+    setSelectorState({
+      kind: 'routing-service',
+      title: 'Select Routing Service',
+      options: routingServiceOptions.map((service) => ({
+        value: service.id,
+        label: service.label,
+        hint: 'Routing service',
+      })),
+    });
+  }
+
+  function applyRoutingSelectorOption(option: OptionItem) {
+    if (!routingEditorState) return;
+    const { itemId, field } = routingEditorState;
+    if (field === 'provider') {
+      updateRoutingPlanItem(itemId, (item) => ({
+        ...item,
+        provider: option.value,
+        country: '',
+        operator: '',
+        price_mode: 'any',
+        min_price: null,
+        max_price: null,
+        fixed_price: null,
+      }));
+    } else if (field === 'country') {
+      updateRoutingPlanItem(itemId, (item) => ({ ...item, country: option.value }));
+    } else if (field === 'operator') {
+      updateRoutingPlanItem(itemId, (item) => ({ ...item, operator: option.value }));
+    } else if (field === 'price') {
+      if (!option.value) {
+        updateRoutingPlanItem(itemId, (item) => ({
+          ...item,
+          price_mode: 'any',
+          min_price: null,
+          max_price: null,
+          fixed_price: null,
+        }));
+      } else {
+        const fixed = Number(option.value);
+        const plan = routingPlans.find((item) => selectedRoutingPlanMatcher(item));
+        setRoutingPriceDraft({
+          itemId,
+          providerId: routingEditorState.providerId,
+          service: plan?.service ?? '',
+          price: fixed,
+        });
+      }
+    }
+    setRoutingEditorState(null);
+    setSelectorState(null);
+  }
+
+  function reorderRoutingPlanItem(fromIndex: number, toIndex: number) {
+    setRoutingPlans((current) => current.map((plan) => {
+      if (!selectedRoutingPlanMatcher(plan)) return plan;
+      if (fromIndex < 0 || toIndex < 0 || fromIndex >= plan.items.length || toIndex >= plan.items.length) return plan;
+      const nextItems = [...plan.items];
+      const [moved] = nextItems.splice(fromIndex, 1);
+      nextItems.splice(toIndex, 0, moved);
+      return {
+        ...plan,
+        items: nextItems,
+      };
+    }));
+  }
+
   function openActivationModal() {
     if (activationForm.provider !== 'auto' && !visibleProviders.some((provider) => provider.id === activationForm.provider)) {
       setActivationForm((current) => (current.provider === 'auto'
@@ -471,6 +823,23 @@ export function App() {
         : '',
     );
     setShowActivationModal(true);
+  }
+
+  function openActivationRoutingPlanSelector() {
+    setSelectorSearch('');
+    setActivationRoutingPlanPickerOpen(true);
+    setSelectorState({
+      kind: 'activation-routing-plan',
+      title: 'Select Routing Plan',
+      options: [
+        { value: '', label: 'No routing plan', hint: 'Use provider / service fields below' },
+        ...routingPlans.filter((plan) => plan.enabled).map((plan) => ({
+          value: plan.id,
+          label: plan.name,
+          hint: `${formatServiceLabel(plan.service)} · ${plan.execution_mode === 'random' ? 'Random' : 'Sequential'}`,
+        })),
+      ],
+    });
   }
 
   function handleSubmitActivation() {
@@ -634,23 +1003,51 @@ export function App() {
               <ProvidersListScreen
                 providers={orderedProviders}
                 summaries={snapshot?.providers}
+                balances={balances}
+                onRefreshBalance={(id) => {
+                  void fetchBalance(id);
+                }}
                 onToggleEnabled={(id, enabled) => {
                   void toggleProviderEnabled(id, enabled);
                 }}
                 onConfigure={(id) => {
+                  setShowManifestModal(false);
                   setSelectedProvider(id);
                   setProviderView('workspace');
                   setActiveProviderSection('config');
                 }}
-                onReorder={(ids) => {
-                  setProviderOrder(ids);
-                  void reorderProviders(ids);
-                }}
+                onReorder={() => {}}
+              />
+            )}
+
+            {activeScreen === 'routing' && (
+              <RoutingScreen
+                plans={routingPlans}
+                providers={orderedProviders}
+                providerOptions={providerOptions}
+                serviceOptions={routingServiceOptions}
+                selectedPlanId={selectedRoutingPlanId}
+                onSelectPlan={setSelectedRoutingPlanId}
+                onCreatePlan={createRoutingPlan}
+                onDeletePlan={(planId) => void removeRoutingPlan(planId)}
+                onUpdatePlan={updateRoutingPlanDraft}
+                onOpenServicePicker={openRoutingServiceSelector}
+                onSavePlan={(plan) => void persistRoutingPlan(plan)}
+                onOpenProviderPicker={(itemId) => void openRoutingItemSelector(itemId, 'provider')}
+                onOpenCountryPicker={(itemId) => void openRoutingItemSelector(itemId, 'country')}
+                onOpenOperatorPicker={(itemId) => void openRoutingItemSelector(itemId, 'operator')}
+                onOpenPricePicker={(itemId) => void openRoutingItemSelector(itemId, 'price')}
+                onAddItem={addRoutingPlanItem}
+                onRemoveItem={removeRoutingPlanItem}
+                onMoveItem={moveRoutingPlanItem}
+                onReorderItem={reorderRoutingPlanItem}
+                busyAction={busyAction}
               />
             )}
 
             {activeScreen === 'providers' && providerView === 'workspace' && selectedManifest && (
               <ProviderWorkspaceScreen
+                key={selectedProvider}
                 manifest={selectedManifest}
                 summary={selectedSummary}
                 section={activeProviderSection}
@@ -668,7 +1065,7 @@ export function App() {
                 onToggleEnabled={(enabled) => {
                   void toggleProviderEnabled(selectedProvider, enabled);
                 }}
-                onFetchBalance={() => void fetchBalance(selectedProvider)}
+                onRefresh={() => void refreshProvider(selectedProvider)}
                 onFetchPrices={() => void fetchPrices(selectedProvider)}
                 onSave={() => void saveProvider(selectedProvider)}
                 onOpenRawJson={() => setShowManifestModal(true)}
@@ -697,7 +1094,7 @@ export function App() {
                 filters={MESSAGE_FILTERS}
                 busyAction={busyAction}
                 onCopy={copyToClipboard}
-                onRelease={(ticketId, action) => void releaseTicket(ticketId, action)}
+                onRelease={(ticket, action) => void releaseTicket(ticket, action)}
                 onBuyAnother={(ticket) => {
                   primeActivationFromTicket(ticket);
                 }}
@@ -775,6 +1172,7 @@ export function App() {
       {showActivationModal && (
         <NewActivationModal
           providers={visibleProviders}
+          routingPlans={routingPlans}
           form={activationForm}
           busy={activationBusy}
           error={activationError}
@@ -782,6 +1180,7 @@ export function App() {
           onClose={closeActivationModal}
           onSubmit={handleSubmitActivation}
           onOpenSelector={openSelector}
+          onOpenRoutingPlanSelector={openActivationRoutingPlanSelector}
         />
       )}
 
@@ -808,8 +1207,92 @@ export function App() {
           options={filteredSelectorOptions}
           onClose={() => setSelectorState(null)}
           onSearch={setSelectorSearch}
-          onSelect={applySelectorOption}
+          onSelect={(option) => {
+            if (selectorState.kind.startsWith('routing-item-')) {
+              applyRoutingSelectorOption(option);
+              return;
+            }
+            if (selectorState.kind === 'routing-service') {
+              const plan = routingPlans.find((item) => selectedRoutingPlanMatcher(item));
+              if (plan) updateRoutingPlanDraft({ ...plan, service: option.value });
+              setSelectorState(null);
+              return;
+            }
+            if (activationRoutingPlanPickerOpen && selectorState.kind === 'activation-routing-plan') {
+              setActivationForm((current) => ({
+                ...current,
+                routing_plan_id: option.value,
+                provider: option.value ? 'auto' : current.provider,
+                service: option.value
+                  ? routingPlans.find((plan) => plan.id === option.value)?.service ?? current.service
+                  : current.service,
+              }));
+              setActivationRoutingPlanPickerOpen(false);
+              setSelectorState(null);
+              return;
+            }
+            applySelectorOption(option);
+          }}
         />
+      )}
+
+      {routingPriceDraft && (
+        <Modal
+          open
+          variant="selector"
+          title="Apply Price Selection"
+          subtitle={`Use $${routingPriceDraft.price.toFixed(3)} as fixed price, minimum, or maximum.`}
+          onClose={() => setRoutingPriceDraft(null)}
+          actions={<AppButton variant="ghost" size="utility" onClick={() => setRoutingPriceDraft(null)}>Close</AppButton>}
+        >
+          <div className="flex flex-col gap-3">
+            <AppButton
+              variant="outline"
+              onClick={() => {
+                updateRoutingPlanItem(routingPriceDraft.itemId, (item) => ({
+                  ...item,
+                  price_mode: 'fixed',
+                  min_price: routingPriceDraft.price,
+                  max_price: routingPriceDraft.price,
+                  fixed_price: routingPriceDraft.price,
+                }));
+                setRoutingPriceDraft(null);
+              }}
+            >
+              Use As Fixed Price
+            </AppButton>
+            <AppButton
+              variant="outline"
+              onClick={() => {
+                updateRoutingPlanItem(routingPriceDraft.itemId, (item) => ({
+                  ...item,
+                  price_mode: 'range',
+                  min_price: routingPriceDraft.price,
+                  max_price: item.max_price ?? null,
+                  fixed_price: null,
+                }));
+                setRoutingPriceDraft(null);
+              }}
+            >
+              Use As Minimum Price
+            </AppButton>
+            <AppButton
+              variant="outline"
+              onClick={() => {
+                updateRoutingPlanItem(routingPriceDraft.itemId, (item) => ({
+                  ...item,
+                  price_mode: 'range',
+                  min_price: item.min_price ?? null,
+                  max_price: routingPriceDraft.price,
+                  fixed_price: null,
+                }));
+                setRoutingPriceDraft(null);
+              }}
+            >
+              Use As Maximum Price
+            </AppButton>
+          </div>
+        </Modal>
       )}
     </>
   );

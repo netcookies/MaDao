@@ -6,6 +6,7 @@ import type {
   ProviderDynamicOptions,
   ProviderManifest,
   ProviderPriceResponse,
+  RoutingPlan,
   RuntimeSettings,
   Snapshot,
   StoreQueryState,
@@ -34,6 +35,7 @@ export function useConsoleDataState() {
   });
   const [providerOptions, setProviderOptions] = useState<Record<string, ProviderDynamicOptions>>({});
   const [storeQueries, setStoreQueries] = useState<Record<string, StoreQueryState>>({});
+  const [routingPlans, setRoutingPlans] = useState<RoutingPlan[]>([]);
 
   return {
     snapshot,
@@ -60,5 +62,7 @@ export function useConsoleDataState() {
     setProviderOptions,
     storeQueries,
     setStoreQueries,
+    routingPlans,
+    setRoutingPlans,
   };
 }

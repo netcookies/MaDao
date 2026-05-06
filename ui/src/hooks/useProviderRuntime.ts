@@ -389,6 +389,19 @@ export function useProviderRuntime(
     }
   }
 
+  async function refreshProvider(providerId: string) {
+    try {
+      ui.setBusyAction(`refresh-${providerId}`);
+      await Promise.all([loadProviderOptions(providerId), fetchBalance(providerId)]);
+      await Promise.all([loadManifests(), loadSnapshot(), loadNotifications()]);
+      ui.setStatusMessage(`Refreshed cache and balance for ${providerId}.`);
+    } catch (error) {
+      ui.setStatusMessage(`Failed to refresh ${providerId}: ${String(error)}`);
+    } finally {
+      ui.setBusyAction('');
+    }
+  }
+
   async function fetchPrices(providerId: string) {
     const query = data.storeQueries[providerId];
     const service = query?.service || data.manifests[providerId]?.defaults.service;
@@ -464,6 +477,7 @@ export function useProviderRuntime(
     reloadProviders,
     updateRuntimeSettings,
     fetchBalance,
+    refreshProvider,
     fetchPrices,
     updateStoreQuery,
     reorderProviders,

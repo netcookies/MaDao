@@ -7,6 +7,8 @@ import type {
   ProviderManifestSaveResponse,
   ProviderManifestList,
   ProviderPriceResponse,
+  RoutingPlan,
+  RoutingPlanList,
   RuntimeSettings,
   RuntimeSettingsUpdate,
   Snapshot,
@@ -26,6 +28,24 @@ export async function fetchRuntimeSnapshot(): Promise<Snapshot> {
 
 export async function fetchProviderManifests(): Promise<ProviderManifestList> {
   return readJson<ProviderManifestList>(await fetch(`${API_BASE}/api/provider-manifests`));
+}
+
+export async function fetchRoutingPlans(): Promise<RoutingPlanList> {
+  return readJson<RoutingPlanList>(await fetch(`${API_BASE}/api/routing-plans`));
+}
+
+export async function saveRoutingPlan(plan: RoutingPlan): Promise<RoutingPlan> {
+  return readJson<RoutingPlan>(await fetch(`${API_BASE}/api/routing-plans`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(plan),
+  }));
+}
+
+export async function deleteRoutingPlan(planId: string): Promise<RoutingPlanList> {
+  return readJson<RoutingPlanList>(await fetch(`${API_BASE}/api/routing-plans/${planId}`, {
+    method: 'DELETE',
+  }));
 }
 
 export async function saveProviderManifest(providerId: string, manifest: ProviderManifest): Promise<ProviderManifestSaveResponse> {
@@ -96,6 +116,19 @@ export async function releaseActivationTicket(ticketId: string, action: 'finish'
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ ticket_id: ticketId, action }),
+  });
+  if (!response.ok) throw new Error(await response.text());
+}
+
+export async function failoverRoutingTicket(ticketId: string, failedItemId?: string, reason?: string): Promise<void> {
+  const response = await fetch(`${API_BASE}/api/routing/failover`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      ticket_id: ticketId,
+      failed_item_id: failedItemId,
+      reason,
+    }),
   });
   if (!response.ok) throw new Error(await response.text());
 }

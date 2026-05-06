@@ -1,10 +1,11 @@
 import { X } from 'lucide-react';
 import { AppButton, ModalField, SelectTrigger } from '../ui-bridge';
-import type { ActivationFormState, ProviderManifest, SelectorKind } from '../types';
+import type { ActivationFormState, ProviderManifest, RoutingPlan, SelectorKind } from '../types';
 import { formatCountryLabel, formatServiceLabel } from '../../lib/formatters';
 
 export type NewActivationModalProps = {
   providers: ProviderManifest[];
+  routingPlans: RoutingPlan[];
   form: ActivationFormState;
   busy: boolean;
   error: string;
@@ -14,9 +15,12 @@ export type NewActivationModalProps = {
   onClose: () => void;
   onSubmit: () => void;
   onOpenSelector: (kind: SelectorKind) => void;
+  onOpenRoutingPlanSelector: () => void;
 };
 
 export function NewActivationModal(props: NewActivationModalProps) {
+  const usesRoutingPlan = Boolean(props.form.routing_plan_id);
+  const routingPlanLabel = props.routingPlans.find((plan) => plan.id === props.form.routing_plan_id)?.name ?? '';
   const providerLabel = props.form.provider === 'auto'
     ? 'Auto — follow routing rules'
     : props.providers.find((provider) => provider.id === props.form.provider)?.name ?? props.form.provider;
@@ -39,39 +43,48 @@ export function NewActivationModal(props: NewActivationModalProps) {
           <X size={20} style={{ opacity: 0.4 }} />
         </button>
       </div>
-      <div className="h-px w-full bg-black/[0.06]" />
+      <div className="h-px w-full bg-ds-border" />
       <div className="flex flex-col gap-[14px] overflow-y-auto">
+        <ModalField label="ROUTING PLAN">
+          <SelectTrigger
+            compact
+            value={routingPlanLabel}
+            placeholder="optional — use named routing plan"
+            onClick={props.onOpenRoutingPlanSelector}
+          />
+        </ModalField>
         <ModalField label="SERVICE">
           <SelectTrigger
             compact
             value={props.form.service ? formatServiceLabel(props.form.service) : ''}
-            placeholder="e.g. telegram, openai, whatsapp"
+            placeholder={usesRoutingPlan ? 'controlled by routing plan' : 'e.g. telegram, openai, whatsapp'}
             onClick={() => props.onOpenSelector('activation-service')}
+            disabled={usesRoutingPlan}
           />
         </ModalField>
         <ModalField label="COUNTRY">
-          <SelectTrigger compact value={props.form.country ? formatCountryLabel(props.form.country) : ''} placeholder="any — auto select" onClick={() => props.onOpenSelector('activation-country')} />
+          <SelectTrigger compact value={props.form.country ? formatCountryLabel(props.form.country) : ''} placeholder={usesRoutingPlan ? 'controlled by routing plan' : 'any — auto select'} onClick={() => props.onOpenSelector('activation-country')} disabled={usesRoutingPlan} />
         </ModalField>
         <ModalField label="PROVIDER">
-          <SelectTrigger compact value={providerLabel} muted={props.form.provider === 'auto'} onClick={() => props.onOpenSelector('provider')} />
+          <SelectTrigger compact value={providerLabel} muted={props.form.provider === 'auto'} onClick={() => props.onOpenSelector('provider')} disabled={usesRoutingPlan} />
         </ModalField>
         <ModalField label="PRICE RANGE">
           <div className="grid grid-cols-[1fr_16px_1fr] items-center gap-2">
-            <div className="inline-flex min-h-control-compact items-center rounded-[10px] border border-black/[0.12] bg-white px-3 py-2 text-utility tracking-[var(--ds-type-utility-tracking)] text-ds-text-secondary shadow-[inset_0_0_0_1px_rgba(0,0,0,0.03)]">
-              {props.form.min_price || 'Min $'}
+            <div className="inline-flex min-h-control-compact items-center rounded-[10px] border border-ds-border bg-ds-surface px-3 py-2 text-utility tracking-[var(--ds-type-utility-tracking)] text-ds-text-secondary shadow-[inset_0_0_0_1px_var(--ds-color-border-default)]">
+              {usesRoutingPlan ? 'Plan controlled' : props.form.min_price || 'Min $'}
             </div>
             <span className="text-center opacity-40">–</span>
-            <div className="inline-flex min-h-control-compact items-center rounded-[10px] border border-black/[0.12] bg-white px-3 py-2 text-utility tracking-[var(--ds-type-utility-tracking)] text-ds-text-secondary shadow-[inset_0_0_0_1px_rgba(0,0,0,0.03)]">
-              {props.form.max_price || 'Max $'}
+            <div className="inline-flex min-h-control-compact items-center rounded-[10px] border border-ds-border bg-ds-surface px-3 py-2 text-utility tracking-[var(--ds-type-utility-tracking)] text-ds-text-secondary shadow-[inset_0_0_0_1px_var(--ds-color-border-default)]">
+              {usesRoutingPlan ? 'Plan controlled' : props.form.max_price || 'Max $'}
             </div>
           </div>
         </ModalField>
-        <ModalField label="OPERATOR" hint={props.operatorHint ?? (props.form.provider !== 'auto' ? `${providerLabel} only` : undefined)}>
-          <SelectTrigger compact value={props.form.operator} placeholder="any" onClick={() => props.onOpenSelector('activation-operator')} className="is-disabled-look" />
+        <ModalField label="OPERATOR" hint={usesRoutingPlan ? 'Controlled by routing plan items' : props.operatorHint ?? (props.form.provider !== 'auto' ? `${providerLabel} only` : undefined)}>
+          <SelectTrigger compact value={props.form.operator} placeholder={usesRoutingPlan ? 'controlled by routing plan' : 'any'} onClick={() => props.onOpenSelector('activation-operator')} className="is-disabled-look" disabled={usesRoutingPlan} />
         </ModalField>
       </div>
       {props.error && (
-        <div className="rounded-sm border border-[rgba(255,59,48,0.22)] bg-[rgba(255,59,48,0.07)] px-[14px] py-[10px] text-[13px] text-[#c0392b]">
+        <div className="rounded-sm border border-ds-state-danger/30 bg-ds-state-danger/10 px-[14px] py-[10px] text-[13px] text-ds-state-danger">
           {props.error}
         </div>
       )}

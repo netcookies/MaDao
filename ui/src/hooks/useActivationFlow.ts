@@ -1,9 +1,9 @@
 import type {
   ActivationFormState,
-  ProviderManifest,
+  TicketRecord,
   SelectorKind,
 } from '../app/types';
-import { acquireActivation, pollActivationTicket, releaseActivationTicket } from '../services/runtimeApi';
+import { acquireActivation, failoverRoutingTicket, pollActivationTicket, releaseActivationTicket } from '../services/runtimeApi';
 
 type ActivationUiState = {
   activationForm: ActivationFormState;
@@ -41,11 +41,16 @@ export function useActivationFlow(
     }
   }
 
-  async function releaseTicket(ticketId: string, action: 'finish' | 'cancel' | 'retry') {
+  async function releaseTicket(ticket: Pick<TicketRecord, 'id' | 'provider' | 'service' | 'country' | 'routing_plan_id' | 'routing_item_id'>, action: 'finish' | 'cancel' | 'retry') {
     try {
-      ui.setBusyAction(`${action}-${ticketId}`);
-      await releaseActivationTicket(ticketId, action);
-      ui.setStatusMessage(`Ticket ${ticketId} ${action} complete.`);
+      ui.setBusyAction(`${action}-${ticket.id}`);
+      if (action === 'retry' && ticket.routing_plan_id) {
+        await failoverRoutingTicket(ticket.id, ticket.routing_item_id ?? undefined, 'ui retry requested');
+        ui.setStatusMessage(`Ticket ${ticket.id} failed over to the next routing item.`);
+      } else {
+        await releaseActivationTicket(ticket.id, action);
+        ui.setStatusMessage(`Ticket ${ticket.id} ${action} complete.`);
+      }
       await Promise.all([runtime.loadSnapshot(), runtime.loadNotifications()]);
     } catch (error) {
       ui.setStatusMessage(`Failed to update ticket: ${String(error)}`);
@@ -67,15 +72,22 @@ export function useActivationFlow(
     ui.setActivationBusy(true);
     ui.setActivationError('');
     try {
-      const body: Record<string, unknown> = {
-        provider: ui.activationForm.provider,
-        service: ui.activationForm.service || undefined,
-        country: ui.activationForm.country || undefined,
-      };
-      if (ui.activationForm.min_price !== '') body.min_price = Number(ui.activationForm.min_price);
-      if (ui.activationForm.max_price !== '') body.max_price = Number(ui.activationForm.max_price);
-      if (ui.activationForm.operator) body.metadata = { operator: ui.activationForm.operator };
-      await acquireActivation(body);
+      if (ui.activationForm.routing_plan_id) {
+        await acquireActivation({
+          provider: 'auto',
+          routing_plan_id: ui.activationForm.routing_plan_id,
+        });
+      } else {
+        const body: Record<string, unknown> = {
+          provider: ui.activationForm.provider,
+          service: ui.activationForm.service || undefined,
+          country: ui.activationForm.country || undefined,
+        };
+        if (ui.activationForm.min_price !== '') body.min_price = Number(ui.activationForm.min_price);
+        if (ui.activationForm.max_price !== '') body.max_price = Number(ui.activationForm.max_price);
+        if (ui.activationForm.operator) body.metadata = { operator: ui.activationForm.operator };
+        await acquireActivation(body);
+      }
       ui.setShowActivationModal(false);
       ui.setStatusMessage('Activation created, waiting for SMS code.');
       await Promise.all([runtime.loadSnapshot(), runtime.loadNotifications()]);
@@ -90,9 +102,11 @@ export function useActivationFlow(
     provider: string;
     service: string;
     country: string;
+    routing_plan_id?: string | null;
   }) {
     ui.setActivationForm((current) => ({
       ...current,
+      routing_plan_id: ticket.routing_plan_id ?? '',
       provider: ticket.provider,
       service: ticket.service,
       country: ticket.country,

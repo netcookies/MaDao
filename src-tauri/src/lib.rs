@@ -24,6 +24,7 @@ const MENU_PREFERENCES_ID: &str = "menu.preferences";
 const MENU_QUIT_ID: &str = "menu.quit";
 const MENU_SCREEN_OVERVIEW_ID: &str = "screen.overview";
 const MENU_SCREEN_PROVIDERS_ID: &str = "screen.providers";
+const MENU_SCREEN_ROUTING_ID: &str = "screen.routing";
 const MENU_SCREEN_MESSAGES_ID: &str = "screen.messages";
 const MENU_SCREEN_SETTINGS_ID: &str = "screen.settings";
 const MENU_SCREEN_LOGS_ID: &str = "screen.logs";
@@ -61,6 +62,7 @@ fn menu_action_for_id(event_id: &str) -> MenuAction {
         MENU_PREFERENCES_ID | MENU_SCREEN_SETTINGS_ID => MenuAction::OpenScreen("settings"),
         MENU_SCREEN_OVERVIEW_ID => MenuAction::OpenScreen("overview"),
         MENU_SCREEN_PROVIDERS_ID => MenuAction::OpenScreen("providers"),
+        MENU_SCREEN_ROUTING_ID => MenuAction::OpenScreen("routing"),
         MENU_SCREEN_MESSAGES_ID => MenuAction::OpenScreen("messages"),
         MENU_SCREEN_LOGS_ID => MenuAction::OpenScreen("logs"),
         MENU_QUIT_ID => MenuAction::Quit,
@@ -183,6 +185,8 @@ fn build_app_menu(app: &tauri::AppHandle) -> Result<Menu<tauri::Wry>, String> {
         .map_err(|err| err.to_string())?;
     let providers = MenuItem::with_id(app, MENU_SCREEN_PROVIDERS_ID, "Providers", true, None::<&str>)
         .map_err(|err| err.to_string())?;
+    let routing = MenuItem::with_id(app, MENU_SCREEN_ROUTING_ID, "Routing", true, None::<&str>)
+        .map_err(|err| err.to_string())?;
     let messages = MenuItem::with_id(app, MENU_SCREEN_MESSAGES_ID, "Messages", true, None::<&str>)
         .map_err(|err| err.to_string())?;
     let settings = MenuItem::with_id(app, MENU_SCREEN_SETTINGS_ID, "Settings", true, None::<&str>)
@@ -206,6 +210,7 @@ fn build_app_menu(app: &tauri::AppHandle) -> Result<Menu<tauri::Wry>, String> {
     let window_submenu = SubmenuBuilder::new(app, "Window")
         .item(&overview)
         .item(&providers)
+        .item(&routing)
         .item(&messages)
         .item(&settings)
         .item(&logs)
@@ -534,6 +539,7 @@ pub fn run() {
                 config.log_buffer,
                 Some(runtime_settings_path),
                 Some(provider_options_path),
+                None,
             ));
             app.manage(Arc::clone(&service));
             let app_handle = app.handle().clone();
