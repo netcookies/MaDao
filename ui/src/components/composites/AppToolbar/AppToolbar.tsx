@@ -14,7 +14,7 @@ export function AppToolbar(props: AppToolbarProps) {
   return (
     <header
       className={cx(
-        'sticky top-0 z-10 flex h-toolbar items-center justify-between border-b border-ds-border bg-ds-content backdrop-blur-ds px-10 max-[760px]:h-auto max-[760px]:flex-col max-[760px]:items-start max-[760px]:gap-3 max-[760px]:px-5 max-[760px]:py-4',
+        'sticky top-0 z-10 flex h-toolbar items-center justify-between border-b border-white/40 bg-white/70 px-5 backdrop-blur-ds max-[760px]:h-auto max-[760px]:flex-col max-[760px]:items-start max-[760px]:gap-3 max-[760px]:px-5 max-[760px]:py-4',
         className,
       )}
     >
@@ -24,7 +24,7 @@ export function AppToolbar(props: AppToolbarProps) {
             {navigation}
           </div>
         ) : null}
-        <span className="font-text text-utility font-semibold tracking-[var(--ds-type-utility-tracking)] text-ds-text-primary">
+        <span className="font-text text-[14px] font-semibold tracking-[0] text-ds-text-primary">
           {title}
         </span>
       </div>

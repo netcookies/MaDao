@@ -430,21 +430,7 @@ export function App() {
 
   const recentActivity = useMemo(() => {
     const tickets = (snapshot?.tickets ?? []).filter((ticket) => ticket.provider !== 'mock');
-    if (tickets.length > 0) return tickets.slice(0, 6);
-    return (snapshot?.providers ?? [])
-      .filter((provider) => provider.id !== 'mock')
-      .slice(0, 3)
-      .map((provider, index) => ({
-        id: provider.id,
-        provider: provider.name,
-        service: provider.default_service,
-        country: provider.default_country,
-        phone_number: provider.primary_endpoint ?? 'No endpoint',
-        status: provider.enabled ? 'Connected' : 'Standby',
-        price: null,
-        code: null,
-        message: `Row ${index + 1}`,
-      }));
+    return tickets.slice(0, 6);
   }, [snapshot]);
 
   const filteredSelectorOptions = useMemo(() => {
@@ -928,7 +914,7 @@ export function App() {
     <button
       type="button"
       aria-label={sidebarCollapsed ? 'Expand sidebar' : 'Collapse sidebar'}
-      className="inline-flex h-7 w-7 items-center justify-center rounded-pill text-ds-text-secondary transition-colors duration-fast ease-[var(--ds-motion-transition-fast)] hover:bg-black/5 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ds-accent-focus"
+      className="inline-flex h-7 w-7 items-center justify-center rounded-pill text-ds-text-secondary transition-colors duration-fast ease-[var(--ds-motion-transition-fast)] hover:bg-white/25 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ds-accent-focus"
       onClick={() => setSidebarCollapsed((current) => !current)}
     >
       {sidebarCollapsed ? <PanelLeftOpen size={16} /> : <PanelLeftClose size={16} />}
@@ -942,7 +928,7 @@ export function App() {
         <button
           type="button"
           aria-label="Back to providers"
-          className="inline-flex h-7 w-7 items-center justify-center rounded-pill text-ds-text-secondary transition-colors duration-fast ease-[var(--ds-motion-transition-fast)] hover:bg-black/5 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ds-accent-focus"
+          className="inline-flex h-7 w-7 items-center justify-center rounded-pill text-ds-text-secondary transition-colors duration-fast ease-[var(--ds-motion-transition-fast)] hover:bg-white/25 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ds-accent-focus"
           onClick={() => setProviderView('list')}
         >
           <ChevronLeft size={16} />
@@ -956,7 +942,14 @@ export function App() {
       <div className="relative">
         <IconButton
           variant="toolbar"
-          icon={<Bell size={16} className="opacity-60" />}
+          icon={(
+            <span className="relative inline-flex h-4 w-[22px] items-center justify-center">
+              <Bell size={16} className="opacity-60" />
+              {notifications.length > notificationCursor ? (
+                <span className="absolute right-0 top-0 h-2 w-2 rounded-pill border border-white bg-[#e0443e]" />
+              ) : null}
+            </span>
+          )}
           aria-label="Toggle notifications"
           aria-expanded={showNotifications}
           onClick={() => setShowNotifications((current) => !current)}
