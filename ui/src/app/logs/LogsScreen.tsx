@@ -51,7 +51,7 @@ export function LogsScreen(props: LogsScreenProps) {
         />
       </div>
 
-      <div className="overflow-hidden rounded-[12px] border border-solid border-ds-border-strong bg-ds-surface shadow-[0_1px_2px_rgba(0,0,0,0.04)]">
+      <div className="overflow-hidden rounded-[12px] border border-solid border-ds-border-strong bg-ds-surface shadow-ds backdrop-blur-ds">
         <DataTable
           headerClassName="grid grid-cols-1 items-center gap-3 border-b border-solid border-ds-border-strong border-x-0 border-t-0 bg-ds-content px-4 py-2.5 text-[12px] font-medium uppercase tracking-[0.08em] text-ds-text-secondary min-[760px]:grid-cols-[58px_96px_72px_minmax(0,1fr)]"
           header={(

@@ -1,18 +1,18 @@
 :root {
   /* Canonical design token source for runtime theming and Tailwind consumption. */
-  --ds-color-window-bg: #f5f5f7;
-  --ds-color-sidebar-bg: #f6f6f6;
-  --ds-color-content-bg: #f5f5f7;
-  --ds-color-surface-default: #ffffff;
-  --ds-color-surface-subtle: #fafafc;
+  --ds-color-window-bg: #e8ecf0;
+  --ds-color-sidebar-bg: rgba(255, 255, 255, 0.60);
+  --ds-color-content-bg: #e8ecf0;
+  --ds-color-surface-default: rgba(255, 255, 255, 0.70);
+  --ds-color-surface-subtle: rgba(255, 255, 255, 0.45);
   --ds-color-surface-chip: #d2d2d7;
-  --ds-color-border-default: rgba(0, 0, 0, 0.12);
-  --ds-color-border-strong: rgba(0, 0, 0, 0.18);
+  --ds-color-border-default: rgba(0, 0, 0, 0.08);
+  --ds-color-border-strong: rgba(0, 0, 0, 0.15);
   --ds-color-text-primary: #1d1d1f;
   --ds-color-text-secondary: #6e6e73;
-  --ds-color-accent-blue: #0066cc;
-  --ds-color-accent-blue-focus: #0071e3;
-  --ds-color-accent-blue-soft: rgba(0, 102, 204, 0.08);
+  --ds-color-accent-blue: #007AFF;
+  --ds-color-accent-blue-focus: #007AFF;
+  --ds-color-accent-blue-soft: rgba(0, 122, 255, 0.10);
   --ds-color-state-success: #27c93f;
   --ds-color-state-success-soft: #eaf9ec;
   --ds-color-state-warning: #ff9500;
@@ -83,20 +83,20 @@
 
   --ds-motion-transition-fast: 180ms ease;
   --ds-motion-press-scale: 0.95;
-  --ds-effect-shadow-default: none;
-  --ds-effect-shadow-modal: 0 8px 32px rgba(0, 0, 0, 0.12);
-  --ds-effect-backdrop-blur: 40px;
+  --ds-effect-shadow-default: 0 2px 8px rgba(0, 0, 0, 0.06);
+  --ds-effect-shadow-modal: 0 8px 40px rgba(0, 0, 0, 0.14), 0 0 0 0.5px rgba(255, 255, 255, 0.5);
+  --ds-effect-backdrop-blur: 20px;
 }
 
 [data-theme="dark"] {
-  --ds-color-window-bg: #1c1c1e;
-  --ds-color-sidebar-bg: #232325;
-  --ds-color-content-bg: #232325;
-  --ds-color-surface-default: #2c2c2e;
-  --ds-color-surface-subtle: #3a3a3c;
+  --ds-color-window-bg: #1a1a1c;
+  --ds-color-sidebar-bg: rgba(40, 40, 44, 0.75);
+  --ds-color-content-bg: #1a1a1c;
+  --ds-color-surface-default: rgba(44, 44, 48, 0.80);
+  --ds-color-surface-subtle: rgba(58, 58, 62, 0.70);
   --ds-color-surface-chip: #48484a;
-  --ds-color-border-default: rgba(255, 255, 255, 0.10);
-  --ds-color-border-strong: rgba(255, 255, 255, 0.15);
+  --ds-color-border-default: rgba(255, 255, 255, 0.08);
+  --ds-color-border-strong: rgba(255, 255, 255, 0.14);
   --ds-color-text-primary: #f5f5f7;
   --ds-color-text-secondary: rgba(245, 245, 247, 0.55);
   --ds-color-accent-blue: #3d9dff;
@@ -107,4 +107,6 @@
   --ds-color-state-warning: #ff9f0a;
   --ds-color-state-warning-soft: rgba(255, 159, 10, 0.12);
   --ds-color-state-danger: #ff453a;
+  --ds-effect-shadow-default: 0 2px 8px rgba(0, 0, 0, 0.20);
+  --ds-effect-shadow-modal: 0 8px 40px rgba(0, 0, 0, 0.40), 0 0 0 0.5px rgba(255, 255, 255, 0.10);
 }

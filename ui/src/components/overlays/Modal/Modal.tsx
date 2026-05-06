@@ -36,7 +36,7 @@ export function Modal(props: ModalProps) {
       role="dialog"
       aria-modal="true"
       className={cx(
-        'flex w-full max-w-[720px] flex-col gap-5 rounded-[12px] border border-ds-border bg-ds-surface px-6 pb-6 pt-5 text-ds-text-primary shadow-modal',
+        'flex w-full max-w-[720px] flex-col gap-5 rounded-[12px] border border-ds-border bg-white/[.92] px-6 pb-6 pt-5 text-ds-text-primary shadow-modal backdrop-blur-[20px]',
         presentation === 'inline' && 'w-auto',
         variant === 'wide' && 'max-w-[960px]',
         variant === 'activation' && 'max-w-activation',
@@ -68,7 +68,7 @@ export function Modal(props: ModalProps) {
 
   return (
     <div
-      className="fixed inset-0 z-[1000] flex items-center justify-center bg-black/25 p-ds-xl"
+      className="fixed inset-0 z-[1000] flex items-center justify-center bg-black/30 p-ds-xl"
       onClick={onClose}
     >
       {dialog}

@@ -16,7 +16,7 @@ export type SegmentedControlProps<T extends string> = {
 };
 
 const ROOT_CLASS = 'inline-flex items-stretch gap-ds-xs';
-const ROOT_RAIL_CLASS = 'inline-flex flex-nowrap items-center gap-1 rounded-[8px] border border-ds-border bg-ds-surface-subtle p-1';
+const ROOT_RAIL_CLASS = 'inline-flex flex-nowrap items-center gap-1 rounded-[8px] border border-ds-border bg-ds-surface-subtle p-1 backdrop-blur-[12px]';
 const ITEM_PILL_CLASS =
   'inline-flex min-h-control h-control min-w-[84px] items-center justify-center whitespace-nowrap rounded-pill border border-ds-border bg-ds-surface px-4 py-[11px] font-text text-utility-strong text-ds-text-primary transition-[background-color,color,border-color,box-shadow] duration-fast ease-[var(--ds-motion-transition-fast)] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ds-accent-focus';
 const ITEM_PILL_ACTIVE_CLASS = 'border-ds-accent-blue bg-ds-accent-blue text-white';

@@ -73,7 +73,7 @@ export function ProviderWorkspaceScreen(props: ProviderWorkspaceScreenProps) {
   const isConnected = manifest.enabled;
 
   return (
-    <div className="overflow-hidden rounded-lg border border-ds-border bg-ds-surface">
+    <div className="overflow-hidden rounded-lg border border-ds-border bg-ds-surface shadow-ds backdrop-blur-ds">
       <div className="flex flex-col gap-5 border-b border-ds-border bg-ds-surface-subtle px-6 pt-[18px] min-[980px]:items-end">
         <div className="flex flex-wrap items-end gap-2">
           {WORKSPACE_SECTIONS.map(({ id, label, Icon }) => (
@@ -161,7 +161,16 @@ function WorkspaceConfig(props: {
 
   return (
     <div className="flex flex-col gap-4">
-      <div className="overflow-hidden rounded-lg border border-ds-border bg-ds-surface shadow-[0_1px_2px_rgba(0,0,0,0.04)]">
+      <div className="flex flex-col gap-1">
+        <h1 className="text-[22px] font-bold tracking-tight text-ds-text-primary">
+          {manifest.name}
+        </h1>
+        <p className="text-[13px] text-ds-text-secondary" style={{ opacity: 0.55 }}>
+          Manage API credentials and connection settings
+        </p>
+      </div>
+
+      <div className="overflow-hidden rounded-lg border border-ds-border bg-ds-surface shadow-ds backdrop-blur-ds">
         <div className="flex flex-col gap-2.5 px-5 py-4">
           <div className="flex items-center justify-between gap-4">
             <span className="font-text text-[11px] font-semibold uppercase tracking-[0.08em] text-ds-text-secondary">
@@ -199,7 +208,7 @@ function WorkspaceConfig(props: {
         </div>
       </div>
 
-      <div className="overflow-hidden rounded-lg border border-ds-border bg-ds-surface">
+      <div className="overflow-hidden rounded-lg border border-ds-border bg-ds-surface shadow-ds backdrop-blur-ds">
         <ConfigRow label="API Key" last>
           <input
             className="min-h-control w-full rounded-sm border border-ds-border-strong bg-ds-surface px-4 py-[11px] text-utility tracking-[var(--ds-type-utility-tracking)] text-ds-text-primary"

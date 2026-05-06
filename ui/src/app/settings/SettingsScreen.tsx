@@ -42,7 +42,7 @@ export function SettingsScreen(props: SettingsScreenProps) {
         Configure global preferences and app behavior.
       </p>
 
-      <div className="overflow-hidden rounded-sm border border-ds-border bg-ds-surface py-2 shadow-[0_1px_2px_rgba(0,0,0,0.04)]">
+      <div className="overflow-hidden rounded-sm border border-ds-border bg-ds-surface py-2 shadow-ds backdrop-blur-ds">
         <div className="flex flex-col gap-0 border-b border-solid border-ds-border border-x-0 border-t-0 px-6 py-4">
           <h3 className="m-0 text-section-title font-semibold tracking-[var(--ds-type-section-title-tracking)] text-ds-text-primary">Appearance</h3>
           <SettingChoiceRow

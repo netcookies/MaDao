@@ -214,7 +214,7 @@ function RoutingPlanMatrixScreen(props: {
               key={plan.id || plan.name}
               type="button"
               onClick={() => props.onSelectPlan(plan.id)}
-              className="group rounded-2xl border border-ds-border bg-ds-surface p-5 text-left shadow-sm transition-transform duration-fast ease-[var(--ds-motion-transition-fast)] hover:-translate-y-0.5"
+              className="group rounded-2xl border border-ds-border bg-ds-surface p-5 text-left shadow-ds backdrop-blur-ds transition-transform duration-fast ease-[var(--ds-motion-transition-fast)] hover:-translate-y-0.5"
             >
               <div className="flex items-start justify-between gap-4">
                 <div className="inline-flex min-w-0 items-center gap-3">
@@ -267,7 +267,7 @@ function RoutingPlanMatrixScreen(props: {
           ))}
         </div>
       ) : (
-        <div className="rounded-2xl border border-ds-border bg-ds-surface px-6 py-12 text-center text-[14px] text-ds-text-secondary">
+        <div className="rounded-2xl border border-ds-border bg-ds-surface px-6 py-12 text-center text-[14px] text-ds-text-secondary shadow-ds backdrop-blur-ds">
           No plans match the current filters.
         </div>
       )}
@@ -329,7 +329,7 @@ function RoutingPlanDetailScreen(props: {
         </div>
       </div>
 
-      <section className="rounded-2xl border border-ds-border bg-ds-surface p-6">
+      <section className="rounded-2xl border border-ds-border bg-ds-surface p-6 shadow-ds backdrop-blur-ds">
         <div className="flex flex-col gap-6">
           <div className="text-[11px] font-semibold uppercase tracking-[0.08em] text-ds-text-secondary">
             PLAN DETAILS
@@ -417,7 +417,7 @@ function RoutingPlanDetailScreen(props: {
           </AppButton>
         </div>
 
-        <div className="overflow-hidden rounded-2xl border border-ds-border bg-ds-surface">
+        <div className="overflow-hidden rounded-2xl border border-ds-border bg-ds-surface shadow-ds backdrop-blur-ds">
           <div className="hidden min-[900px]:grid min-[900px]:grid-cols-[24px_36px_minmax(0,1fr)_160px_120px_60px] min-[900px]:items-center bg-ds-surface-subtle px-4 py-2.5 text-[11px] font-semibold uppercase tracking-[0.08em] text-ds-text-secondary">
             <span />
             <span>#</span>
@@ -588,25 +588,17 @@ function RoutingItemEditorModal(props: {
   onLoadPriceOptions: () => void;
   onQuickFill: (kind: 'min' | 'max', price: number) => void;
 }) {
-  const [providerSearch, setProviderSearch] = useState('');
   const [priceMode, setPriceMode] = useState<'any' | 'range'>('any');
 
   const editor = props.editor;
 
   useEffect(() => {
     if (editor) {
-      setProviderSearch('');
       setPriceMode(editor.minPrice || editor.maxPrice ? 'range' : 'any');
     }
   }, [editor?.itemId]);
 
   if (!editor) return null;
-
-  const filteredProviders = providerSearch.trim()
-    ? props.providers.filter((p) =>
-        p.name.toLowerCase().includes(providerSearch.toLowerCase()) ||
-        p.id.toLowerCase().includes(providerSearch.toLowerCase()))
-    : props.providers;
 
   const filteredPriceItems = props.priceItems.filter((item) => {
     const countryTerm = editor.country.trim().toLowerCase();
@@ -635,68 +627,49 @@ function RoutingItemEditorModal(props: {
         </>
       )}
     >
-      <div className="grid grid-cols-1 min-[860px]:grid-cols-[220px_minmax(0,1fr)]">
-        {/* Left: provider list */}
-        <div className="flex flex-col border-b border-ds-border min-[860px]:border-b-0 min-[860px]:border-r">
-          <div className="px-4 pb-2 pt-1">
-            <div className="mb-2 text-[11px] font-semibold uppercase tracking-[0.08em] text-ds-text-secondary">Provider</div>
-            <input
-              value={providerSearch}
-              onChange={(e) => setProviderSearch(e.target.value)}
-              placeholder="Search providers..."
-              className="w-full rounded-[8px] border border-ds-border bg-ds-surface-subtle px-3 py-2 text-[13px] text-ds-text-primary outline-none focus:border-ds-accent-blue"
-            />
-          </div>
-          <div className="max-h-[200px] overflow-y-auto min-[860px]:max-h-[360px]">
-            {filteredProviders.map((p) => (
-              <button
-                key={p.id}
-                type="button"
-                onClick={() => props.onChange({ providerId: p.id, country: '', operator: '', minPrice: '', maxPrice: '' })}
-                className={`w-full px-4 py-2.5 text-left text-[13px] transition-colors duration-fast ${
-                  editor.providerId === p.id
-                    ? 'bg-ds-accent-blue font-medium text-white'
-                    : 'text-ds-text-primary hover:bg-ds-surface-subtle'
-                }`}
-              >
-                {formatProviderLabel(p.name)}
-              </button>
-            ))}
-            {filteredProviders.length === 0 && (
-              <div className="px-4 py-6 text-center text-[13px] text-ds-text-secondary">No providers found.</div>
-            )}
-          </div>
+      <div className="flex flex-col gap-4 px-5 py-4">
+        {/* Row 1: Provider + Country + Carrier */}
+        <div className="grid grid-cols-1 gap-3 min-[580px]:grid-cols-3">
+          <ModalField label="PROVIDER">
+            <select
+              value={editor.providerId}
+              onChange={(e) => props.onChange({ providerId: e.target.value, country: '', operator: '', minPrice: '', maxPrice: '' })}
+              className={selectClass}
+            >
+              <option value="">Select provider</option>
+              {props.providers.map((p) => (
+                <option key={p.id} value={p.id}>{formatProviderLabel(p.name)}</option>
+              ))}
+            </select>
+          </ModalField>
+          <ModalField label="COUNTRY">
+            <select
+              value={editor.country}
+              onChange={(e) => props.onChange({ country: e.target.value })}
+              className={selectClass}
+            >
+              <option value="">Any country</option>
+              {props.providerOptions?.countries.map((c) => (
+                <option key={c.value} value={c.value}>{c.label}</option>
+              ))}
+            </select>
+          </ModalField>
+          <ModalField label="CARRIER">
+            <select
+              value={editor.operator}
+              onChange={(e) => props.onChange({ operator: e.target.value })}
+              className={selectClass}
+            >
+              <option value="">Any carrier</option>
+              {props.providerOptions?.operators.map((o) => (
+                <option key={o.value} value={o.value}>{o.label}</option>
+              ))}
+            </select>
+          </ModalField>
         </div>
 
-        {/* Right: settings */}
-        <div className="flex flex-col gap-4 px-5 py-4">
-          <div className="grid grid-cols-2 gap-3">
-            <ModalField label="COUNTRY">
-              <select
-                value={editor.country}
-                onChange={(e) => props.onChange({ country: e.target.value })}
-                className={selectClass}
-              >
-                <option value="">Any country</option>
-                {props.providerOptions?.countries.map((c) => (
-                  <option key={c.value} value={c.value}>{c.label}</option>
-                ))}
-              </select>
-            </ModalField>
-            <ModalField label="CARRIER">
-              <select
-                value={editor.operator}
-                onChange={(e) => props.onChange({ operator: e.target.value })}
-                className={selectClass}
-              >
-                <option value="">Any carrier</option>
-                {props.providerOptions?.operators.map((o) => (
-                  <option key={o.value} value={o.value}>{o.label}</option>
-                ))}
-              </select>
-            </ModalField>
-          </div>
-
+        {/* Row 2: Price Mode + Min/Max */}
+        <div className="flex flex-wrap items-end gap-3">
           <ModalField label="PRICE MODE">
             <SegmentedControl
               items={[{ id: 'any', label: 'Any' }, { id: 'range', label: 'Range' }]}
@@ -711,67 +684,69 @@ function RoutingItemEditorModal(props: {
           </ModalField>
 
           {priceMode === 'range' && (
-            <div className="grid grid-cols-2 gap-3">
+            <div className="grid flex-1 grid-cols-[1fr_16px_1fr] items-end gap-2">
               <ModalField label="MIN PRICE">
                 <input
                   value={editor.minPrice}
                   inputMode="decimal"
                   onChange={(e) => props.onChange({ minPrice: e.target.value })}
                   className="min-h-control w-full rounded-xl border border-ds-border-strong bg-ds-surface px-4 py-[11px] text-[13px] text-ds-text-primary"
-                  placeholder="e.g. 0.50"
+                  placeholder="0.50"
                 />
               </ModalField>
+              <span className="pb-[14px] text-center text-[13px] text-ds-text-secondary">—</span>
               <ModalField label="MAX PRICE">
                 <input
                   value={editor.maxPrice}
                   inputMode="decimal"
                   onChange={(e) => props.onChange({ maxPrice: e.target.value })}
                   className="min-h-control w-full rounded-xl border border-ds-border-strong bg-ds-surface px-4 py-[11px] text-[13px] text-ds-text-primary"
-                  placeholder="e.g. 1.20"
+                  placeholder="1.20"
                 />
               </ModalField>
             </div>
           )}
+        </div>
 
-          <div className="border-t border-ds-border pt-4">
-            <div className="mb-2 flex items-center justify-between">
-              <span className="text-[11px] font-semibold uppercase tracking-[0.08em] text-ds-text-secondary">Price Inventory</span>
-              <AppButton variant="outline" onClick={props.onLoadPriceOptions} disabled={props.loading}>
-                {props.loading ? 'Loading…' : 'Load Prices'}
-              </AppButton>
-            </div>
-            <div className="max-h-[240px] overflow-y-auto rounded-xl border border-ds-border bg-ds-surface-subtle">
-              {filteredPriceItems.length > 0 ? filteredPriceItems.map((item) => (
-                <div
-                  key={`${item.country}-${item.operator}-${item.price}`}
-                  className="grid grid-cols-[minmax(0,1fr)_80px_auto] items-center gap-3 border-b border-ds-border px-4 py-3 last:border-b-0"
-                >
-                  <div className="min-w-0">
-                    <div className="truncate text-[13px] font-medium text-ds-text-primary">
-                      {formatCountryLabel(item.country)} · {item.operator || 'any'}
-                    </div>
-                    <div className="mt-0.5 text-[11px] text-ds-text-secondary">stock: {item.stock.toLocaleString()}</div>
+        {/* Price Inventory — full width */}
+        <div className="border-t border-ds-border pt-4">
+          <div className="mb-2 flex items-center justify-between">
+            <span className="text-[11px] font-semibold uppercase tracking-[0.08em] text-ds-text-secondary">Price Inventory</span>
+            <AppButton variant="outline" onClick={props.onLoadPriceOptions} disabled={props.loading}>
+              {props.loading ? 'Loading…' : 'Load Prices'}
+            </AppButton>
+          </div>
+          <div className="max-h-[240px] overflow-y-auto rounded-xl border border-ds-border bg-ds-surface-subtle">
+            {filteredPriceItems.length > 0 ? filteredPriceItems.map((item) => (
+              <div
+                key={`${item.country}-${item.operator}-${item.price}`}
+                className="flex items-center gap-3 border-b border-ds-border px-4 py-3 last:border-b-0"
+              >
+                <div className="min-w-0 flex-1">
+                  <div className="truncate text-[13px] font-medium text-ds-text-primary">
+                    {formatCountryLabel(item.country)} · {item.operator || 'any'}
                   </div>
-                  <div className="font-mono text-[13px] text-ds-text-secondary">${item.price.toFixed(3)}</div>
-                  <div className="flex items-center gap-2">
-                    <AppButton variant="ghost" size="utility" onClick={() => {
-                      props.onQuickFill('min', item.price);
-                      setPriceMode('range');
-                    }}>Min</AppButton>
-                    <AppButton variant="ghost" size="utility" onClick={() => {
-                      props.onQuickFill('max', item.price);
-                      setPriceMode('range');
-                    }}>Max</AppButton>
-                  </div>
+                  <div className="mt-0.5 text-[11px] text-ds-text-secondary">stock: {item.stock.toLocaleString()}</div>
                 </div>
-              )) : (
-                <div className="px-5 py-8 text-center text-[13px] text-ds-text-secondary">
-                  {props.priceItems.length > 0
-                    ? 'No results match the current filters.'
-                    : 'No price list loaded. Click Load Prices to fetch prices for this provider and service.'}
+                <div className="w-20 text-right font-mono text-[13px] text-ds-text-secondary">${item.price.toFixed(3)}</div>
+                <div className="flex items-center gap-2">
+                  <AppButton variant="ghost" size="utility" onClick={() => {
+                    props.onQuickFill('min', item.price);
+                    setPriceMode('range');
+                  }}>Min</AppButton>
+                  <AppButton variant="ghost" size="utility" onClick={() => {
+                    props.onQuickFill('max', item.price);
+                    setPriceMode('range');
+                  }}>Max</AppButton>
                 </div>
-              )}
-            </div>
+              </div>
+            )) : (
+              <div className="px-5 py-8 text-center text-[13px] text-ds-text-secondary">
+                {props.priceItems.length > 0
+                  ? 'No results match the current filters.'
+                  : 'No price list loaded. Click Load Prices to fetch prices for this provider and service.'}
+              </div>
+            )}
           </div>
         </div>
       </div>

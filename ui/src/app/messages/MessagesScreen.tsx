@@ -65,7 +65,7 @@ export function MessagesScreen(props: MessagesScreenProps) {
           const heroCancelLocked = heroCancelRemainingMs > 0;
 
           return (
-            <div className="flex flex-col gap-5 rounded-[16px] border border-ds-border bg-ds-surface px-6 py-6 shadow-[0_2px_8px_rgba(0,0,0,0.04)]" key={ticket.id}>
+            <div className="flex flex-col gap-5 rounded-[16px] border border-ds-border bg-ds-surface px-6 py-6 shadow-ds backdrop-blur-ds" key={ticket.id}>
               <div className="flex flex-col gap-4 min-[760px]:flex-row min-[760px]:items-center min-[760px]:justify-between">
                 <div className="flex items-center gap-3">
                   {serviceIcon(ticket.service)}
@@ -176,7 +176,7 @@ export function MessagesScreen(props: MessagesScreenProps) {
             </div>
           );
         }) : (
-          <div className="rounded-lg border border-ds-border bg-ds-surface px-5 py-7 text-center text-utility tracking-[var(--ds-type-utility-tracking)] text-ds-text-secondary">
+          <div className="rounded-lg border border-ds-border bg-ds-surface px-5 py-7 text-center text-utility tracking-[var(--ds-type-utility-tracking)] text-ds-text-secondary shadow-ds backdrop-blur-ds">
             No activations.
           </div>
         )}
