@@ -1,5 +1,5 @@
 import { ChevronRight, Server } from 'lucide-react';
-import { StatusBadge } from '../ui-bridge';
+import { PageHeader, StatusBadge } from '../ui-bridge';
 import type { ProviderManifest, ProviderSummary } from '../types';
 import { formatProviderLabel } from '../../lib/formatters';
 
@@ -15,10 +15,11 @@ export type ProvidersListScreenProps = {
 
 export function ProvidersListScreen(props: ProvidersListScreenProps) {
   return (
-    <div className="flex flex-col gap-6">
-      <p className="m-0 max-w-[720px] font-text text-utility font-normal tracking-[var(--ds-type-utility-tracking)] text-ds-text-secondary">
-        Configure provider credentials and health from a card matrix. Routing priority is moving to the dedicated Routing workspace, so this screen now focuses on provider setup and connectivity.
-      </p>
+    <div className="flex flex-col gap-8">
+      <PageHeader
+        title="Providers"
+        subtitle="Configure provider credentials and health. Routing priority is managed in the Routing workspace."
+      />
 
       <div className="grid grid-cols-1 gap-4 min-[760px]:grid-cols-2">
         {props.providers.map((provider) => {
@@ -47,9 +48,9 @@ export function ProvidersListScreen(props: ProvidersListScreenProps) {
                 </StatusBadge>
               </div>
 
-              <StatusBadge tone={provider.enabled ? 'blue' : 'gray'}>
+              <span className="inline-flex items-center rounded-[4px] bg-black/[0.05] px-2 py-0.5 font-mono text-[11px] tracking-wide text-ds-text-secondary">
                 {protocolTag}
-              </StatusBadge>
+              </span>
 
               <p className="line-clamp-2 text-[12px] leading-relaxed text-ds-text-secondary opacity-55">
                 {endpoint}

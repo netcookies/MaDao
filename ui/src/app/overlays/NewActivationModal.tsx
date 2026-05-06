@@ -27,7 +27,7 @@ export function NewActivationModal(props: NewActivationModalProps) {
     <div
       role="dialog"
       aria-modal="true"
-      className="flex w-full max-w-activation flex-col gap-5 rounded-[12px] border border-ds-border bg-ds-surface px-6 pb-6 pt-6 text-ds-text-primary shadow-modal"
+      className="flex w-full max-w-activation flex-col gap-5 rounded-[12px] border border-ds-border bg-ds-surface-elevated px-6 pb-6 pt-6 text-ds-text-primary shadow-modal"
       onClick={(event) => event.stopPropagation()}
     >
       <div className="flex items-center justify-between gap-5">

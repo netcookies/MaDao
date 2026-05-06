@@ -4,6 +4,7 @@
   --ds-color-sidebar-bg: rgba(255, 255, 255, 0.85);
   --ds-color-content-bg: #e8ecf0;
   --ds-color-surface-default: rgba(255, 255, 255, 0.70);
+  --ds-color-surface-elevated: rgba(255, 255, 255, 0.92);
   --ds-color-surface-subtle: rgba(255, 255, 255, 0.45);
   --ds-color-surface-chip: #d2d2d7;
   --ds-color-border-default: rgba(0, 0, 0, 0.08);
@@ -93,6 +94,7 @@
   --ds-color-sidebar-bg: rgba(40, 40, 44, 0.75);
   --ds-color-content-bg: #1a1a1c;
   --ds-color-surface-default: rgba(44, 44, 48, 0.80);
+  --ds-color-surface-elevated: rgba(44, 44, 48, 0.95);
   --ds-color-surface-subtle: rgba(58, 58, 62, 0.70);
   --ds-color-surface-chip: #48484a;
   --ds-color-border-default: rgba(255, 255, 255, 0.08);

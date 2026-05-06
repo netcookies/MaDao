@@ -15,6 +15,7 @@ module.exports = {
       content: dsColor('content-bg'),
       surface: {
         DEFAULT: dsColor('surface-default'),
+        elevated: dsColor('surface-elevated'),
         subtle: dsColor('surface-subtle'),
         chip: dsColor('surface-chip'),
       },
