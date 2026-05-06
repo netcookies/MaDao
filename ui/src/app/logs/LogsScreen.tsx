@@ -53,7 +53,7 @@ export function LogsScreen(props: LogsScreenProps) {
 
       <div className="overflow-hidden rounded-[12px] border border-solid border-ds-border-strong bg-ds-surface shadow-[0_1px_2px_rgba(0,0,0,0.04)]">
         <DataTable
-          headerClassName="grid grid-cols-1 items-center gap-3 border-b border-solid border-ds-border-strong border-x-0 border-t-0 bg-ds-content px-4 py-2.5 text-[12px] font-medium uppercase tracking-[0.08em] text-[#8c8c92] min-[760px]:grid-cols-[58px_96px_72px_minmax(0,1fr)]"
+          headerClassName="grid grid-cols-1 items-center gap-3 border-b border-solid border-ds-border-strong border-x-0 border-t-0 bg-ds-content px-4 py-2.5 text-[12px] font-medium uppercase tracking-[0.08em] text-ds-text-secondary min-[760px]:grid-cols-[58px_96px_72px_minmax(0,1fr)]"
           header={(
             <>
               <span>Level</span>
@@ -67,9 +67,9 @@ export function LogsScreen(props: LogsScreenProps) {
             <div
               className={cx(
                 'grid grid-cols-1 items-center gap-3 border-b border-solid border-ds-border border-x-0 border-t-0 px-4 py-2.5 last:border-b-0 min-[760px]:grid-cols-[58px_96px_72px_minmax(0,1fr)]',
-                entry.level.toLowerCase() === 'error' && 'bg-[#fff5f5]',
-                entry.level.toLowerCase() === 'warn' && 'bg-[#fffbf0]',
-                entry.level.toLowerCase() !== 'error' && entry.level.toLowerCase() !== 'warn' && 'bg-white',
+                entry.level.toLowerCase() === 'error' && 'bg-ds-state-danger/10',
+                entry.level.toLowerCase() === 'warn' && 'bg-ds-state-warning/10',
+                entry.level.toLowerCase() !== 'error' && entry.level.toLowerCase() !== 'warn' && 'bg-ds-surface',
               )}
               key={`${entry.timestamp}-${index}`}
             >
@@ -77,8 +77,8 @@ export function LogsScreen(props: LogsScreenProps) {
                 <span
                   className={cx(
                     'inline-flex min-w-[58px] items-center justify-center rounded-[4px] px-2 py-1 text-[11px] font-normal uppercase tracking-[0] text-white',
-                    entry.level.toLowerCase() === 'error' && 'bg-[#e0443e]',
-                    entry.level.toLowerCase() === 'warn' && 'bg-[#f59e0b]',
+                    entry.level.toLowerCase() === 'error' && 'bg-ds-state-danger',
+                    entry.level.toLowerCase() === 'warn' && 'bg-ds-state-warning',
                     entry.level.toLowerCase() !== 'error' && entry.level.toLowerCase() !== 'warn' && 'bg-ds-accent-blue',
                   )}
                 >
@@ -89,8 +89,8 @@ export function LogsScreen(props: LogsScreenProps) {
               <span className="text-[12px] text-ds-text-secondary">{entry.scope}</span>
               <span className={cx(
                 'text-[13px]',
-                entry.level.toLowerCase() === 'error' && 'text-[#c0312e]',
-                entry.level.toLowerCase() === 'warn' && 'text-[#92600a]',
+                entry.level.toLowerCase() === 'error' && 'text-ds-state-danger',
+                entry.level.toLowerCase() === 'warn' && 'text-ds-state-warning',
                 entry.level.toLowerCase() !== 'error' && entry.level.toLowerCase() !== 'warn' && 'text-ds-text-primary/85',
               )}
               >

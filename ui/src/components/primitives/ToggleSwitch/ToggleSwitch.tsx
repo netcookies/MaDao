@@ -21,11 +21,14 @@ export function ToggleSwitch(props: ToggleSwitchProps) {
         checked ? 'bg-ds-accent-blue' : 'bg-[rgba(120,120,128,0.16)]',
         className,
       )}
-      onClick={() => onChange(!checked)}
+      onClick={(event) => {
+        event.stopPropagation();
+        onChange(!checked);
+      }}
     >
       <span
         className={cx(
-          'h-5 w-5 rounded-pill bg-white shadow-[0_1px_3px_rgba(0,0,0,0.18)] transition-transform duration-fast ease-[var(--ds-motion-transition-fast)]',
+          'h-5 w-5 rounded-pill bg-ds-surface shadow-[0_1px_3px_rgba(0,0,0,0.18)] transition-transform duration-fast ease-[var(--ds-motion-transition-fast)]',
           checked && 'translate-x-4',
         )}
       />

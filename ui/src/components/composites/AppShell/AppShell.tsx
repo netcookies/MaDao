@@ -33,7 +33,7 @@ export function AppShell(props: AppShellProps) {
     >
       <div
         className={cx(
-          'grid grid-cols-1 overflow-hidden bg-white transition-[grid-template-columns] duration-fast ease-[var(--ds-motion-transition-fast)]',
+          'grid grid-cols-1 overflow-hidden bg-ds-surface transition-[grid-template-columns] duration-fast ease-[var(--ds-motion-transition-fast)]',
           sidebarCollapsed
             ? 'min-[980px]:grid-cols-[64px_minmax(0,1fr)]'
             : 'min-[980px]:grid-cols-[var(--ds-size-sidebar-width)_minmax(0,1fr)]',

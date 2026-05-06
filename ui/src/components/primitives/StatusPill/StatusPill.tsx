@@ -18,8 +18,8 @@ const TONE_CLASS: Record<StatusPillTone, { text: string; dot: string }> = {
     dot: 'bg-ds-state-warning',
   },
   muted: {
-    text: 'text-[#8e8e93]',
-    dot: 'bg-[#8e8e93]',
+    text: 'text-ds-text-secondary',
+    dot: 'bg-ds-text-secondary',
   },
 };
 

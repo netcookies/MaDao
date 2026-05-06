@@ -222,7 +222,7 @@ export function ToggleSetting(props: {
     <div
       className={cx(
         'flex items-center justify-between gap-4 py-4',
-        !props.last && 'border-b border-black/5',
+        !props.last && 'border-b border-ds-border',
       )}
     >
       <div className="flex min-w-0 flex-col gap-1.5">
@@ -243,7 +243,7 @@ export function ConfigRow(props: { label: string; children: ReactNode; last?: bo
     <div
       className={cx(
         'flex items-center justify-between gap-4 px-5 py-4',
-        !props.last && 'border-b border-black/5',
+        !props.last && 'border-b border-ds-border',
       )}
     >
       <span className="font-text text-utility font-normal tracking-[var(--ds-type-utility-tracking)] text-ds-text-primary opacity-70">
@@ -259,7 +259,7 @@ export function DetailRow(props: { label: string; value: string; last?: boolean 
     <div
       className={cx(
         'flex items-center justify-between gap-4 px-5 py-4',
-        !props.last && 'border-b border-black/5',
+        !props.last && 'border-b border-ds-border',
       )}
     >
       <span className="font-text text-utility font-normal tracking-[var(--ds-type-utility-tracking)] text-ds-text-primary opacity-70">

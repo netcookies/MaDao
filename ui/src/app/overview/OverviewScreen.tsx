@@ -44,7 +44,7 @@ export function OverviewScreen(props: OverviewScreenProps) {
           <AppButton variant="outline" size="utility" onClick={props.onViewAll}>View All</AppButton>
         </div>
         <div className="overflow-hidden rounded-[8px] border border-solid border-ds-border-strong bg-ds-surface shadow-[0_1px_2px_rgba(0,0,0,0.04)]">
-          <div className="grid grid-cols-[minmax(0,1fr)_minmax(0,1fr)_minmax(0,1.15fr)_minmax(0,1fr)] items-center gap-3 rounded-t-[8px] border-b border-solid border-ds-border-strong border-x-0 border-t-0 bg-ds-content px-4 py-2.5 text-[11px] font-semibold uppercase tracking-[0.12em] text-[#8c8c92]">
+          <div className="grid grid-cols-[minmax(0,1fr)_minmax(0,1fr)_minmax(0,1.15fr)_minmax(0,1fr)] items-center gap-3 rounded-t-[8px] border-b border-solid border-ds-border-strong border-x-0 border-t-0 bg-ds-content px-4 py-2.5 text-[11px] font-semibold uppercase tracking-[0.12em] text-ds-text-secondary">
             <span>Provider</span>
             <span>Status</span>
             <span>Recipient</span>
@@ -68,9 +68,9 @@ export function OverviewScreen(props: OverviewScreenProps) {
 
 function StatCard(props: { title: string; value: string; caption: string; positive?: boolean; icon?: ReactNode }) {
   return (
-    <div className="flex flex-col gap-2 rounded-sm border border-black/[0.08] bg-ds-surface p-4 shadow-[0_1px_2px_rgba(0,0,0,0.04)]">
+    <div className="flex flex-col gap-2 rounded-sm border border-ds-border bg-ds-surface p-4 shadow-[0_1px_2px_rgba(0,0,0,0.04)]">
       <div className="flex items-center justify-between gap-3">
-        <span className="text-[11px] font-semibold uppercase tracking-[0.12em] text-[#8c8c92]">{props.title}</span>
+        <span className="text-[11px] font-semibold uppercase tracking-[0.12em] text-ds-text-secondary">{props.title}</span>
         {props.icon}
       </div>
       <strong className="text-[24px] font-semibold leading-[1.1] tracking-[-0.4px] text-ds-text-primary">{props.value}</strong>
@@ -85,23 +85,23 @@ function OverviewStatusTag(props: { status: string }) {
   const normalized = props.status.toLowerCase();
   if (normalized.includes('deliver') || normalized.includes('received')) {
     return (
-      <span className="inline-flex items-center gap-1 rounded-pill bg-[#eaf9ec] px-2 py-1 text-[12px] font-semibold text-[#1aab29]">
-        <span className="h-1.5 w-1.5 rounded-pill bg-[#27c93f]" />
+      <span className="inline-flex items-center gap-1 rounded-pill bg-ds-state-success/10 px-2 py-1 text-[12px] font-semibold text-ds-state-success">
+        <span className="h-1.5 w-1.5 rounded-pill bg-ds-state-success" />
         Delivered
       </span>
     );
   }
   if (normalized.includes('pending') || normalized.includes('waiting')) {
     return (
-      <span className="inline-flex items-center gap-1 rounded-pill bg-[#fff4e6] px-2 py-1 text-[12px] font-semibold text-[#dea123]">
-        <span className="h-1.5 w-1.5 rounded-pill bg-[#ffbd2e]" />
+      <span className="inline-flex items-center gap-1 rounded-pill bg-ds-state-warning/10 px-2 py-1 text-[12px] font-semibold text-ds-state-warning">
+        <span className="h-1.5 w-1.5 rounded-pill bg-ds-state-warning" />
         Pending
       </span>
     );
   }
   return (
-    <span className="inline-flex items-center gap-1 rounded-pill bg-[#ffeeed] px-2 py-1 text-[12px] font-semibold text-[#e0443e]">
-      <span className="h-1.5 w-1.5 rounded-pill bg-[#ff5f56]" />
+    <span className="inline-flex items-center gap-1 rounded-pill bg-ds-state-danger/10 px-2 py-1 text-[12px] font-semibold text-ds-state-danger">
+      <span className="h-1.5 w-1.5 rounded-pill bg-ds-state-danger" />
       Failed
     </span>
   );

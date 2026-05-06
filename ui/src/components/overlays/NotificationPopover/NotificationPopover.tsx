@@ -22,7 +22,7 @@ export function NotificationPopover(props: NotificationPopoverProps) {
   const { title = 'Notifications', markAllAction, footer, items } = props;
 
   return (
-    <section className="flex w-notification flex-col overflow-hidden rounded-[12px] border border-black/10 bg-ds-surface shadow-[0_8px_24px_rgba(0,0,0,0.16)]">
+    <section className="flex w-notification flex-col overflow-hidden rounded-[12px] border border-ds-border bg-ds-surface shadow-[0_8px_24px_rgba(0,0,0,0.16)]">
       <header className="flex items-center justify-between gap-3 bg-ds-content px-4 py-3">
         <h2 className="m-0 font-text text-utility font-semibold tracking-[var(--ds-type-utility-tracking)] text-ds-text-primary">{title}</h2>
         {markAllAction}
@@ -32,9 +32,9 @@ export function NotificationPopover(props: NotificationPopoverProps) {
           <div
             key={item.id}
             className={cx(
-              'grid grid-cols-[16px_minmax(0,1fr)] items-start gap-[10px] border-b border-black/5 px-4 py-3 last:border-b-0',
-              item.level === 'danger' && 'bg-[#fff8f8]',
-              item.level === 'warning' && 'bg-[#fffcf5]',
+              'grid grid-cols-[16px_minmax(0,1fr)] items-start gap-[10px] border-b border-ds-border px-4 py-3 last:border-b-0',
+              item.level === 'danger' && 'bg-ds-state-danger/10',
+              item.level === 'warning' && 'bg-ds-state-warning/10',
               item.level === 'info' && 'bg-ds-surface',
             )}
           >
@@ -43,7 +43,7 @@ export function NotificationPopover(props: NotificationPopoverProps) {
                 'inline-flex h-4 w-4 shrink-0 items-center justify-center',
                 item.level === 'info' && 'text-ds-accent-blue',
                 item.level === 'warning' && 'text-ds-state-warning',
-                item.level === 'danger' && 'text-[#e0443e]',
+                item.level === 'danger' && 'text-ds-state-danger',
               )}
             >
               {item.level === 'danger' ? <AlertCircle size={16} strokeWidth={2} /> : null}
@@ -58,7 +58,7 @@ export function NotificationPopover(props: NotificationPopoverProps) {
               >
                 {item.title}
               </strong>
-              <span className="inline-flex items-center gap-1 whitespace-nowrap font-text text-[11px] font-normal tracking-[0] text-[#8e8e93]">
+              <span className="inline-flex items-center gap-1 whitespace-nowrap font-text text-[11px] font-normal tracking-[0] text-ds-text-secondary">
                 {item.meta}
               </span>
             </div>
