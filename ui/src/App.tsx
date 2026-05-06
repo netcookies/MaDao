@@ -1028,7 +1028,6 @@ export function App() {
               <OverviewScreen
                 stats={overviewStats}
                 activity={recentActivity}
-                statusMessage={statusMessage}
                 onViewAll={() => setActiveScreen('messages')}
               />
             )}

@@ -570,7 +570,6 @@ function renderPageTarget(target: ScreenshotTarget) {
           successRate: '100.0%',
         }}
         activity={[]}
-        statusMessage="Console ready."
         onViewAll={noop}
       />,
     );

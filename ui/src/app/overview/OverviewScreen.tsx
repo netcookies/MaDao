@@ -13,7 +13,6 @@ export type OverviewStats = {
 export type OverviewScreenProps = {
   stats: OverviewStats;
   activity: TicketRecord[];
-  statusMessage: string;
   onViewAll: () => void;
 };
 
@@ -22,12 +21,7 @@ export function OverviewScreen(props: OverviewScreenProps) {
     <div className="flex flex-col gap-8">
       <PageHeader
         title="Good morning, Developer"
-        subtitle="Here&apos;s what&apos;s happening with your SMS services today."
-        meta={props.statusMessage ? (
-          <span className="font-text text-utility font-normal tracking-[var(--ds-type-utility-tracking)] text-ds-text-secondary">
-            {props.statusMessage}
-          </span>
-        ) : undefined}
+        subtitle="Here's what's happening with your SMS services today."
       />
 
       <div className="grid grid-cols-1 gap-4 min-[760px]:grid-cols-3">
@@ -44,7 +38,7 @@ export function OverviewScreen(props: OverviewScreenProps) {
           <AppButton variant="outline" size="utility" onClick={props.onViewAll}>View All</AppButton>
         </div>
         <div className="overflow-hidden rounded-[8px] border border-white/50 bg-white/70 shadow-[0_2px_2px_rgba(0,0,0,0.06)] backdrop-blur-ds">
-          <div className="grid grid-cols-[130px_136px_minmax(0,1fr)_124px] items-center gap-3 rounded-t-[8px] border-b border-black/[0.04] bg-ds-window px-4 py-2.5 text-[12px] font-medium tracking-[0] text-ds-text-primary/60">
+          <div className="grid grid-cols-[130px_136px_minmax(0,1fr)_124px] items-center gap-3 border-b border-black/[0.06] bg-black/[0.02] px-4 py-2.5 text-[12px] font-medium tracking-[0] text-ds-text-primary/60">
             <span>Provider</span>
             <span>Status</span>
             <span>Recipient</span>
