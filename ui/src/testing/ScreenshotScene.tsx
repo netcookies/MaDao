@@ -565,12 +565,12 @@ function renderPageTarget(target: ScreenshotTarget) {
       'Overview',
       <OverviewScreen
         stats={{
-          totalMessages: '12,450',
-          activeProviders: '3',
-          successRate: '99.8%',
+          totalMessages: '0',
+          activeProviders: '2',
+          successRate: '100.0%',
         }}
-        activity={OVERVIEW_ACTIVITY}
-        statusMessage=""
+        activity={[]}
+        statusMessage="Console ready."
         onViewAll={noop}
       />,
     );
