@@ -283,27 +283,33 @@ impl HandlerApiProvider {
             return items;
         };
         for (country, entry) in map {
-            let Some(country_id) = country.parse::<u64>().ok() else {
-                continue;
-            };
             let price_node = entry.get(service).unwrap_or(entry);
             let Some(price_obj) = price_node.as_object() else {
                 continue;
             };
-            let Some(price) = price_obj.get("cost").and_then(coerce_f64) else {
+            let Some(price) = price_obj
+                .get("cost")
+                .or_else(|| price_obj.get("price"))
+                .or_else(|| price_obj.get("activationCost"))
+                .and_then(coerce_f64)
+            else {
                 continue;
             };
             let stock = price_obj
                 .get("count")
+                .or_else(|| price_obj.get("qty"))
+                .or_else(|| price_obj.get("stock"))
                 .and_then(|v| v.as_u64().or_else(|| v.as_str().and_then(|s| s.parse().ok())))
                 .unwrap_or(0);
-            if stock == 0 {
-                continue;
-            }
+            let operator = price_obj
+                .get("operator")
+                .and_then(Value::as_str)
+                .unwrap_or("default")
+                .to_string();
             items.push(ProviderPriceItem {
-                country: country_id.to_string(),
-                display_name: format!("Country {country_id}"),
-                operator: "default".to_string(),
+                country: country.clone(),
+                display_name: country.clone(),
+                operator,
                 price,
                 stock,
             });
@@ -1022,6 +1028,28 @@ mod tests {
             .iter()
             .all(|token| !upper.contains(&token.to_ascii_uppercase())));
         assert_eq!(ticket.status, crate::models::TicketStatus::Pending);
+    }
+
+    #[test]
+    fn handler_api_parse_prices_accepts_price_and_stock_aliases() {
+        let provider = HandlerApiProvider::new(handler_manifest()).unwrap();
+        let prices = provider.parse_prices(
+            "dr",
+            Some(&json!({
+                "0": {
+                    "dr": {
+                        "price": "0.12",
+                        "stock": "4",
+                        "operator": "tele2"
+                    }
+                }
+            })),
+        );
+        assert_eq!(prices.len(), 1);
+        assert_eq!(prices[0].country, "0");
+        assert_eq!(prices[0].operator, "tele2");
+        assert!((prices[0].price - 0.12).abs() < f64::EPSILON);
+        assert_eq!(prices[0].stock, 4);
     }
 
     #[test]

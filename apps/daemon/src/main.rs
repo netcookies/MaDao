@@ -17,8 +17,17 @@ use tokio::net::UnixListener;
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
     let cwd = std::env::current_dir().context("read current dir failed")?;
-    let config_path = cwd.join("config/server.toml");
-    let config = ServerConfig::load_from_file(&config_path)?;
+    let config_path = std::env::args()
+        .nth(1)
+        .map(PathBuf::from)
+        .unwrap_or_else(|| cwd.join("config/server.toml"));
+    let mut config = ServerConfig::load_from_file(&config_path)?;
+    if !config.provider_dir.exists() {
+      let fallback_provider_dir = cwd.join("plugins/providers");
+      if fallback_provider_dir.exists() {
+          config.provider_dir = fallback_provider_dir;
+      }
+    }
     let registry = ProviderRegistry::load_from_dir(cwd.join(&config.provider_dir))?;
     let config_dir = config_path
         .parent()

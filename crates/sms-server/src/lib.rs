@@ -80,18 +80,22 @@ async fn health() -> Json<serde_json::Value> {
 }
 
 async fn list_runtime(State(state): State<ApiState>) -> Json<RuntimeSnapshot> {
+    state.service.log_http_access("GET", "/api/providers", "200");
     Json(state.service.runtime_snapshot())
 }
 
 async fn list_provider_manifests(State(state): State<ApiState>) -> Json<ProviderManifestList> {
+    state.service.log_http_access("GET", "/api/provider-manifests", "200");
     Json(state.service.list_provider_manifests())
 }
 
 async fn get_notifications(State(state): State<ApiState>) -> Json<NotificationFeed> {
+    state.service.log_http_access("GET", "/api/notifications", "200");
     Json(state.service.notification_feed())
 }
 
 async fn list_routing_plans(State(state): State<ApiState>) -> Json<RoutingPlanList> {
+    state.service.log_http_access("GET", "/api/routing-plans", "200");
     Json(state.service.list_routing_plans())
 }
 
@@ -99,36 +103,43 @@ async fn get_routing_plan(
     State(state): State<ApiState>,
     Path(plan_id): Path<String>,
 ) -> Result<Json<serde_json::Value>, (StatusCode, Json<ApiError>)> {
-    state
+    let result = state
         .service
         .routing_plan(&plan_id)
         .map(|value| Json(serde_json::json!(value)))
-        .map_err(to_api_error)
+        .map_err(to_api_error);
+    state.service.log_http_access("GET", format!("/api/routing-plans/{plan_id}"), if result.is_ok() { "200" } else { "400" });
+    result
 }
 
 async fn save_routing_plan(
     State(state): State<ApiState>,
     Json(plan): Json<RoutingPlan>,
 ) -> Result<Json<serde_json::Value>, (StatusCode, Json<ApiError>)> {
-    state
+    let result = state
         .service
         .save_routing_plan(plan)
         .map(|value| Json(serde_json::json!(value)))
-        .map_err(to_api_error)
+        .map_err(to_api_error);
+    state.service.log_http_access("POST", "/api/routing-plans", if result.is_ok() { "200" } else { "400" });
+    result
 }
 
 async fn delete_routing_plan(
     State(state): State<ApiState>,
     Path(plan_id): Path<String>,
 ) -> Result<Json<serde_json::Value>, (StatusCode, Json<ApiError>)> {
-    state
+    let result = state
         .service
         .delete_routing_plan(&plan_id)
         .map(|value| Json(serde_json::json!(value)))
-        .map_err(to_api_error)
+        .map_err(to_api_error);
+    state.service.log_http_access("DELETE", format!("/api/routing-plans/{plan_id}"), if result.is_ok() { "200" } else { "400" });
+    result
 }
 
 async fn get_runtime_settings(State(state): State<ApiState>) -> Json<RuntimeSettings> {
+    state.service.log_http_access("GET", "/api/settings/runtime", "200");
     Json(state.service.runtime_settings())
 }
 
@@ -136,92 +147,108 @@ async fn update_runtime_settings(
     State(state): State<ApiState>,
     Json(update): Json<RuntimeSettingsUpdate>,
 ) -> Json<RuntimeSettings> {
+    state.service.log_http_access("POST", "/api/settings/runtime", "200");
     Json(state.service.update_runtime_settings(update))
 }
 
 async fn get_option_cache_overview(State(state): State<ApiState>) -> Json<OptionCacheOverview> {
+    state.service.log_http_access("GET", "/api/settings/option-cache", "200");
     Json(state.service.option_cache_overview())
 }
 
 async fn reload_provider_manifests(
     State(state): State<ApiState>,
 ) -> Result<Json<serde_json::Value>, (StatusCode, Json<ApiError>)> {
-    state
+    let result = state
         .service
         .reload_provider_registry()
         .map(|value| Json(serde_json::json!(value)))
-        .map_err(to_api_error)
+        .map_err(to_api_error);
+    state.service.log_http_access("POST", "/api/provider-manifests/reload", if result.is_ok() { "200" } else { "400" });
+    result
 }
 
 async fn reorder_providers(
     State(state): State<ApiState>,
     Json(request): Json<ProviderReorderRequest>,
 ) -> Result<Json<serde_json::Value>, (StatusCode, Json<ApiError>)> {
-    state
+    let result = state
         .service
         .reorder_providers(request)
         .map(|value| Json(serde_json::json!(value)))
-        .map_err(to_api_error)
+        .map_err(to_api_error);
+    state.service.log_http_access("POST", "/api/providers/reorder", if result.is_ok() { "200" } else { "400" });
+    result
 }
 
 async fn acquire_code(
     State(state): State<ApiState>,
     Json(request): Json<AcquireCodeRequest>,
 ) -> Result<Json<serde_json::Value>, (StatusCode, Json<ApiError>)> {
-    state
+    let result = state
         .service
         .acquire_code(request)
         .await
         .map(|value| Json(serde_json::json!(value)))
-        .map_err(to_api_error)
+        .map_err(to_api_error);
+    state.service.log_http_access("POST", "/api/acquire", if result.is_ok() { "200" } else { "400" });
+    result
 }
 
 async fn poll_code(
     State(state): State<ApiState>,
     Json(request): Json<PollCodeRequest>,
 ) -> Result<Json<serde_json::Value>, (StatusCode, Json<ApiError>)> {
-    state
+    let result = state
         .service
         .poll_code(request)
         .await
         .map(|value| Json(serde_json::json!(value)))
-        .map_err(to_api_error)
+        .map_err(to_api_error);
+    state.service.log_http_access("POST", "/api/poll", if result.is_ok() { "200" } else { "400" });
+    result
 }
 
 async fn release_code(
     State(state): State<ApiState>,
     Json(request): Json<ReleaseCodeRequest>,
 ) -> Result<Json<serde_json::Value>, (StatusCode, Json<ApiError>)> {
-    state
+    let result = state
         .service
         .release_code(request)
         .await
         .map(|value| Json(serde_json::json!(value)))
-        .map_err(to_api_error)
+        .map_err(to_api_error);
+    state.service.log_http_access("POST", "/api/release", if result.is_ok() { "200" } else { "400" });
+    result
 }
 
 async fn failover_routing(
     State(state): State<ApiState>,
     Json(request): Json<RoutingFailoverRequest>,
 ) -> Result<Json<serde_json::Value>, (StatusCode, Json<ApiError>)> {
-    state
+    let result = state
         .service
         .failover_routing_attempt(request)
         .await
         .map(|value| Json(serde_json::json!(value)))
-        .map_err(to_api_error)
+        .map_err(to_api_error);
+    state.service.log_http_access("POST", "/api/routing/failover", if result.is_ok() { "200" } else { "400" });
+    result
 }
 
 async fn get_balance(
     State(state): State<ApiState>,
     Path(provider): Path<String>,
 ) -> Result<Json<serde_json::Value>, (StatusCode, Json<ApiError>)> {
-    state
+    let result = state
         .service
         .get_balance(&provider)
         .await
         .map(|value| Json(serde_json::json!(value)))
-        .map_err(to_api_error)
+        .map_err(to_api_error);
+    state.service.log_http_access("GET", format!("/api/providers/{provider}/balance"), if result.is_ok() { "200" } else { "400" });
+    result
 }
 
 async fn get_prices(
@@ -229,34 +256,41 @@ async fn get_prices(
     Path(provider): Path<String>,
     Json(mut request): Json<ProviderPriceQuery>,
 ) -> Result<Json<serde_json::Value>, (StatusCode, Json<ApiError>)> {
+    let provider_for_log = provider.clone();
     request.provider = provider;
-    state
+    let result = state
         .service
         .get_prices(request)
         .await
         .map(|value| Json(serde_json::json!(value)))
-        .map_err(to_api_error)
+        .map_err(to_api_error);
+    state.service.log_http_access("POST", format!("/api/providers/{provider_for_log}/prices"), if result.is_ok() { "200" } else { "400" });
+    result
 }
 
 async fn get_provider_options(
     State(state): State<ApiState>,
     Path(provider): Path<String>,
 ) -> Result<Json<ProviderDynamicOptions>, (StatusCode, Json<ApiError>)> {
-    match state.service.provider_dynamic_options(&provider).await {
+    let result = match state.service.provider_dynamic_options(&provider).await {
         Ok(value) => Ok(Json(value)),
         Err(error) => Err(to_api_error(error)),
-    }
+    };
+    state.service.log_http_access("GET", format!("/api/providers/{provider}/options"), if result.is_ok() { "200" } else { "400" });
+    result
 }
 
 async fn get_manifest(
     State(state): State<ApiState>,
     Path(provider): Path<String>,
 ) -> Result<Json<serde_json::Value>, (StatusCode, Json<ApiError>)> {
-    state
+    let result = state
         .service
         .provider_manifest(&provider)
         .map(|value| Json(serde_json::json!(value)))
-        .map_err(to_api_error)
+        .map_err(to_api_error);
+    state.service.log_http_access("GET", format!("/api/providers/{provider}/manifest"), if result.is_ok() { "200" } else { "400" });
+    result
 }
 
 async fn put_manifest(
@@ -264,10 +298,12 @@ async fn put_manifest(
     Path(provider): Path<String>,
     Json(manifest): Json<plugin_sdk::ProviderManifest>,
 ) -> Result<Json<serde_json::Value>, (StatusCode, Json<ApiError>)> {
-    match state.service.save_provider_manifest(&provider, manifest).await {
+    let result = match state.service.save_provider_manifest(&provider, manifest).await {
         Ok(value) => Ok(Json(serde_json::json!(value))),
         Err(error) => Err(to_api_error(error)),
-    }
+    };
+    state.service.log_http_access("PUT", format!("/api/providers/{provider}/manifest"), if result.is_ok() { "200" } else { "400" });
+    result
 }
 
 fn to_api_error(error: sms_core::error::SmsError) -> (StatusCode, Json<ApiError>) {
@@ -523,5 +559,42 @@ mod tests {
             .await
             .unwrap();
         assert_eq!(acquire_response.status(), StatusCode::BAD_REQUEST);
+    }
+
+    #[tokio::test]
+    async fn client_http_access_is_written_to_logs() {
+        let app = test_router();
+
+        let _ = app
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .method(Method::GET)
+                    .uri("/api/providers")
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+
+        let logs_response = app
+            .oneshot(
+                Request::builder()
+                    .method(Method::GET)
+                    .uri("/api/providers")
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        let body = axum::body::to_bytes(logs_response.into_body(), usize::MAX)
+            .await
+            .unwrap();
+        let json: serde_json::Value = serde_json::from_slice(&body).unwrap();
+        let logs = json.pointer("/logs").and_then(serde_json::Value::as_array).unwrap();
+        assert!(logs.iter().any(|entry| {
+            entry.pointer("/scope").and_then(serde_json::Value::as_str) == Some("http")
+                && entry.pointer("/message").and_then(serde_json::Value::as_str).unwrap_or_default().contains("GET /api/providers -> 200")
+        }));
     }
 }

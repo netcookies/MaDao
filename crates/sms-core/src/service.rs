@@ -99,6 +99,52 @@ impl SmsService {
         Arc::clone(&self.registry)
     }
 
+    pub fn log_http_access(
+        &self,
+        method: impl Into<String>,
+        path: impl Into<String>,
+        status: impl Into<String>,
+    ) {
+        let method = method.into();
+        let path = path.into();
+        let status = status.into();
+        self.log("http", "info", format!("{method} {path} -> {status}"));
+    }
+
+    pub fn log_upstream_request(
+        &self,
+        provider: impl Into<String>,
+        action: impl Into<String>,
+        details: impl Into<String>,
+    ) {
+        let provider = provider.into();
+        let action = action.into();
+        let details = details.into();
+        self.log(
+            format!("upstream:{provider}"),
+            "info",
+            format!("{action} {details}"),
+        );
+    }
+
+    pub fn log_upstream_response(
+        &self,
+        provider: impl Into<String>,
+        action: impl Into<String>,
+        status: impl Into<String>,
+        details: impl Into<String>,
+    ) {
+        let provider = provider.into();
+        let action = action.into();
+        let status = status.into();
+        let details = details.into();
+        self.log(
+            format!("upstream:{provider}"),
+            if status.starts_with('2') { "info" } else { "warn" },
+            format!("{action} -> {status} {details}"),
+        );
+    }
+
     pub async fn acquire_code(&self, request: AcquireCodeRequest) -> Result<AcquireCodeResponse, SmsError> {
         if request.routing_plan_id.is_some() || request.routing_plan_name.is_some() {
             return self.acquire_code_by_routing_plan(request).await;
@@ -121,9 +167,28 @@ impl SmsService {
         if !provider.manifest().enabled {
             return Err(SmsError::ProviderDisabled(request.provider));
         }
-        let ticket = provider
+        self.log_upstream_request(
+            &request.provider,
+            "acquire",
+            format!(
+                "service={} country={}",
+                request.service.clone().unwrap_or_default(),
+                request.country.clone().unwrap_or_default()
+            ),
+        );
+        let ticket = match provider
             .acquire(&self.translate_acquire_request(&request, cached_options.as_ref().map(|entry| &entry.options)))
-            .await?;
+            .await
+        {
+            Ok(ticket) => {
+                self.log_upstream_response(&request.provider, "acquire", "200", "ticket acquired");
+                ticket
+            }
+            Err(error) => {
+                self.log_upstream_response(&request.provider, "acquire", "error", error.to_string());
+                return Err(error);
+            }
+        };
         let response = AcquireCodeResponse {
             ticket_id: ticket.id.clone(),
             provider: ticket.provider.clone(),
@@ -177,6 +242,7 @@ impl SmsService {
         }
         Err(last_error)
     }
+
     async fn try_acquire_from_routing_item(
         &self,
         request: &AcquireCodeRequest,
@@ -276,7 +342,17 @@ impl SmsService {
             let registry = self.registry.read();
             registry.get(&current.provider)?
         };
-        let response = provider.poll_code(&current).await?;
+        self.log_upstream_request(&current.provider, "poll", format!("ticket_id={}", current.id));
+        let response = match provider.poll_code(&current).await {
+            Ok(response) => {
+                self.log_upstream_response(&current.provider, "poll", "200", format!("status={:?}", response.status));
+                response
+            }
+            Err(error) => {
+                self.log_upstream_response(&current.provider, "poll", "error", error.to_string());
+                return Err(error);
+            }
+        };
         self.tickets.write().entry(current.id.clone()).and_modify(|ticket| {
             ticket.updated_at = Utc::now();
             ticket.status = response.status.clone();
@@ -301,7 +377,17 @@ impl SmsService {
             let registry = self.registry.read();
             registry.get(&current.provider)?
         };
-        let message = provider.release(&current, request.action.clone()).await?;
+        self.log_upstream_request(&current.provider, "release", format!("ticket_id={}", current.id));
+        let message = match provider.release(&current, request.action.clone()).await {
+            Ok(message) => {
+                self.log_upstream_response(&current.provider, "release", "200", message.clone());
+                message
+            }
+            Err(error) => {
+                self.log_upstream_response(&current.provider, "release", "error", error.to_string());
+                return Err(error);
+            }
+        };
         let next_status = match request.action {
             crate::models::ReleaseAction::Finish => TicketStatus::Finished,
             crate::models::ReleaseAction::Cancel | crate::models::ReleaseAction::Ban => TicketStatus::Cancelled,
@@ -410,14 +496,34 @@ impl SmsService {
     }
 
     pub async fn get_balance(&self, provider_id: &str) -> Result<ProviderBalance, SmsError> {
+        self.log_upstream_request(provider_id, "get_balance", "");
         let provider = {
             let registry = self.registry.read();
             registry.get(provider_id)?
         };
-        provider.get_balance().await
+        match provider.get_balance().await {
+            Ok(balance) => {
+                self.log_upstream_response(
+                    provider_id,
+                    "get_balance",
+                    "200",
+                    format!("amount={:.2} {}", balance.amount, balance.currency),
+                );
+                Ok(balance)
+            }
+            Err(error) => {
+                self.log_upstream_response(provider_id, "get_balance", "error", error.to_string());
+                Err(error)
+            }
+        }
     }
 
     pub async fn get_prices(&self, query: ProviderPriceQuery) -> Result<ProviderPriceResponse, SmsError> {
+        self.log_upstream_request(
+            &query.provider,
+            "get_prices",
+            format!("service={}", query.service.clone().unwrap_or_default()),
+        );
         let cached_options = self.provider_option_cache.read().entries.get(&query.provider).cloned();
         let provider = {
             let registry = self.registry.read();
@@ -428,7 +534,21 @@ impl SmsService {
             OptionKind::Service,
             query.service.as_deref().unwrap_or(provider.manifest().defaults.service.as_str()),
         );
-        let items = provider.get_prices(Some(&service)).await?;
+        let items = match provider.get_prices(Some(&service)).await {
+            Ok(items) => {
+                self.log_upstream_response(
+                    &query.provider,
+                    "get_prices",
+                    "200",
+                    format!("service={service} items={}", items.len()),
+                );
+                items
+            }
+            Err(error) => {
+                self.log_upstream_response(&query.provider, "get_prices", "error", error.to_string());
+                return Err(error);
+            }
+        };
         let normalized_items = normalize_price_items(
             cached_options.as_ref().map(|entry| &entry.options),
             items,
@@ -454,9 +574,11 @@ impl SmsService {
                 return Ok(with_cache_state(entry.options, &settings));
             }
         }
+        self.log_upstream_request(provider_id, "get_options", "");
         match self.refresh_provider_options(provider_id).await {
             Ok(options) => Ok(options),
             Err(error) => {
+                self.log_upstream_response(provider_id, "get_options", "error", error.to_string());
                 if let Some(entry) = cached {
                     Ok(with_cache_state(entry.options, &settings))
                 } else {
@@ -475,7 +597,16 @@ impl SmsService {
             let registry = self.registry.read();
             registry.get(provider_id)?
         };
-        let raw_options = provider.get_options().await?;
+        let raw_options = match provider.get_options().await {
+            Ok(options) => {
+                self.log_upstream_response(provider_id, "get_options", "200", "options refreshed");
+                options
+            }
+            Err(error) => {
+                self.log_upstream_response(provider_id, "get_options", "error", error.to_string());
+                return Err(error);
+            }
+        };
         let fetched_at = Utc::now();
         let normalized = normalize_provider_options(&manifest, raw_options, fetched_at);
         let mut store = self.provider_option_cache.write();
@@ -1172,5 +1303,22 @@ mod tests {
             .unwrap();
 
         assert_eq!(failover.routing_item_id.as_deref(), Some(candidate_ids[1].as_str()));
+    }
+
+    #[tokio::test]
+    async fn upstream_actions_are_written_to_logs() {
+        let service = make_service();
+        let _ = service.get_balance("mock").await.unwrap();
+        let _ = service
+            .get_prices(ProviderPriceQuery {
+                provider: "mock".to_string(),
+                service: Some("openai".to_string()),
+            })
+            .await
+            .unwrap();
+
+        let logs = service.runtime_snapshot().logs;
+        assert!(logs.iter().any(|entry| entry.scope == "upstream:mock" && entry.message.contains("get_balance")));
+        assert!(logs.iter().any(|entry| entry.scope == "upstream:mock" && entry.message.contains("get_prices")));
     }
 }
