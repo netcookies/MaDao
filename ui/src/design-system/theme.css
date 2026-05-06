@@ -1,7 +1,7 @@
 :root {
   /* Canonical design token source for runtime theming and Tailwind consumption. */
   --ds-color-window-bg: #e8ecf0;
-  --ds-color-sidebar-bg: rgba(255, 255, 255, 0.60);
+  --ds-color-sidebar-bg: rgba(255, 255, 255, 0.85);
   --ds-color-content-bg: #e8ecf0;
   --ds-color-surface-default: rgba(255, 255, 255, 0.70);
   --ds-color-surface-subtle: rgba(255, 255, 255, 0.45);

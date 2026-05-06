@@ -39,8 +39,8 @@ export function AppSidebar<T extends string>(props: AppSidebarProps<T>) {
             className={cx('h-11 w-11 shrink-0 rounded-[12px] object-contain', collapsed && 'h-10 w-10')}
           />
           <div className={cx('flex min-w-0 flex-col', collapsed && 'hidden')}>
-            <span className="truncate text-[26px] font-semibold leading-[1] tracking-[-0.04em] text-ds-text-primary [font-family:'Bradley_Hand',var(--ds-font-family-display)]">
-                码到
+            <span className="text-[26px] font-semibold leading-[1.15] tracking-[-0.04em] text-ds-text-primary [font-family:'Bradley_Hand',var(--ds-font-family-display)]">
+              码到
             </span>
             <span className="mt-0.5 truncate text-[13px] font-semibold tracking-[0] text-ds-text-secondary [font-family:'Bradley_Hand',var(--ds-font-family-display)]">
               MaDao
