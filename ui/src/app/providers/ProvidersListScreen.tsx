@@ -25,7 +25,7 @@ export function ProvidersListScreen(props: ProvidersListScreenProps) {
           const summary = props.summaries?.find((item) => item.id === provider.id);
           const enableLocked = !provider.enabled && summary?.can_enable === false;
           const endpoint = summary?.primary_endpoint ?? provider.homepage ?? 'No endpoint';
-          const protocolTag = summary?.protocol ?? provider.kind;
+          const protocolTag = provider.kind;
           const balanceLabel = props.balances?.[provider.id] ?? '—';
 
           return (

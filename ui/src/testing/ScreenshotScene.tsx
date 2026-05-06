@@ -481,7 +481,7 @@ const ACTIVATION_FORM: ActivationFormState = {
   service: '',
   country: '',
   provider: '',
-  routing_plan_id: 'openai-plan',
+  routing_plan_id: '',
   operator: 'any',
   min_price: '',
   max_price: '',
