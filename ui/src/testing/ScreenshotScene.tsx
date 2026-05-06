@@ -592,17 +592,17 @@ function renderPageTarget(target: ScreenshotTarget) {
   if (target === 'ProviderWorkspace_Config') {
     return buildShell(
       'providers',
-      'Providers',
+      'Providers › SMSBower',
       <ProviderWorkspaceScreen
-        manifest={PROVIDERS[0]}
-        summary={PROVIDER_SUMMARIES[0]}
+        manifest={PROVIDERS[2]}
+        summary={PROVIDER_SUMMARIES[2]}
         section="config"
         prices={PRICE_ITEMS}
-        balanceLabel="$124.80"
+        balanceLabel="7.81 USD"
         busyAction=""
-        rawEditor={JSON.stringify(PROVIDERS[0], null, 2)}
+        rawEditor={JSON.stringify(PROVIDERS[2], null, 2)}
         showAdvancedEditor
-        apiKeyValue="••••••••••••••••••"
+        apiKeyValue="••••••••••••••••••••••••••••••••••"
         onSelectSection={noop}
         onManifestFieldChange={noop}
         onApiKeyChange={noop}
@@ -612,20 +612,23 @@ function renderPageTarget(target: ScreenshotTarget) {
         onSave={noop}
         onOpenRawJson={noop}
         onOpenSelector={noop}
-        storeQuery={{ service: 'telegram', country: '', operator: '', search: '' }}
+        storeQuery={{ service: 'openai', country: '', operator: '', search: '' }}
         onStoreQueryChange={noop}
         onSortPrices={noop}
         priceSort={{ key: 'country', dir: 'asc' }}
       />,
       {
         navigation: (
-          <button
-            type="button"
-            aria-label="Back to providers"
-            className="inline-flex h-7 w-7 items-center justify-center rounded-pill text-ds-text-secondary"
-          >
-            <ChevronLeft size={16} />
-          </button>
+          <>
+            <PanelLeft size={16} className="opacity-60" />
+            <button
+              type="button"
+              aria-label="Back to providers"
+              className="inline-flex h-7 w-7 items-center justify-center rounded-pill text-ds-text-secondary"
+            >
+              <ChevronLeft size={16} />
+            </button>
+          </>
         ),
       },
     );
@@ -634,17 +637,17 @@ function renderPageTarget(target: ScreenshotTarget) {
   if (target === 'ProviderWorkspace_Store') {
     return buildShell(
       'providers',
-      'Providers',
+      'Providers › SMSBower',
       <ProviderWorkspaceScreen
-        manifest={PROVIDERS[0]}
-        summary={PROVIDER_SUMMARIES[0]}
+        manifest={PROVIDERS[2]}
+        summary={PROVIDER_SUMMARIES[2]}
         section="store"
-        prices={PRICE_ITEMS}
-        balanceLabel="$124.80"
+        prices={[]}
+        balanceLabel="7.81 USD"
         busyAction=""
-        rawEditor={JSON.stringify(PROVIDERS[0], null, 2)}
+        rawEditor={JSON.stringify(PROVIDERS[2], null, 2)}
         showAdvancedEditor
-        apiKeyValue="••••••••••••••••••"
+        apiKeyValue="••••••••••••••••••••••••••••••••••"
         onSelectSection={noop}
         onManifestFieldChange={noop}
         onApiKeyChange={noop}
@@ -654,20 +657,23 @@ function renderPageTarget(target: ScreenshotTarget) {
         onSave={noop}
         onOpenRawJson={noop}
         onOpenSelector={noop}
-        storeQuery={{ service: 'telegram', country: '', operator: '', search: '' }}
+        storeQuery={{ service: 'openai', country: '', operator: '', search: '' }}
         onStoreQueryChange={noop}
         onSortPrices={noop}
         priceSort={{ key: 'country', dir: 'asc' }}
       />,
       {
         navigation: (
-          <button
-            type="button"
-            aria-label="Back to providers"
-            className="inline-flex h-7 w-7 items-center justify-center rounded-pill text-ds-text-secondary"
-          >
-            <ChevronLeft size={16} />
-          </button>
+          <>
+            <PanelLeft size={16} className="opacity-60" />
+            <button
+              type="button"
+              aria-label="Back to providers"
+              className="inline-flex h-7 w-7 items-center justify-center rounded-pill text-ds-text-secondary"
+            >
+              <ChevronLeft size={16} />
+            </button>
+          </>
         ),
       },
     );
@@ -676,17 +682,17 @@ function renderPageTarget(target: ScreenshotTarget) {
   if (target === 'ProviderWorkspace_Wallet') {
     return buildShell(
       'providers',
-      'Providers',
+      'Providers › SMSBower',
       <ProviderWorkspaceScreen
-        manifest={PROVIDERS[0]}
-        summary={PROVIDER_SUMMARIES[0]}
+        manifest={PROVIDERS[2]}
+        summary={PROVIDER_SUMMARIES[2]}
         section="wallet"
         prices={PRICE_ITEMS}
-        balanceLabel="$124.80"
+        balanceLabel="7.81 USD"
         busyAction=""
-        rawEditor={JSON.stringify(PROVIDERS[0], null, 2)}
+        rawEditor={JSON.stringify(PROVIDERS[2], null, 2)}
         showAdvancedEditor
-        apiKeyValue="••••••••••••••••••"
+        apiKeyValue="••••••••••••••••••••••••••••••••••"
         onSelectSection={noop}
         onManifestFieldChange={noop}
         onApiKeyChange={noop}
@@ -696,20 +702,23 @@ function renderPageTarget(target: ScreenshotTarget) {
         onSave={noop}
         onOpenRawJson={noop}
         onOpenSelector={noop}
-        storeQuery={{ service: 'telegram', country: '', operator: '', search: '' }}
+        storeQuery={{ service: 'openai', country: '', operator: '', search: '' }}
         onStoreQueryChange={noop}
         onSortPrices={noop}
         priceSort={{ key: 'country', dir: 'asc' }}
       />,
       {
         navigation: (
-          <button
-            type="button"
-            aria-label="Back to providers"
-            className="inline-flex h-7 w-7 items-center justify-center rounded-pill text-ds-text-secondary"
-          >
-            <ChevronLeft size={16} />
-          </button>
+          <>
+            <PanelLeft size={16} className="opacity-60" />
+            <button
+              type="button"
+              aria-label="Back to providers"
+              className="inline-flex h-7 w-7 items-center justify-center rounded-pill text-ds-text-secondary"
+            >
+              <ChevronLeft size={16} />
+            </button>
+          </>
         ),
       },
     );

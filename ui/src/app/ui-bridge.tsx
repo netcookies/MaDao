@@ -138,12 +138,14 @@ export function SelectTrigger(props: {
   );
 }
 
-export function StatusBadge(props: { tone: 'green' | 'gray' | 'orange'; children: ReactNode }) {
+export function StatusBadge(props: { tone: 'green' | 'gray' | 'orange' | 'blue'; children: ReactNode }) {
   const toneClass = props.tone === 'green'
     ? 'bg-[var(--ds-color-state-success-soft)] text-ds-state-success'
     : props.tone === 'orange'
       ? 'bg-[var(--ds-color-state-warning-soft)] text-ds-state-warning'
-      : 'bg-ds-surface-subtle text-ds-text-secondary';
+      : props.tone === 'blue'
+        ? 'bg-ds-accent-soft text-ds-accent-blue'
+        : 'bg-ds-surface-subtle text-ds-text-secondary';
 
   return (
     <span

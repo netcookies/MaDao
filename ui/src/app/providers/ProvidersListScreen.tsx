@@ -48,9 +48,11 @@ export function ProvidersListScreen(props: ProvidersListScreenProps) {
                 </StatusBadge>
               </div>
 
-              <span className="inline-flex items-center rounded-[4px] bg-black/[0.05] px-2 py-0.5 font-mono text-[11px] tracking-wide text-ds-text-secondary">
-                {protocolTag}
-              </span>
+              <div>
+                <StatusBadge tone={provider.enabled ? 'blue' : 'gray'}>
+                  {protocolTag}
+                </StatusBadge>
+              </div>
 
               <p className="line-clamp-2 text-[12px] leading-relaxed text-ds-text-secondary opacity-55">
                 {endpoint}
