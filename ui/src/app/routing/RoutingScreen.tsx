@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { ChevronRight, GripVertical, Plus } from 'lucide-react';
+import { ChevronRight, GripVertical, PanelLeftClose, PanelLeftOpen, Plus } from 'lucide-react';
 import { Modal } from '../../components/overlays';
 import { formatCountryLabel, formatProviderLabel, formatServiceLabel } from '../../lib/formatters';
 import {
@@ -40,11 +40,13 @@ export type RoutingScreenProps = {
   selectedPlanId: string;
   routingFilter: RoutingPlanFilter;
   routingSearch: string;
+  sidebarCollapsed: boolean;
   itemEditor: RoutingItemEditorState | null;
   itemEditorLoading: boolean;
   itemPriceOptions: ProviderPriceItem[];
   onSelectPlan: (planId: string) => void;
   onBackToList: () => void;
+  onToggleSidebarCollapse: () => void;
   onCreatePlan: () => void;
   onDeletePlan: (planId: string) => void;
   onUpdatePlan: (plan: RoutingPlan) => void;
@@ -132,7 +134,9 @@ export function RoutingScreen(props: RoutingScreenProps) {
         providerOptions={props.providerOptions}
         serviceOptions={props.serviceOptions}
         busyAction={props.busyAction}
+        sidebarCollapsed={props.sidebarCollapsed}
         onBackToList={props.onBackToList}
+        onToggleSidebarCollapse={props.onToggleSidebarCollapse}
         onDeletePlan={props.onDeletePlan}
         onUpdatePlan={props.onUpdatePlan}
         onOpenServicePicker={props.onOpenServicePicker}
@@ -284,7 +288,9 @@ function RoutingPlanDetailScreen(props: {
   providerOptions: Record<string, ProviderDynamicOptions>;
   serviceOptions: Array<{ id: string; label: string }>;
   busyAction: string;
+  sidebarCollapsed: boolean;
   onBackToList: () => void;
+  onToggleSidebarCollapse: () => void;
   onDeletePlan: (planId: string) => void;
   onUpdatePlan: (plan: RoutingPlan) => void;
   onOpenServicePicker: () => void;
@@ -297,34 +303,32 @@ function RoutingPlanDetailScreen(props: {
   onOpenItemSelector: (itemId: string, field: 'provider' | 'country' | 'operator') => void;
   onOpenItemEditor: (itemId: string) => void;
 }) {
+  const toggleLabel = props.plan.enabled ? 'Enabled' : 'Disabled';
+
   return (
     <div className="flex flex-col gap-6">
-      <div className="flex flex-col gap-4 min-[860px]:flex-row min-[860px]:items-center min-[860px]:justify-between">
-        <div className="inline-flex min-w-0 flex-wrap items-center gap-2 text-[13px]">
-          <button
-            type="button"
-            onClick={props.onBackToList}
-            className="inline-flex items-center gap-1 bg-transparent p-0 text-[13px] font-medium text-ds-accent-blue transition-opacity duration-fast ease-[var(--ds-motion-transition-fast)] hover:opacity-80"
-          >
-            Routing Plans
-          </button>
-          <ChevronRight size={12} className="shrink-0 text-ds-text-secondary" />
-          <span className="min-w-0 truncate text-[13px] font-medium text-ds-text-primary">
+      <div className="flex flex-col gap-4 min-[860px]:flex-row min-[860px]:items-start min-[860px]:justify-between">
+        <div className="flex flex-col gap-[3px]">
+          <h1 className="m-0 text-[20px] font-semibold leading-none tracking-[-0.3px] text-ds-text-primary">
             {props.plan.name || 'Untitled Plan'}
-          </span>
+          </h1>
+          <p className="m-0 text-[13px] leading-none text-ds-text-secondary opacity-50">
+            Manage service matching, execution order, and candidate availability for this routing plan.
+          </p>
         </div>
 
         <div className="flex flex-wrap items-center gap-3">
-          <StatusBadge tone={props.plan.enabled ? 'green' : 'gray'}>
-            {props.plan.enabled ? 'Enabled' : 'Disabled'}
-          </StatusBadge>
-          <ToggleSwitch
-            checked={props.plan.enabled}
-            onChange={(enabled) => props.onUpdatePlan({ ...props.plan, enabled })}
-            ariaLabel="Toggle routing plan"
-          />
+          <button
+            type="button"
+            aria-label={props.sidebarCollapsed ? 'Expand sidebar' : 'Collapse sidebar'}
+            className="inline-flex h-7 w-7 items-center justify-center rounded-pill text-ds-text-secondary transition-colors duration-fast ease-[var(--ds-motion-transition-fast)] hover:bg-[var(--ds-color-interactive-hover)] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ds-accent-focus"
+            onClick={props.onToggleSidebarCollapse}
+          >
+            {props.sidebarCollapsed ? <PanelLeftOpen size={16} /> : <PanelLeftClose size={16} />}
+          </button>
           <AppButton
             variant="danger-outline"
+            size="utility"
             onClick={() => props.onDeletePlan(props.plan.id)}
             disabled={!props.plan.id || props.busyAction === 'delete-routing-plan'}
           >
@@ -335,8 +339,20 @@ function RoutingPlanDetailScreen(props: {
 
       <section className="rounded-2xl border border-ds-border bg-ds-surface p-6 shadow-ds backdrop-blur-ds">
         <div className="flex flex-col gap-6">
-          <div className="text-[11px] font-semibold uppercase tracking-[0.08em] text-ds-text-secondary">
-            PLAN DETAILS
+          <div className="flex items-center justify-between gap-4">
+            <span className="text-[11px] font-semibold uppercase tracking-[0.08em] text-ds-text-secondary">
+              PLAN DETAILS
+            </span>
+            <div className="flex items-center gap-2">
+              <span className="text-[11px] font-semibold text-ds-text-primary">
+                {toggleLabel}
+              </span>
+              <ToggleSwitch
+                checked={props.plan.enabled}
+                onChange={(enabled) => props.onUpdatePlan({ ...props.plan, enabled })}
+                ariaLabel="Toggle routing plan"
+              />
+            </div>
           </div>
 
           <div className="grid grid-cols-1 gap-4 min-[760px]:grid-cols-[minmax(0,1fr)_200px]">

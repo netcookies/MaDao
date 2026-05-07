@@ -963,8 +963,12 @@ export function App() {
     }
   }
 
+  const selectedRoutingPlan = routingPlans.find((item) => selectedRoutingPlanMatcher(item));
+
   const toolbarTitle = activeScreen === 'providers' && providerView === 'workspace'
     ? `Providers › ${manifests[selectedProvider]?.name ?? selectedProvider}`
+    : activeScreen === 'routing' && routingView === 'detail'
+      ? `Routing Plans › ${selectedRoutingPlan?.name || 'Untitled Plan'}`
     : NAV_ITEMS.find((item) => item.id === activeScreen)?.label ?? '';
 
   const notificationItems = useMemo(() => (
@@ -1017,6 +1021,17 @@ export function App() {
         </button>
       </div>
     )
+    : activeScreen === 'routing' && routingView === 'detail'
+      ? (
+        <button
+          type="button"
+          aria-label="Back to routing plans"
+          className="inline-flex h-7 w-7 items-center justify-center rounded-pill text-ds-text-secondary transition-colors duration-fast ease-[var(--ds-motion-transition-fast)] hover:bg-[var(--ds-color-interactive-hover)] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ds-accent-focus"
+          onClick={closeRoutingPlanDetail}
+        >
+          <ChevronLeft size={16} />
+        </button>
+      )
     : collapseToggle;
 
   const toolbarActions = (
@@ -1185,11 +1200,13 @@ export function App() {
                 selectedPlanId={selectedRoutingPlanId}
                 routingFilter={routingFilter}
                 routingSearch={routingSearch}
+                sidebarCollapsed={sidebarCollapsed}
                 itemEditor={routingItemEditor}
                 itemEditorLoading={routingItemPriceLoading}
                 itemPriceOptions={routingItemPriceOptions}
                 onSelectPlan={openRoutingPlanDetail}
                 onBackToList={closeRoutingPlanDetail}
+                onToggleSidebarCollapse={() => setSidebarCollapsed((current) => !current)}
                 onCreatePlan={createRoutingPlan}
                 onDeletePlan={(planId) => void removeRoutingPlan(planId)}
                 onUpdatePlan={updateRoutingPlanDraft}

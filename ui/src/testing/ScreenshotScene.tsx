@@ -744,7 +744,7 @@ function renderPageTarget(target: ScreenshotTarget) {
   if (target === 'Routing') {
     return buildShell(
       'routing',
-      'Routing',
+      'Routing Plans › OpenGPT Plan 1',
       <RoutingScreen
         view="detail"
         plans={ROUTING_PLANS}
@@ -754,11 +754,13 @@ function renderPageTarget(target: ScreenshotTarget) {
         selectedPlanId="openai-plan"
         routingFilter={ROUTING_FILTER}
         routingSearch=""
+        sidebarCollapsed={false}
         itemEditor={null}
         itemEditorLoading={false}
         itemPriceOptions={PRICE_ITEMS}
         onSelectPlan={noop}
         onBackToList={noop}
+        onToggleSidebarCollapse={noop}
         onCreatePlan={noop}
         onDeletePlan={noop}
         onUpdatePlan={noop}
@@ -779,6 +781,17 @@ function renderPageTarget(target: ScreenshotTarget) {
         onUseItemPriceQuickFill={noop}
         busyAction=""
       />,
+      {
+        navigation: (
+          <button
+            type="button"
+            aria-label="Back to routing plans"
+            className="inline-flex h-7 w-7 items-center justify-center rounded-pill text-ds-text-secondary"
+          >
+            <ChevronLeft size={16} />
+          </button>
+        ),
+      },
     );
   }
 
