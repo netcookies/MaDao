@@ -415,7 +415,7 @@ function RoutingPlanDetailScreen(props: {
               {props.plan.items.length}
             </span>
           </div>
-          <AppButton variant="primary" onClick={props.onAddItem}>
+          <AppButton variant="outline" size="utility" onClick={props.onAddItem}>
             <Plus size={14} />
             Add Candidate
           </AppButton>
@@ -634,7 +634,7 @@ function RoutingItemEditorModal(props: {
       footer={(
         <>
           <AppButton variant="outline" onClick={props.onClose}>Cancel</AppButton>
-          <AppButton variant="primary" onClick={props.onApply}>Save Changes</AppButton>
+          <AppButton variant="primary" size="utility" onClick={props.onApply}>Save Changes</AppButton>
         </>
       )}
     >
