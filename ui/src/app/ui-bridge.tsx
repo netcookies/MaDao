@@ -92,6 +92,7 @@ export function SegmentedControl<T extends string>(props: {
   onChange: (value: T) => void;
   appearance?: 'pill' | 'rail';
   className?: string;
+  itemClassName?: string;
 }) {
   return (
     <DsSegmentedControl
@@ -100,6 +101,7 @@ export function SegmentedControl<T extends string>(props: {
       onChange={props.onChange}
       appearance={props.appearance}
       className={props.className}
+      itemClassName={props.itemClassName}
     />
   );
 }

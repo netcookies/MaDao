@@ -13,6 +13,7 @@ export type SegmentedControlProps<T extends string> = {
   onChange: (value: T) => void;
   appearance?: 'pill' | 'rail';
   className?: string;
+  itemClassName?: string;
 };
 
 const ROOT_CLASS = 'inline-flex items-stretch gap-ds-xs';
@@ -25,7 +26,7 @@ const ITEM_RAIL_CLASS =
 const ITEM_RAIL_ACTIVE_CLASS = 'border-transparent bg-white/[93%] text-ds-text-primary shadow-[0_1px_2px_rgba(0,0,0,0.10)]';
 
 export function SegmentedControl<T extends string>(props: SegmentedControlProps<T>) {
-  const { items, value, onChange, appearance = 'pill', className } = props;
+  const { items, value, onChange, appearance = 'pill', className, itemClassName } = props;
   const isRail = appearance === 'rail';
 
   return (
@@ -40,6 +41,7 @@ export function SegmentedControl<T extends string>(props: SegmentedControlProps<
               isRail ? ITEM_RAIL_CLASS : ITEM_PILL_CLASS,
               active && !isRail && ITEM_PILL_ACTIVE_CLASS,
               isRail && active && ITEM_RAIL_ACTIVE_CLASS,
+              itemClassName,
             )}
             onClick={() => onChange(item.id)}
           >

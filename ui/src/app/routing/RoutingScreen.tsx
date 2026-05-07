@@ -52,6 +52,7 @@ export type RoutingScreenProps = {
   onUpdateRoutingSearch: (value: string) => void;
   onOpenServicePicker: () => void;
   onOpenProviderPicker: (itemId: string) => void;
+  onOpenItemSelector: (itemId: string, field: 'provider' | 'country' | 'operator') => void;
   onAddItem: () => void;
   onRemoveItem: (itemId: string) => void;
   onMoveItem: (itemId: string, direction: 'up' | 'down') => void;
@@ -141,6 +142,7 @@ export function RoutingScreen(props: RoutingScreenProps) {
         onMoveItem={props.onMoveItem}
         onReorderItem={props.onReorderItem}
         onOpenProviderPicker={props.onOpenProviderPicker}
+        onOpenItemSelector={props.onOpenItemSelector}
         onOpenItemEditor={props.onOpenItemEditor}
       />
       <RoutingItemEditorModal
@@ -152,6 +154,7 @@ export function RoutingScreen(props: RoutingScreenProps) {
         loading={props.itemEditorLoading}
         onClose={props.onCloseItemEditor}
         onChange={props.onItemEditorChange}
+        onOpenSelector={(field) => props.itemEditor && props.onOpenItemSelector(props.itemEditor.itemId, field)}
         onApply={props.onApplyItemEditor}
         onLoadPriceOptions={props.onLoadItemPriceOptions}
         onQuickFill={props.onUseItemPriceQuickFill}
@@ -291,6 +294,7 @@ function RoutingPlanDetailScreen(props: {
   onMoveItem: (itemId: string, direction: 'up' | 'down') => void;
   onReorderItem: (fromIndex: number, toIndex: number) => void;
   onOpenProviderPicker: (itemId: string) => void;
+  onOpenItemSelector: (itemId: string, field: 'provider' | 'country' | 'operator') => void;
   onOpenItemEditor: (itemId: string) => void;
 }) {
   return (
@@ -584,6 +588,7 @@ function RoutingItemEditorModal(props: {
   loading: boolean;
   onClose: () => void;
   onChange: (patch: Partial<RoutingItemEditorState>) => void;
+  onOpenSelector: (field: 'provider' | 'country' | 'operator') => void;
   onApply: () => void;
   onLoadPriceOptions: () => void;
   onQuickFill: (kind: 'min' | 'max', price: number) => void;
@@ -612,7 +617,13 @@ function RoutingItemEditorModal(props: {
     return true;
   });
 
-  const selectClass = 'w-full appearance-none rounded-xl border border-ds-border-strong bg-ds-surface px-4 py-[11px] text-[13px] text-ds-text-primary';
+  const providerLabel = props.providers.find((provider) => provider.id === editor.providerId)?.name ?? editor.providerId;
+  const isRangeMode = priceMode === 'range';
+  const priceInputClass = `min-h-[34px] w-full rounded-[10px] border px-3 py-2 text-[13px] leading-none transition-[background-color,color,border-color,opacity] duration-fast ease-[var(--ds-motion-transition-fast)] ${
+    isRangeMode
+      ? 'border-ds-border-strong bg-ds-surface text-ds-text-primary'
+      : 'border-ds-border bg-ds-window text-ds-text-secondary opacity-70'
+  }`;
 
   return (
     <Modal
@@ -628,48 +639,37 @@ function RoutingItemEditorModal(props: {
       )}
     >
       <div className="flex flex-col gap-4 px-5 py-4">
-        {/* Row 1: Provider + Country + Carrier */}
         <div className="grid grid-cols-1 gap-3 min-[580px]:grid-cols-3">
           <ModalField label="PROVIDER">
-            <select
-              value={editor.providerId}
-              onChange={(e) => props.onChange({ providerId: e.target.value, country: '', operator: '', minPrice: '', maxPrice: '' })}
-              className={selectClass}
-            >
-              <option value="">Select provider</option>
-              {props.providers.map((p) => (
-                <option key={p.id} value={p.id}>{formatProviderLabel(p.name)}</option>
-              ))}
-            </select>
+            <SelectTrigger
+              compact
+              value={providerLabel ? formatProviderLabel(providerLabel) : ''}
+              placeholder="Select provider"
+              onClick={() => props.onOpenSelector('provider')}
+              className="w-full"
+            />
           </ModalField>
           <ModalField label="COUNTRY">
-            <select
-              value={editor.country}
-              onChange={(e) => props.onChange({ country: e.target.value })}
-              className={selectClass}
-            >
-              <option value="">Any country</option>
-              {props.providerOptions?.countries.map((c) => (
-                <option key={c.value} value={c.value}>{c.label}</option>
-              ))}
-            </select>
+            <SelectTrigger
+              compact
+              value={editor.country ? formatCountryLabel(editor.country) : ''}
+              placeholder="Any country"
+              onClick={() => props.onOpenSelector('country')}
+              className="w-full"
+            />
           </ModalField>
           <ModalField label="CARRIER">
-            <select
+            <SelectTrigger
+              compact
               value={editor.operator}
-              onChange={(e) => props.onChange({ operator: e.target.value })}
-              className={selectClass}
-            >
-              <option value="">Any carrier</option>
-              {props.providerOptions?.operators.map((o) => (
-                <option key={o.value} value={o.value}>{o.label}</option>
-              ))}
-            </select>
+              placeholder="Any carrier"
+              onClick={() => props.onOpenSelector('operator')}
+              className="w-full"
+            />
           </ModalField>
         </div>
 
-        {/* Row 2: Price Mode + Min/Max */}
-        <div className="flex flex-wrap items-end gap-3">
+        <div className="grid grid-cols-1 gap-3 min-[680px]:grid-cols-[auto_minmax(0,1fr)] min-[680px]:items-end">
           <ModalField label="PRICE MODE">
             <SegmentedControl
               items={[{ id: 'any', label: 'Any' }, { id: 'range', label: 'Range' }]}
@@ -679,36 +679,36 @@ function RoutingItemEditorModal(props: {
                 if (v === 'any') props.onChange({ minPrice: '', maxPrice: '' });
               }}
               appearance="rail"
-              className="flex-nowrap"
+              className="gap-0.5 p-[3px]"
+              itemClassName="h-7 px-[14px] text-[12px]"
             />
           </ModalField>
 
-          {priceMode === 'range' && (
-            <div className="grid flex-1 grid-cols-[1fr_16px_1fr] items-end gap-2">
-              <ModalField label="MIN PRICE">
-                <input
-                  value={editor.minPrice}
-                  inputMode="decimal"
-                  onChange={(e) => props.onChange({ minPrice: e.target.value })}
-                  className="min-h-control w-full rounded-xl border border-ds-border-strong bg-ds-surface px-4 py-[11px] text-[13px] text-ds-text-primary"
-                  placeholder="0.50"
-                />
-              </ModalField>
-              <span className="pb-[14px] text-center text-[13px] text-ds-text-secondary">—</span>
-              <ModalField label="MAX PRICE">
-                <input
-                  value={editor.maxPrice}
-                  inputMode="decimal"
-                  onChange={(e) => props.onChange({ maxPrice: e.target.value })}
-                  className="min-h-control w-full rounded-xl border border-ds-border-strong bg-ds-surface px-4 py-[11px] text-[13px] text-ds-text-primary"
-                  placeholder="1.20"
-                />
-              </ModalField>
-            </div>
-          )}
+          <div className="grid grid-cols-[1fr_16px_1fr] items-end gap-2">
+            <ModalField label="MIN PRICE">
+              <input
+                value={editor.minPrice}
+                inputMode="decimal"
+                onChange={(e) => props.onChange({ minPrice: e.target.value })}
+                className={priceInputClass}
+                placeholder="0.50"
+                disabled={!isRangeMode}
+              />
+            </ModalField>
+            <span className="pb-[11px] text-center text-[13px] text-ds-text-secondary opacity-50">—</span>
+            <ModalField label="MAX PRICE">
+              <input
+                value={editor.maxPrice}
+                inputMode="decimal"
+                onChange={(e) => props.onChange({ maxPrice: e.target.value })}
+                className={priceInputClass}
+                placeholder="1.20"
+                disabled={!isRangeMode}
+              />
+            </ModalField>
+          </div>
         </div>
 
-        {/* Price Inventory — full width */}
         <div className="border-t border-ds-border pt-4">
           <div className="mb-2 flex items-center justify-between">
             <span className="text-[11px] font-semibold uppercase tracking-[0.08em] text-ds-text-secondary">Price Inventory</span>

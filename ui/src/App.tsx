@@ -120,6 +120,18 @@ const LOG_FILTERS: Array<{ id: LogFilter; label: string }> = [
   { id: 'error', label: 'Error' },
 ];
 
+const ANY_ROUTE_COUNTRY_OPTION: OptionItem = {
+  value: '',
+  label: 'Any country',
+  hint: 'Allow the provider to auto pick country',
+};
+
+const ANY_ROUTE_OPERATOR_OPTION: OptionItem = {
+  value: '',
+  label: 'Any carrier',
+  hint: 'Allow any operator for this provider',
+};
+
 export function App() {
   const [configDirectory, setConfigDirectory] = useState('Loading…');
   const {
@@ -462,6 +474,7 @@ export function App() {
     itemId: string;
     field: 'provider' | 'country' | 'operator' | 'price';
     providerId: string;
+    source: 'row' | 'editor';
   } | null>(null);
   const [activationRoutingPlanPickerOpen, setActivationRoutingPlanPickerOpen] = useState(false);
   const [routingItemEditor, setRoutingItemEditor] = useState<RoutingItemEditorState | null>(null);
@@ -749,22 +762,46 @@ export function App() {
     });
   }
 
-  async function openRoutingItemSelector(itemId: string, field: 'provider') {
+  async function openRoutingItemSelector(
+    itemId: string,
+    field: 'provider' | 'country' | 'operator',
+    source: 'row' | 'editor' = 'row',
+  ) {
     const plan = routingPlans.find((item) => selectedRoutingPlanMatcher(item));
     const item = plan?.items.find((entry) => entry.id === itemId);
     if (!plan || !item) return;
-    const providerId = item.provider || visibleProviders[0]?.id || '';
-    setRoutingEditorState({ itemId, field, providerId });
+    const editorProviderId = routingItemEditor?.itemId === itemId ? routingItemEditor.providerId : item.provider;
+    const providerId = editorProviderId || item.provider || visibleProviders[0]?.id || '';
+    const options = providerOptions[providerId];
+    setRoutingEditorState({ itemId, field, providerId, source });
 
     setSelectorSearch('');
+    if (field === 'provider') {
+      setSelectorState({
+        kind: 'routing-item-provider',
+        title: 'Select Candidate Provider',
+        options: visibleProviders.map((provider) => ({
+          value: provider.id,
+          label: provider.name,
+          hint: provider.kind,
+        })),
+      });
+      return;
+    }
+
+    if (field === 'country') {
+      setSelectorState({
+        kind: 'routing-item-country',
+        title: 'Select Candidate Country',
+        options: [ANY_ROUTE_COUNTRY_OPTION, ...(options?.countries ?? [])],
+      });
+      return;
+    }
+
     setSelectorState({
-      kind: 'routing-item-provider',
-      title: 'Select Provider',
-      options: visibleProviders.map((provider) => ({
-        value: provider.id,
-        label: provider.name,
-        hint: provider.kind,
-      })),
+      kind: 'routing-item-operator',
+      title: 'Select Candidate Carrier',
+      options: [ANY_ROUTE_OPERATOR_OPTION, ...(options?.operators ?? [])],
     });
   }
 
@@ -783,28 +820,73 @@ export function App() {
 
   function applyRoutingSelectorOption(option: OptionItem) {
     if (!routingEditorState) return;
-    const { itemId } = routingEditorState;
-    updateRoutingPlanItem(itemId, (item) => ({
-      ...item,
-      provider: option.value,
-      country: '',
-      operator: '',
-      price_mode: 'any',
-      min_price: null,
-      max_price: null,
-      fixed_price: null,
-    }));
-    setRoutingItemEditor((current) => current && current.itemId === itemId
-      ? {
-        ...current,
-        providerId: option.value,
-        country: '',
-        operator: '',
-        minPrice: '',
-        maxPrice: '',
+    const { itemId, field, source } = routingEditorState;
+
+    if (field === 'provider') {
+      if (source === 'editor') {
+        setRoutingItemEditor((current) => current && current.itemId === itemId
+          ? {
+            ...current,
+            providerId: option.value,
+            country: '',
+            operator: '',
+            minPrice: '',
+            maxPrice: '',
+          }
+          : current);
+      } else {
+        updateRoutingPlanItem(itemId, (item) => ({
+          ...item,
+          provider: option.value,
+          country: '',
+          operator: '',
+          price_mode: 'any',
+          min_price: null,
+          max_price: null,
+          fixed_price: null,
+        }));
+        setRoutingItemEditor((current) => current && current.itemId === itemId
+          ? {
+            ...current,
+            providerId: option.value,
+            country: '',
+            operator: '',
+            minPrice: '',
+            maxPrice: '',
+          }
+          : current);
       }
-      : current);
-    setRoutingItemPriceOptions([]);
+      setRoutingItemPriceOptions([]);
+    } else if (field === 'country') {
+      if (source === 'editor') {
+        setRoutingItemEditor((current) => current && current.itemId === itemId
+          ? {
+            ...current,
+            country: option.value,
+          }
+          : current);
+      } else {
+        updateRoutingPlanItem(itemId, (item) => ({
+          ...item,
+          country: option.value,
+        }));
+      }
+    } else if (field === 'operator') {
+      if (source === 'editor') {
+        setRoutingItemEditor((current) => current && current.itemId === itemId
+          ? {
+            ...current,
+            operator: option.value,
+          }
+          : current);
+      } else {
+        updateRoutingPlanItem(itemId, (item) => ({
+          ...item,
+          operator: option.value,
+        }));
+      }
+    }
+
     setRoutingEditorState(null);
     setSelectorState(null);
   }
@@ -1116,6 +1198,7 @@ export function App() {
                 onOpenServicePicker={openRoutingServiceSelector}
                 onSavePlan={(plan) => void persistRoutingPlan(plan)}
                 onOpenProviderPicker={(itemId) => void openRoutingItemSelector(itemId, 'provider')}
+                onOpenItemSelector={(itemId, field) => void openRoutingItemSelector(itemId, field, 'editor')}
                 onAddItem={addRoutingPlanItem}
                 onRemoveItem={removeRoutingPlanItem}
                 onMoveItem={moveRoutingPlanItem}

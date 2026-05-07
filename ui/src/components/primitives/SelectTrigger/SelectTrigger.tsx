@@ -1,5 +1,5 @@
 import type { ButtonHTMLAttributes } from 'react';
-import { ChevronDown } from 'lucide-react';
+import { ChevronsUpDown } from 'lucide-react';
 import { cx } from '../../../lib/cx';
 
 export type SelectTriggerProps = Omit<ButtonHTMLAttributes<HTMLButtonElement>, 'children'> & {
@@ -47,8 +47,8 @@ export function SelectTrigger(props: SelectTriggerProps) {
       <span className={cx('overflow-hidden text-ellipsis whitespace-nowrap', isPlaceholder && 'text-ds-text-secondary')}>
         {displayValue}
       </span>
-      <span className="inline-flex shrink-0 items-center justify-center text-ds-text-secondary opacity-50">
-        <ChevronDown size={14} />
+      <span className="inline-flex shrink-0 items-center justify-center text-ds-text-secondary opacity-40">
+        <ChevronsUpDown size={12} />
       </span>
     </button>
   );
