@@ -203,7 +203,7 @@ function WorkspaceConfig(props: {
         </div>
       </div>
 
-      <div className="overflow-hidden rounded-[10px] border border-white/50 bg-ds-surface">
+      <div className="overflow-hidden rounded-[10px] border border-white/50 bg-ds-surface shadow-ds backdrop-blur-ds">
         <ConfigRow label="API Key">
           <input
             className="min-h-control w-full rounded-sm border border-ds-border-strong bg-ds-surface px-4 py-[11px] text-utility tracking-[var(--ds-type-utility-tracking)] text-ds-text-primary"
