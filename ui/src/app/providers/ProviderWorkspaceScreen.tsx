@@ -160,24 +160,24 @@ function WorkspaceConfig(props: {
   const toggleLabel = props.isConnected ? 'Enabled' : 'Disabled';
 
   return (
-    <div className="flex flex-col gap-4">
+    <div className="flex flex-col gap-5">
       <div className="flex flex-col gap-1">
-        <h1 className="text-[22px] font-bold tracking-tight text-ds-text-primary">
+        <h1 className="text-[22px] font-bold leading-tight tracking-tight text-ds-text-primary">
           {manifest.name}
         </h1>
-        <p className="text-[13px] text-ds-text-secondary" style={{ opacity: 0.55 }}>
+        <p className="text-[13px] text-ds-text-secondary opacity-60">
           Manage API credentials and connection settings
         </p>
       </div>
 
       <div className="overflow-hidden rounded-lg border border-ds-border bg-ds-surface shadow-ds backdrop-blur-ds">
-        <div className="flex flex-col gap-2.5 px-5 py-4">
-          <div className="flex items-center justify-between gap-4">
-            <span className="font-text text-[11px] font-semibold uppercase tracking-[0.08em] text-ds-text-secondary">
-              {manifest.name.toUpperCase()}
+        <div className="flex flex-col gap-3 px-5 py-4">
+          <div className="flex items-center justify-between">
+            <span className="text-[11px] font-semibold uppercase tracking-[0.08em] text-ds-text-secondary">
+              {manifest.name}
             </span>
-            <div className="inline-flex items-center gap-2">
-              <span className="font-text text-[11px] font-semibold tracking-[0] text-ds-text-primary">
+            <div className="flex items-center gap-2">
+              <span className="text-[11px] font-semibold text-ds-text-primary">
                 {toggleLabel}
               </span>
               <ToggleSwitch
@@ -186,16 +186,14 @@ function WorkspaceConfig(props: {
                   if (enableLocked && enabled) return;
                   props.onToggleEnabled(enabled);
                 }}
-                ariaLabel={`Toggle ${props.manifest.name}`}
+                ariaLabel={`Toggle ${manifest.name}`}
               />
             </div>
           </div>
 
-          <div className="flex flex-col gap-1">
-            <h2 className="m-0 text-page-title text-ds-text-primary">
-              {props.balanceLabel === '—' ? '—' : props.balanceLabel}
-            </h2>
-          </div>
+          <span className="text-page-title text-ds-text-primary">
+            {props.balanceLabel}
+          </span>
 
           <div className="flex flex-wrap items-center gap-2">
             <StatusBadge tone={props.isConnected ? 'green' : 'gray'}>
@@ -214,17 +212,19 @@ function WorkspaceConfig(props: {
             className="min-h-control w-full rounded-sm border border-ds-border-strong bg-ds-surface px-4 py-[11px] text-utility tracking-[var(--ds-type-utility-tracking)] text-ds-text-primary"
             type="password"
             value={props.apiKeyValue}
-            onChange={(event) => props.onApiKeyChange(event.target.value)}
+            onChange={(e) => props.onApiKeyChange(e.target.value)}
             placeholder="Paste provider API key"
           />
         </ConfigRow>
-        <div className="grid grid-cols-[1fr_auto] items-center gap-3 px-5 py-3">
-          <div className="justify-self-start">
-            {props.showAdvancedEditor ? (
-              <AppButton variant="ghost" size="utility" className="min-h-0 px-0 py-0 text-ds-accent-blue" onClick={props.onOpenRawJson}>Raw JSON</AppButton>
-            ) : null}
+        <div className="flex items-center justify-between px-5 py-3">
+          <div>
+            {props.showAdvancedEditor && (
+              <AppButton variant="ghost" size="utility" className="min-h-0 px-0 py-0 text-ds-accent-blue" onClick={props.onOpenRawJson}>
+                Raw JSON
+              </AppButton>
+            )}
           </div>
-          <div className="inline-flex items-center gap-2">
+          <div className="flex items-center gap-2">
             <AppButton variant="ghost" size="utility" className="min-h-0 px-0 py-0 text-ds-accent-blue" onClick={props.onRefresh} disabled={props.busyAction.includes('refresh') || props.busyAction.includes('save')}>
               {props.busyAction.includes('refresh') ? 'Refreshing…' : 'Refresh'}
             </AppButton>
