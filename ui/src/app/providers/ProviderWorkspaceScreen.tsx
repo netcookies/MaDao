@@ -73,7 +73,7 @@ export function ProviderWorkspaceScreen(props: ProviderWorkspaceScreenProps) {
   const isConnected = manifest.enabled;
 
   return (
-    <div className="overflow-hidden rounded-lg border border-ds-border bg-ds-surface shadow-ds backdrop-blur-ds">
+    <div className="overflow-hidden rounded-lg border border-ds-border bg-ds-surface-elevated shadow-ds backdrop-blur-ds">
       <div className="flex flex-col gap-5 border-b border-ds-border px-6 pt-[18px] min-[980px]:items-end">
         <div className="flex flex-wrap items-end gap-2">
           {WORKSPACE_SECTIONS.map(({ id, label, Icon }) => (
@@ -92,7 +92,7 @@ export function ProviderWorkspaceScreen(props: ProviderWorkspaceScreenProps) {
         </div>
       </div>
 
-      <div className="bg-ds-surface px-10 py-8 max-[760px]:px-5">
+      <div className="px-10 py-8 max-[760px]:px-5">
         {section === 'config' && (
           <WorkspaceConfig
             manifest={manifest}
@@ -284,7 +284,7 @@ function WorkspaceStore(props: {
         value={props.storeQuery.search}
         onChange={(event) => props.onStoreQueryChange({ search: event.target.value })}
         placeholder="Filter by country or operator..."
-        className="w-full min-[760px]:w-[260px]"
+        className="w-full"
       />
 
       <div className="overflow-hidden rounded-lg border border-solid border-ds-border-strong bg-ds-surface">
