@@ -193,7 +193,8 @@ function WorkspaceConfig(props: {
             {props.balanceLabel}
           </span>
         </div>
-        <div className="flex flex-wrap items-center gap-2 border-t border-ds-border px-5 py-3">
+        <div className="h-px bg-ds-border" />
+        <div className="flex flex-wrap items-center gap-2 px-5 py-3">
           <StatusBadge tone={props.isConnected ? 'green' : 'gray'}>
             {props.isConnected ? 'Connected' : 'Disabled'}
           </StatusBadge>
@@ -204,7 +205,7 @@ function WorkspaceConfig(props: {
       </div>
 
       <div className="overflow-hidden rounded-[10px] border border-white/50 bg-ds-surface shadow-ds backdrop-blur-ds">
-        <ConfigRow label="API Key">
+        <ConfigRow label="API Key" last>
           <input
             className="min-h-control w-full rounded-sm border border-ds-border-strong bg-ds-surface px-4 py-[11px] text-utility tracking-[var(--ds-type-utility-tracking)] text-ds-text-primary"
             type="password"
@@ -213,6 +214,7 @@ function WorkspaceConfig(props: {
             placeholder="Paste provider API key"
           />
         </ConfigRow>
+        <div className="h-px bg-ds-border" />
         <div className="flex items-center justify-between px-5 py-3">
           <div>
             {props.showAdvancedEditor && (
