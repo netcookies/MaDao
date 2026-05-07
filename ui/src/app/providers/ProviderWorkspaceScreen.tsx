@@ -9,7 +9,6 @@ import {
   ConfigRow,
   DataTable,
   SearchField,
-  SectionHeader,
   SelectTrigger,
   StatusBadge,
   ToggleSwitch,
@@ -161,11 +160,11 @@ function WorkspaceConfig(props: {
 
   return (
     <div className="flex flex-col gap-3">
-      <div className="flex flex-col gap-1">
-        <h1 className="text-[22px] font-bold leading-tight tracking-tight text-ds-text-primary">
+      <div className="flex flex-col gap-[3px]">
+        <h1 className="text-[20px] font-semibold leading-tight tracking-[-0.3px] text-ds-text-primary">
           {manifest.name}
         </h1>
-        <p className="text-[13px] text-ds-text-secondary opacity-60">
+        <p className="text-[13px] leading-tight text-ds-text-secondary opacity-50">
           Manage API credentials and connection settings
         </p>
       </div>
@@ -251,30 +250,34 @@ function WorkspaceStore(props: {
 }) {
   return (
     <div className="flex flex-col gap-5">
-      <SectionHeader
-        title="Price Inventory"
-        description="Stock by service, country and operator"
-        actions={(
-          <div className="flex items-center gap-2">
-            <SelectTrigger
-              value={formatServiceLabel(props.storeQuery.service || props.manifest.defaults.service)}
-              onClick={() => props.onOpenSelector('store-service')}
-            />
-            <SelectTrigger
-              value={props.storeQuery.country ? formatCountryLabel(props.storeQuery.country) : ''}
-              placeholder="All countries"
-              muted={!props.storeQuery.country}
-              onClick={() => props.onOpenSelector('store-country')}
-            />
-            <SelectTrigger
-              value={props.storeQuery.operator}
-              placeholder="All operators"
-              muted={!props.storeQuery.operator}
-              onClick={() => props.onOpenSelector('store-operator')}
-            />
-          </div>
-        )}
-      />
+      <div className="flex items-start justify-between gap-6">
+        <div className="flex flex-col gap-[3px]">
+          <h2 className="text-[20px] font-semibold leading-tight tracking-[-0.3px] text-ds-text-primary">
+            Price Inventory
+          </h2>
+          <p className="text-[13px] leading-tight text-ds-text-secondary opacity-50">
+            Stock by service, country and operator
+          </p>
+        </div>
+        <div className="flex shrink-0 items-center gap-2">
+          <SelectTrigger
+            value={formatServiceLabel(props.storeQuery.service || props.manifest.defaults.service)}
+            onClick={() => props.onOpenSelector('store-service')}
+          />
+          <SelectTrigger
+            value={props.storeQuery.country ? formatCountryLabel(props.storeQuery.country) : ''}
+            placeholder="All countries"
+            muted={!props.storeQuery.country}
+            onClick={() => props.onOpenSelector('store-country')}
+          />
+          <SelectTrigger
+            value={props.storeQuery.operator}
+            placeholder="All operators"
+            muted={!props.storeQuery.operator}
+            onClick={() => props.onOpenSelector('store-operator')}
+          />
+        </div>
+      </div>
 
       <SearchField
         value={props.storeQuery.search}
