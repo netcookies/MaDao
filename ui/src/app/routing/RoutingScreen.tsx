@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { ChevronRight, GripVertical, PanelLeftClose, PanelLeftOpen, Plus } from 'lucide-react';
+import { ChevronRight, GripVertical, Plus } from 'lucide-react';
 import { Modal } from '../../components/overlays';
 import { formatCountryLabel, formatProviderLabel, formatServiceLabel } from '../../lib/formatters';
 import {
@@ -40,13 +40,11 @@ export type RoutingScreenProps = {
   selectedPlanId: string;
   routingFilter: RoutingPlanFilter;
   routingSearch: string;
-  sidebarCollapsed: boolean;
   itemEditor: RoutingItemEditorState | null;
   itemEditorLoading: boolean;
   itemPriceOptions: ProviderPriceItem[];
   onSelectPlan: (planId: string) => void;
   onBackToList: () => void;
-  onToggleSidebarCollapse: () => void;
   onCreatePlan: () => void;
   onDeletePlan: (planId: string) => void;
   onUpdatePlan: (plan: RoutingPlan) => void;
@@ -134,9 +132,7 @@ export function RoutingScreen(props: RoutingScreenProps) {
         providerOptions={props.providerOptions}
         serviceOptions={props.serviceOptions}
         busyAction={props.busyAction}
-        sidebarCollapsed={props.sidebarCollapsed}
         onBackToList={props.onBackToList}
-        onToggleSidebarCollapse={props.onToggleSidebarCollapse}
         onDeletePlan={props.onDeletePlan}
         onUpdatePlan={props.onUpdatePlan}
         onOpenServicePicker={props.onOpenServicePicker}
@@ -288,9 +284,7 @@ function RoutingPlanDetailScreen(props: {
   providerOptions: Record<string, ProviderDynamicOptions>;
   serviceOptions: Array<{ id: string; label: string }>;
   busyAction: string;
-  sidebarCollapsed: boolean;
   onBackToList: () => void;
-  onToggleSidebarCollapse: () => void;
   onDeletePlan: (planId: string) => void;
   onUpdatePlan: (plan: RoutingPlan) => void;
   onOpenServicePicker: () => void;
@@ -318,14 +312,6 @@ function RoutingPlanDetailScreen(props: {
         </div>
 
         <div className="flex flex-wrap items-center gap-3">
-          <button
-            type="button"
-            aria-label={props.sidebarCollapsed ? 'Expand sidebar' : 'Collapse sidebar'}
-            className="inline-flex h-7 w-7 items-center justify-center rounded-pill text-ds-text-secondary transition-colors duration-fast ease-[var(--ds-motion-transition-fast)] hover:bg-[var(--ds-color-interactive-hover)] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ds-accent-focus"
-            onClick={props.onToggleSidebarCollapse}
-          >
-            {props.sidebarCollapsed ? <PanelLeftOpen size={16} /> : <PanelLeftClose size={16} />}
-          </button>
           <AppButton
             variant="danger-outline"
             size="utility"

@@ -3,7 +3,6 @@ import {
   ChevronLeft,
   LayoutDashboard,
   MessageSquare,
-  PanelLeft,
   Plus,
   Shuffle,
   Server,
@@ -540,6 +539,7 @@ function buildShell(
         <AppSidebar
           items={NAV_ITEMS}
           activeId={screen}
+          onToggleCollapsed={noop}
           onSelect={noop}
         />
       )}
@@ -754,13 +754,11 @@ function renderPageTarget(target: ScreenshotTarget) {
         selectedPlanId="openai-plan"
         routingFilter={ROUTING_FILTER}
         routingSearch=""
-        sidebarCollapsed={false}
         itemEditor={null}
         itemEditorLoading={false}
         itemPriceOptions={PRICE_ITEMS}
         onSelectPlan={noop}
         onBackToList={noop}
-        onToggleSidebarCollapse={noop}
         onCreatePlan={noop}
         onDeletePlan={noop}
         onUpdatePlan={noop}

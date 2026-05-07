@@ -3,7 +3,7 @@ import {
 } from 'react';
 import {
   Bell, Bot, ChevronLeft, Copy, LayoutDashboard,
-  Loader2, MessageSquare, PanelLeftClose, PanelLeftOpen, Plus, Search, Send, Server, Settings,
+  Loader2, MessageSquare, Plus, Search, Send, Server, Settings,
   Shield, ShoppingCart, Shuffle, Sliders, Smartphone, Square, Terminal, User, Wallet, X,
 } from 'lucide-react';
 import {
@@ -989,6 +989,7 @@ export function App() {
       items={NAV_ITEMS.map(({ id, label, Icon }) => ({ id, label, icon: Icon }))}
       activeId={activeScreen}
       collapsed={sidebarCollapsed}
+      onToggleCollapsed={() => setSidebarCollapsed((current) => !current)}
       onSelect={(id) => {
         setActiveScreen(id);
         if (id === 'providers') setProviderView('list');
@@ -996,30 +997,16 @@ export function App() {
     />
   );
 
-  const collapseToggle = (
-    <button
-      type="button"
-      aria-label={sidebarCollapsed ? 'Expand sidebar' : 'Collapse sidebar'}
-      className="inline-flex h-7 w-7 items-center justify-center rounded-pill text-ds-text-secondary transition-colors duration-fast ease-[var(--ds-motion-transition-fast)] hover:bg-[var(--ds-color-interactive-hover)] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ds-accent-focus"
-      onClick={() => setSidebarCollapsed((current) => !current)}
-    >
-      {sidebarCollapsed ? <PanelLeftOpen size={16} /> : <PanelLeftClose size={16} />}
-    </button>
-  );
-
   const toolbarNavigation = activeScreen === 'providers' && providerView === 'workspace'
     ? (
-      <div className="inline-flex items-center gap-1">
-        {collapseToggle}
-        <button
-          type="button"
-          aria-label="Back to providers"
-          className="inline-flex h-7 w-7 items-center justify-center rounded-pill text-ds-text-secondary transition-colors duration-fast ease-[var(--ds-motion-transition-fast)] hover:bg-[var(--ds-color-interactive-hover)] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ds-accent-focus"
-          onClick={() => setProviderView('list')}
-        >
-          <ChevronLeft size={16} />
-        </button>
-      </div>
+      <button
+        type="button"
+        aria-label="Back to providers"
+        className="inline-flex h-7 w-7 items-center justify-center rounded-pill text-ds-text-secondary transition-colors duration-fast ease-[var(--ds-motion-transition-fast)] hover:bg-[var(--ds-color-interactive-hover)] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ds-accent-focus"
+        onClick={() => setProviderView('list')}
+      >
+        <ChevronLeft size={16} />
+      </button>
     )
     : activeScreen === 'routing' && routingView === 'detail'
       ? (
@@ -1032,7 +1019,7 @@ export function App() {
           <ChevronLeft size={16} />
         </button>
       )
-    : collapseToggle;
+      : undefined;
 
   const toolbarActions = (
     <>
@@ -1200,13 +1187,11 @@ export function App() {
                 selectedPlanId={selectedRoutingPlanId}
                 routingFilter={routingFilter}
                 routingSearch={routingSearch}
-                sidebarCollapsed={sidebarCollapsed}
                 itemEditor={routingItemEditor}
                 itemEditorLoading={routingItemPriceLoading}
                 itemPriceOptions={routingItemPriceOptions}
                 onSelectPlan={openRoutingPlanDetail}
                 onBackToList={closeRoutingPlanDetail}
-                onToggleSidebarCollapse={() => setSidebarCollapsed((current) => !current)}
                 onCreatePlan={createRoutingPlan}
                 onDeletePlan={(planId) => void removeRoutingPlan(planId)}
                 onUpdatePlan={updateRoutingPlanDraft}
