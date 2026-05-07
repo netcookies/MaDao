@@ -40,7 +40,7 @@ export function SectionHeader(props: SectionHeaderProps) {
           ) : null}
         </div>
       </div>
-      {actions ? <div className={cx('inline-flex flex-wrap items-center gap-ds-sm')}>{actions}</div> : null}
+      {actions ? <div className={cx('inline-flex shrink-0 items-center gap-ds-sm')}>{actions}</div> : null}
     </div>
   );
 }

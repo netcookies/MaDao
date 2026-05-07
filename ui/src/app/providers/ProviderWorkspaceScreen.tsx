@@ -255,7 +255,7 @@ function WorkspaceStore(props: {
         title="Price Inventory"
         description="Stock by service, country and operator"
         actions={(
-          <div className="flex flex-wrap justify-end gap-2">
+          <div className="flex items-center gap-2">
             <SelectTrigger
               value={formatServiceLabel(props.storeQuery.service || props.manifest.defaults.service)}
               onClick={() => props.onOpenSelector('store-service')}
