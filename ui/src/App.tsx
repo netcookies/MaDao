@@ -1000,7 +1000,16 @@ export function App() {
         >
           {busyAction === 'save-routing-plan' ? 'Saving...' : 'Save Changes'}
         </AppButton>
-      ) : (
+      ) : activeScreen === 'providers' && providerView === 'workspace' && activeProviderSection === 'config' ? (
+        <AppButton
+          variant="primary"
+          size="utility"
+          onClick={() => void saveProvider(selectedProvider)}
+          disabled={busyAction.includes('save')}
+        >
+          {busyAction.includes('save') ? 'Saving…' : 'Save'}
+        </AppButton>
+      ) : activeScreen === 'providers' && providerView === 'workspace' ? null : (
         <AppButton variant="primary" size="utility" onClick={openActivationModal}>
           <Plus size={14} />
           <span>New Activation</span>

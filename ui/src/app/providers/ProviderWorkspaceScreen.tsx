@@ -74,7 +74,7 @@ export function ProviderWorkspaceScreen(props: ProviderWorkspaceScreenProps) {
 
   return (
     <div className="overflow-hidden rounded-lg border border-ds-border bg-ds-surface-elevated shadow-ds backdrop-blur-ds">
-      <div className="flex flex-col gap-5 border-b border-ds-border px-6 pt-[18px] min-[980px]:items-end">
+      <div className="flex flex-col gap-5 border-b border-ds-border px-10 pt-[18px] min-[980px]:items-end">
         <div className="flex flex-wrap items-end gap-2">
           {WORKSPACE_SECTIONS.map(({ id, label, Icon }) => (
               <button
