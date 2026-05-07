@@ -73,7 +73,7 @@ export function ProviderWorkspaceScreen(props: ProviderWorkspaceScreenProps) {
 
   return (
     <div className="flex flex-col">
-      <div className="flex h-[46px] items-stretch gap-7 border-b border-white/[38%] bg-white/70 px-10">
+      <div className="flex h-[46px] items-stretch gap-7 border-b border-[var(--ds-color-toolbar-border)] bg-[var(--ds-color-toolbar-surface)] px-10">
         {WORKSPACE_SECTIONS.map(({ id, label, Icon }) => (
           <button
             key={id}
@@ -81,7 +81,7 @@ export function ProviderWorkspaceScreen(props: ProviderWorkspaceScreenProps) {
               'flex items-center gap-[7px] border-b-2 border-transparent font-text text-[14px] transition-colors duration-fast ease-[var(--ds-motion-transition-fast)]',
               section === id
                 ? 'border-ds-accent-blue font-semibold text-ds-accent-blue'
-                : 'font-normal text-[#1d1d1f]/40',
+                : 'font-normal text-ds-text-secondary',
             )}
             onClick={() => props.onSelectSection(id)}
           >
@@ -169,7 +169,7 @@ function WorkspaceConfig(props: {
         </p>
       </div>
 
-      <div className="overflow-hidden rounded-[10px] border border-white/50 bg-ds-surface shadow-ds backdrop-blur-ds">
+      <div className="overflow-hidden rounded-[10px] border border-[var(--ds-color-card-border)] bg-ds-surface shadow-ds backdrop-blur-ds">
         <div className="flex items-center justify-between px-5 py-[14px]">
           <span className="text-[11px] font-semibold uppercase tracking-[0.08em] text-ds-text-secondary">
             {manifest.name}
@@ -204,7 +204,7 @@ function WorkspaceConfig(props: {
         </div>
       </div>
 
-      <div className="overflow-hidden rounded-[10px] border border-white/50 bg-ds-surface shadow-ds backdrop-blur-ds">
+      <div className="overflow-hidden rounded-[10px] border border-[var(--ds-color-card-border)] bg-ds-surface shadow-ds backdrop-blur-ds">
         <ConfigRow label="API Key" last>
           <input
             className="min-h-control w-full rounded-sm border border-ds-border-strong bg-ds-surface px-4 py-[11px] text-utility tracking-[var(--ds-type-utility-tracking)] text-ds-text-primary"
@@ -286,9 +286,9 @@ function WorkspaceStore(props: {
         className="w-full"
       />
 
-      <div className="overflow-hidden rounded-xl border border-white/50 bg-ds-surface">
+      <div className="overflow-hidden rounded-xl border border-[var(--ds-color-card-border)] bg-ds-surface">
         <DataTable
-          headerClassName="grid grid-cols-1 items-center gap-4 border-b border-solid border-black/[0.08] border-x-0 border-t-0 bg-[#e8ecf0cc] px-4 py-[10px] text-[12px] font-medium text-ds-text-primary/60 min-[760px]:grid-cols-[minmax(0,1.5fr)_minmax(0,1fr)_120px_96px]"
+          headerClassName="grid grid-cols-1 items-center gap-4 border-b border-solid border-[var(--ds-color-divider-soft)] border-x-0 border-t-0 bg-[var(--ds-color-table-header)] px-4 py-[10px] text-[12px] font-medium text-ds-text-primary/60 min-[760px]:grid-cols-[minmax(0,1.5fr)_minmax(0,1fr)_120px_96px]"
           header={(
             <>
               <button className="inline-flex items-center justify-start gap-1.5 bg-transparent p-0 text-left text-inherit" onClick={() => props.onSortPrices('country')}>
@@ -308,7 +308,7 @@ function WorkspaceStore(props: {
           )}
         >
         {props.prices.length > 0 ? props.prices.slice(0, 20).map((item) => (
-            <div className="grid grid-cols-1 items-center gap-4 border-b border-solid border-black/[0.04] border-x-0 border-t-0 px-4 py-3 last:border-b-0 min-[760px]:grid-cols-[minmax(0,1.5fr)_minmax(0,1fr)_120px_96px]" key={`${item.country}-${item.display_name}`}>
+            <div className="grid grid-cols-1 items-center gap-4 border-b border-solid border-[var(--ds-color-divider-subtle)] border-x-0 border-t-0 px-4 py-3 last:border-b-0 min-[760px]:grid-cols-[minmax(0,1.5fr)_minmax(0,1fr)_120px_96px]" key={`${item.country}-${item.display_name}`}>
               <span className="inline-flex min-w-0 items-center gap-2.5">
                 <span className="shrink-0">{countryBadge(item.country)}</span>
                 <span className="min-w-0 overflow-hidden text-ellipsis whitespace-nowrap">{item.display_name}</span>

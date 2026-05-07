@@ -23,7 +23,7 @@ const BASE_CLASS =
 
 const VARIANT_CLASS: Record<ButtonVariant, string> = {
   primary: 'bg-[var(--ds-color-accent-blue-focus)] text-white shadow-[0_1px_2px_rgba(0,0,0,0.08)]',
-  outline: 'border-black/10 bg-white text-ds-accent-blue shadow-[0_1px_2px_rgba(0,0,0,0.04)]',
+  outline: 'border-ds-border bg-[var(--ds-color-card-surface)] text-ds-accent-blue shadow-[0_1px_2px_rgba(0,0,0,0.04)]',
   success: 'bg-ds-state-success text-white',
   ghost: 'bg-transparent text-ds-accent-blue',
   dangerOutline: 'border-[rgba(224,68,62,0.35)] bg-ds-surface text-[rgb(224,68,62)]',

@@ -17,13 +17,13 @@ export type SegmentedControlProps<T extends string> = {
 };
 
 const ROOT_CLASS = 'inline-flex items-stretch gap-ds-xs';
-const ROOT_RAIL_CLASS = 'inline-flex flex-nowrap items-center gap-1 rounded-[8px] border border-ds-border bg-ds-surface-subtle p-1 backdrop-blur-[12px] shadow-[0_1px_3px_rgba(0,0,0,0.07)]';
+const ROOT_RAIL_CLASS = 'inline-flex flex-nowrap items-center gap-1 rounded-[8px] border border-[var(--ds-color-control-rail-border)] bg-[var(--ds-color-control-rail-surface)] p-1 backdrop-blur-[12px] shadow-[0_1px_3px_rgba(0,0,0,0.07)]';
 const ITEM_PILL_CLASS =
   'inline-flex min-h-control h-control min-w-[84px] items-center justify-center whitespace-nowrap rounded-pill border border-ds-border bg-ds-surface px-4 py-[11px] font-text text-utility-strong text-ds-text-primary transition-[background-color,color,border-color,box-shadow] duration-fast ease-[var(--ds-motion-transition-fast)] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ds-accent-focus';
 const ITEM_PILL_ACTIVE_CLASS = 'border-ds-accent-blue bg-ds-accent-blue text-white';
 const ITEM_RAIL_CLASS =
-  'inline-flex h-7 min-w-0 items-center justify-center gap-[5px] whitespace-nowrap rounded-[6px] border border-transparent bg-transparent px-3 text-[13px] font-medium leading-none tracking-[0] text-ds-text-primary/60 transition-[background-color,color,box-shadow] duration-fast ease-[var(--ds-motion-transition-fast)] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ds-accent-focus';
-const ITEM_RAIL_ACTIVE_CLASS = 'border-transparent bg-ds-surface-elevated text-ds-text-primary shadow-[0_1px_2px_rgba(0,0,0,0.10)]';
+  'inline-flex h-7 min-w-0 items-center justify-center gap-[5px] whitespace-nowrap rounded-[6px] border border-transparent bg-transparent px-3 text-[13px] font-medium leading-none tracking-[0] text-[var(--ds-color-control-rail-text)] transition-[background-color,color,box-shadow] duration-fast ease-[var(--ds-motion-transition-fast)] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ds-accent-focus';
+const ITEM_RAIL_ACTIVE_CLASS = 'border-transparent bg-[var(--ds-color-control-rail-active)] text-[var(--ds-color-control-rail-text-active)] shadow-[0_1px_2px_rgba(0,0,0,0.10)]';
 
 export function SegmentedControl<T extends string>(props: SegmentedControlProps<T>) {
   const { items, value, onChange, appearance = 'pill', className, itemClassName } = props;

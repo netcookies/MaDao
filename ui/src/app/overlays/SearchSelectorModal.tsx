@@ -34,7 +34,7 @@ export function SearchSelectorModal(props: SearchSelectorModalProps) {
         {props.options.map((option) => (
           <button
             key={`${option.value}-${option.label}`}
-            className="flex items-center justify-start gap-2 px-5 py-[9px] text-left transition-colors duration-fast ease-[var(--ds-motion-transition-fast)] hover:bg-black/5"
+            className="flex items-center justify-start gap-2 px-5 py-[9px] text-left transition-colors duration-fast ease-[var(--ds-motion-transition-fast)] hover:bg-[var(--ds-color-hover-subtle)]"
             onClick={() => props.onSelect(option)}
           >
             <div className="flex min-w-0 flex-col gap-0.5">

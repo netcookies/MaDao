@@ -59,9 +59,9 @@ export function AppSidebar<T extends string>(props: AppSidebarProps<T>) {
               aria-label={item.label}
               title={collapsed ? item.label : undefined}
               className={cx(
-                'flex w-full items-center gap-2 rounded-[8px] px-3 py-1.5 text-left font-text text-[14px] font-normal leading-[1.25] tracking-[0] text-ds-text-primary transition-[background-color,border-color,color,opacity] duration-fast ease-[var(--ds-motion-transition-fast)] hover:bg-white/25 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ds-accent-focus',
+                'flex w-full items-center gap-2 rounded-[8px] px-3 py-1.5 text-left font-text text-[14px] font-normal leading-[1.25] tracking-[0] text-ds-text-primary transition-[background-color,border-color,color,opacity] duration-fast ease-[var(--ds-motion-transition-fast)] hover:bg-[var(--ds-color-interactive-hover)] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ds-accent-focus',
                 collapsed && 'justify-center gap-0 px-0',
-                active && 'border border-white/25 bg-white/[38%] font-semibold',
+                active && 'border border-[var(--ds-color-control-rail-border)] bg-[var(--ds-color-interactive-active)] font-semibold',
               )}
               onClick={() => onSelect(item.id)}
             >

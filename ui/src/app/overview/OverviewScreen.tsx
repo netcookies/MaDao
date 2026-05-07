@@ -37,8 +37,8 @@ export function OverviewScreen(props: OverviewScreenProps) {
           </h2>
           <AppButton variant="outline" size="utility" onClick={props.onViewAll}>View All</AppButton>
         </div>
-        <div className="overflow-hidden rounded-[8px] border border-white/50 bg-white/70 shadow-[0_2px_2px_rgba(0,0,0,0.06)] backdrop-blur-ds">
-          <div className="grid grid-cols-[130px_136px_minmax(0,1fr)_124px] items-center gap-3 border-b border-black/[0.06] bg-black/[0.02] px-4 py-2.5 text-[12px] font-medium tracking-[0] text-ds-text-primary/60">
+        <div className="overflow-hidden rounded-[8px] border border-[var(--ds-color-card-border)] bg-[var(--ds-color-card-surface)] shadow-[0_2px_2px_rgba(0,0,0,0.06)] backdrop-blur-ds">
+          <div className="grid grid-cols-[130px_136px_minmax(0,1fr)_124px] items-center gap-3 border-b border-[var(--ds-color-divider-soft)] bg-[var(--ds-color-table-header)] px-4 py-2.5 text-[12px] font-medium tracking-[0] text-ds-text-primary/60">
             <span>Provider</span>
             <span>Status</span>
             <span>Recipient</span>
@@ -47,7 +47,7 @@ export function OverviewScreen(props: OverviewScreenProps) {
           {props.activity.length > 0 ? (
             <div className="overflow-hidden rounded-b-[8px] bg-transparent">
               {props.activity.map((item) => (
-                <div className="grid grid-cols-[130px_136px_minmax(0,1fr)_124px] items-center gap-3 border-b border-black/[0.06] px-4 py-2 last:border-b-0" key={item.id}>
+                <div className="grid grid-cols-[130px_136px_minmax(0,1fr)_124px] items-center gap-3 border-b border-[var(--ds-color-divider-soft)] px-4 py-2 last:border-b-0" key={item.id}>
                   <span className="min-w-0 overflow-hidden text-ellipsis whitespace-nowrap text-[13px] font-medium text-ds-text-primary/80">{formatProviderLabel(item.provider)}</span>
                   <span className="min-w-0"><OverviewStatusTag status={item.status} /></span>
                   <span className="min-w-0 overflow-hidden text-ellipsis whitespace-nowrap text-[13px] font-normal text-ds-text-primary/80">{item.phone_number}</span>
@@ -71,7 +71,7 @@ export function OverviewScreen(props: OverviewScreenProps) {
 
 function StatCard(props: { title: string; value: string; caption: string; positive?: boolean; icon?: ReactNode }) {
   return (
-    <div className="flex flex-col gap-2 rounded-[8px] border border-white/50 bg-white/70 p-4 shadow-[0_2px_2px_rgba(0,0,0,0.06)] backdrop-blur-ds">
+    <div className="flex flex-col gap-2 rounded-[8px] border border-[var(--ds-color-card-border)] bg-[var(--ds-color-card-surface)] p-4 shadow-[0_2px_2px_rgba(0,0,0,0.06)] backdrop-blur-ds">
       <div className="flex items-center justify-between gap-3">
         <span className="text-[11px] font-semibold uppercase tracking-[0.02em] text-ds-text-primary/50">{props.title}</span>
         {props.icon}

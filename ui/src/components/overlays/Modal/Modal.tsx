@@ -36,7 +36,7 @@ export function Modal(props: ModalProps) {
       role="dialog"
       aria-modal="true"
       className={cx(
-        'flex w-full max-w-[720px] flex-col gap-5 rounded-[12px] border border-ds-border bg-white/[.92] px-6 pb-6 pt-5 text-ds-text-primary shadow-modal backdrop-blur-[20px]',
+        'flex w-full max-w-[720px] flex-col gap-5 rounded-[12px] border border-ds-border bg-ds-surface-elevated px-6 pb-6 pt-5 text-ds-text-primary shadow-modal backdrop-blur-[20px]',
         presentation === 'inline' && 'w-auto',
         variant === 'wide' && 'max-w-[960px]',
         variant === 'activation' && 'max-w-activation',
