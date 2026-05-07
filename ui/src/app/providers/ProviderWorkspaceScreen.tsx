@@ -92,7 +92,7 @@ export function ProviderWorkspaceScreen(props: ProviderWorkspaceScreenProps) {
         ))}
       </div>
 
-      <div className="px-10 pt-4 pb-6 max-[760px]:px-5">
+      <div className="px-10 pt-3 pb-6 max-[760px]:px-5">
         {section === 'config' && (
           <WorkspaceConfig
             manifest={manifest}
@@ -160,7 +160,7 @@ function WorkspaceConfig(props: {
   const toggleLabel = props.isConnected ? 'Enabled' : 'Disabled';
 
   return (
-    <div className="flex flex-col gap-4">
+    <div className="flex flex-col gap-3">
       <div className="flex flex-col gap-1">
         <h1 className="text-[22px] font-bold leading-tight tracking-tight text-ds-text-primary">
           {manifest.name}
