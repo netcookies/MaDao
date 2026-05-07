@@ -74,25 +74,25 @@ export function ProviderWorkspaceScreen(props: ProviderWorkspaceScreenProps) {
 
   return (
     <div className="flex flex-col">
-      <div className="flex flex-col gap-5 border-b border-ds-border px-10 pt-[18px] min-[980px]:items-end">
-        <div className="flex flex-wrap items-end gap-2">
-          {WORKSPACE_SECTIONS.map(({ id, label, Icon }) => (
-              <button
-                key={id}
-                className={cx(
-                  'flex items-center gap-3 border-b-2 border-transparent pb-[14px] text-left text-utility font-semibold tracking-[var(--ds-type-utility-tracking)] text-ds-text-primary transition-colors duration-fast ease-[var(--ds-motion-transition-fast)]',
-                  section === id ? 'border-ds-accent-blue text-ds-accent-blue' : 'text-ds-text-secondary',
-                )}
-                onClick={() => props.onSelectSection(id)}
-              >
-              <Icon size={16} className={section === id ? 'opacity-100' : 'opacity-60'} />
-              <span>{label}</span>
-            </button>
-          ))}
-        </div>
+      <div className="flex h-[46px] items-stretch gap-7 border-b border-white/[38%] bg-white/70 px-10">
+        {WORKSPACE_SECTIONS.map(({ id, label, Icon }) => (
+          <button
+            key={id}
+            className={cx(
+              'flex items-center gap-[7px] border-b-2 border-transparent font-text text-[14px] transition-colors duration-fast ease-[var(--ds-motion-transition-fast)]',
+              section === id
+                ? 'border-ds-accent-blue font-semibold text-ds-accent-blue'
+                : 'font-normal text-[#1d1d1f]/40',
+            )}
+            onClick={() => props.onSelectSection(id)}
+          >
+            <Icon size={15} className={section === id ? 'opacity-100' : 'opacity-40'} />
+            <span>{label}</span>
+          </button>
+        ))}
       </div>
 
-      <div className="px-10 py-6 max-[760px]:px-5">
+      <div className="px-10 pt-4 pb-6 max-[760px]:px-5">
         {section === 'config' && (
           <WorkspaceConfig
             manifest={manifest}
