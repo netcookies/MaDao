@@ -73,7 +73,7 @@ export function ProviderWorkspaceScreen(props: ProviderWorkspaceScreenProps) {
   const isConnected = manifest.enabled;
 
   return (
-    <div className="overflow-hidden rounded-lg border border-ds-border bg-ds-surface-elevated shadow-ds backdrop-blur-ds">
+    <div className="flex flex-col">
       <div className="flex flex-col gap-5 border-b border-ds-border px-10 pt-[18px] min-[980px]:items-end">
         <div className="flex flex-wrap items-end gap-2">
           {WORKSPACE_SECTIONS.map(({ id, label, Icon }) => (
@@ -191,11 +191,9 @@ function WorkspaceConfig(props: {
             </div>
           </div>
 
-          {props.balanceLabel !== '—' && (
-            <span className="text-page-title text-ds-text-primary">
-              {props.balanceLabel}
-            </span>
-          )}
+          <span className="text-page-title text-ds-text-primary">
+            {props.balanceLabel}
+          </span>
 
           <div className="flex flex-wrap items-center gap-2">
             <StatusBadge tone={props.isConnected ? 'green' : 'gray'}>
