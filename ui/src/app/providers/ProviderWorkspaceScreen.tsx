@@ -92,7 +92,7 @@ export function ProviderWorkspaceScreen(props: ProviderWorkspaceScreenProps) {
         </div>
       </div>
 
-      <div className="px-10 py-8 max-[760px]:px-5">
+      <div className="px-10 py-6 max-[760px]:px-5">
         {section === 'config' && (
           <WorkspaceConfig
             manifest={manifest}

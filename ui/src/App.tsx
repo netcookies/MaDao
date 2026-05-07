@@ -1031,7 +1031,7 @@ export function App() {
           />
         )}
         compact={compactTables}
-        contentClassName="max-[760px]:pt-5"
+        contentClassName={activeScreen === 'providers' && providerView === 'workspace' ? 'p-0' : 'max-[760px]:pt-5'}
       >
             {activeScreen === 'overview' && (
               <OverviewScreen
