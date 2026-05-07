@@ -7,6 +7,7 @@
   --ds-color-surface-elevated: rgba(255, 255, 255, 0.92);
   --ds-color-surface-subtle: rgba(255, 255, 255, 0.45);
   --ds-color-surface-chip: #d2d2d7;
+  --ds-color-control-rail: rgba(120, 120, 128, 0.16);
   --ds-color-border-default: rgba(0, 0, 0, 0.08);
   --ds-color-border-strong: rgba(0, 0, 0, 0.15);
   --ds-color-text-primary: #1d1d1f;
@@ -97,6 +98,7 @@
   --ds-color-surface-elevated: rgba(44, 44, 48, 0.95);
   --ds-color-surface-subtle: rgba(58, 58, 62, 0.70);
   --ds-color-surface-chip: #48484a;
+  --ds-color-control-rail: rgba(120, 120, 128, 0.24);
   --ds-color-border-default: rgba(255, 255, 255, 0.08);
   --ds-color-border-strong: rgba(255, 255, 255, 0.14);
   --ds-color-text-primary: #f5f5f7;
