@@ -298,7 +298,25 @@ impl SmsService {
             &routed,
             cached_options.as_ref().map(|entry| &entry.options),
         );
-        let mut ticket = provider.acquire(&translated).await?;
+        self.log_upstream_request(
+            &item.provider,
+            "acquire",
+            format!(
+                "service={} country={}",
+                translated.service.clone().unwrap_or_default(),
+                translated.country.clone().unwrap_or_default()
+            ),
+        );
+        let mut ticket = match provider.acquire(&translated).await {
+            Ok(ticket) => {
+                self.log_upstream_response(&item.provider, "acquire", "200", "ticket acquired");
+                ticket
+            }
+            Err(error) => {
+                self.log_upstream_response(&item.provider, "acquire", "error", error.to_string());
+                return Err(error);
+            }
+        };
         ticket.routing_plan_id = Some(plan.id.clone());
         ticket.routing_plan_name = Some(plan.name.clone());
         ticket.routing_item_id = Some(item.id.clone());
@@ -449,6 +467,10 @@ impl SmsService {
             );
         }
 
+        let mut last_error = SmsError::InvalidRequest(format!(
+            "routing plan `{}` has no remaining candidate items",
+            plan.name
+        ));
         for (attempt_index, item) in candidates.iter().enumerate().skip(start_index) {
             let mut acquire_request = AcquireCodeRequest {
                 provider: item.provider.clone(),
@@ -485,14 +507,22 @@ impl SmsService {
             let response = self
                 .try_acquire_from_routing_item(&acquire_request, &plan, item, attempt_index, &candidate_item_ids)
                 .await;
-            if response.is_ok() {
-                return response;
+            match response {
+                Ok(response) => return Ok(response),
+                Err(error) => {
+                    self.log(
+                        "router",
+                        "warn",
+                        format!(
+                            "routing failover skipped {} for ticket {}: {}",
+                            item.id, request.ticket_id, error
+                        ),
+                    );
+                    last_error = error;
+                }
             }
         }
-        Err(SmsError::InvalidRequest(format!(
-            "routing plan `{}` exhausted all candidate items",
-            plan.name
-        )))
+        Err(last_error)
     }
 
     pub async fn get_balance(&self, provider_id: &str) -> Result<ProviderBalance, SmsError> {
@@ -749,6 +779,7 @@ impl SmsService {
                 .logs
                 .read()
                 .iter()
+                .rev()
                 .take(20)
                 .cloned()
                 .collect(),
@@ -1261,6 +1292,9 @@ mod tests {
         assert_eq!(failover.routing_item_id.as_deref(), Some("mock-second"));
         assert_eq!(failover.routing_item_index, Some(1));
         assert_eq!(failover.country, "canada");
+
+        let logs = service.runtime_snapshot().logs;
+        assert!(logs.iter().any(|entry| entry.scope == "upstream:mock" && entry.message.contains("acquire service=openai country=canada")));
     }
 
     #[tokio::test]
@@ -1320,5 +1354,68 @@ mod tests {
         let logs = service.runtime_snapshot().logs;
         assert!(logs.iter().any(|entry| entry.scope == "upstream:mock" && entry.message.contains("get_balance")));
         assert!(logs.iter().any(|entry| entry.scope == "upstream:mock" && entry.message.contains("get_prices")));
+    }
+
+    #[test]
+    fn notification_feed_returns_latest_entries_first() {
+        let service = make_service();
+        service.log("system", "info", "entry-1");
+        service.log("system", "info", "entry-2");
+        service.log("system", "info", "entry-3");
+
+        let feed = service.notification_feed();
+
+        assert_eq!(feed.items.first().map(|entry| entry.message.as_str()), Some("entry-3"));
+        assert_eq!(feed.items.get(1).map(|entry| entry.message.as_str()), Some("entry-2"));
+    }
+
+    #[tokio::test]
+    async fn routing_failover_returns_last_provider_error() {
+        let service = make_service();
+        let mut plan = routing_plan();
+        for item in &mut plan.items {
+            item.provider = "missing-provider".to_string();
+        }
+        service.save_routing_plan(plan).unwrap();
+
+        let mut tickets = service.tickets.write();
+        tickets.insert(
+            "ticket-routing-failed".to_string(),
+            TicketRecord {
+                id: "ticket-routing-failed".to_string(),
+                provider: "mock".to_string(),
+                service: "openai".to_string(),
+                country: "usa".to_string(),
+                phone_number: "+10000000000".to_string(),
+                status: TicketStatus::Cancelled,
+                created_at: Utc::now(),
+                updated_at: Utc::now(),
+                price: None,
+                code: None,
+                message: None,
+                upstream_id: None,
+                routing_plan_id: Some("openai-plan".to_string()),
+                routing_plan_name: Some("OpenAI Plan".to_string()),
+                routing_item_id: Some("mock-first".to_string()),
+                routing_item_index: Some(0),
+                routing_execution_mode: Some(RoutingExecutionMode::Sequential),
+                routing_candidate_item_ids: vec!["mock-first".to_string(), "mock-second".to_string()],
+                routing_attempt_count: 1,
+            },
+        );
+        drop(tickets);
+
+        let error = service
+            .failover_routing_attempt(RoutingFailoverRequest {
+                ticket_id: "ticket-routing-failed".to_string(),
+                reason: Some("force failover".to_string()),
+                failed_item_id: Some("mock-first".to_string()),
+            })
+            .await
+            .unwrap_err();
+
+        assert!(error.to_string().contains("provider `missing-provider` not found"));
+        let logs = service.runtime_snapshot().logs;
+        assert!(logs.iter().any(|entry| entry.scope == "router" && entry.message.contains("routing failover skipped mock-second")));
     }
 }

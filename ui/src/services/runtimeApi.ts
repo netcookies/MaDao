@@ -1,4 +1,5 @@
 import type {
+  MessageFilter,
   NotificationFeed,
   OptionCacheOverview,
   ProviderBalance,
@@ -13,6 +14,18 @@ import type {
   RuntimeSettingsUpdate,
   Snapshot,
 } from '../app/types';
+
+export type ActivationAcquireResponse = {
+  ticket_id: string;
+  provider: string;
+  service: string;
+  country: string;
+  phone_number: string;
+  routing_plan_id?: string | null;
+  routing_plan_name?: string | null;
+  routing_item_id?: string | null;
+  routing_item_index?: number | null;
+};
 
 export const API_BASE = 'http://127.0.0.1:7822';
 export const SOCKET_PATH = '/tmp/madao-sms.sock';
@@ -120,7 +133,7 @@ export async function releaseActivationTicket(ticketId: string, action: 'finish'
   if (!response.ok) throw new Error(await response.text());
 }
 
-export async function failoverRoutingTicket(ticketId: string, failedItemId?: string, reason?: string): Promise<void> {
+export async function failoverRoutingTicket(ticketId: string, failedItemId?: string, reason?: string): Promise<ActivationAcquireResponse> {
   const response = await fetch(`${API_BASE}/api/routing/failover`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
@@ -131,6 +144,7 @@ export async function failoverRoutingTicket(ticketId: string, failedItemId?: str
     }),
   });
   if (!response.ok) throw new Error(await response.text());
+  return readJson<ActivationAcquireResponse>(response);
 }
 
 export async function reorderProviderManifests(order: Array<{ id: string; priority: number }>): Promise<void> {

@@ -1,5 +1,6 @@
 import type {
   ActivationFormState,
+  MessageFilter,
   TicketRecord,
   SelectorKind,
 } from '../app/types';
@@ -17,6 +18,7 @@ type ActivationUiState = {
   busyAction: string;
   setBusyAction: (value: string) => void;
   setStatusMessage: (value: string) => void;
+  setMessageFilter: (value: MessageFilter) => void;
 };
 
 type ActivationRuntimeActions = {
@@ -45,15 +47,21 @@ export function useActivationFlow(
     try {
       ui.setBusyAction(`${action}-${ticket.id}`);
       if (action === 'retry' && ticket.routing_plan_id) {
-        await failoverRoutingTicket(ticket.id, ticket.routing_item_id ?? undefined, 'ui retry requested');
-        ui.setStatusMessage(`Ticket ${ticket.id} failed over to the next routing item.`);
+        const nextTicket = await failoverRoutingTicket(ticket.id, ticket.routing_item_id ?? undefined, 'ui retry requested');
+        ui.setMessageFilter('all');
+        ui.setStatusMessage(`Ticket ${ticket.id} moved to ${nextTicket.provider} candidate #${(nextTicket.routing_item_index ?? 0) + 1}.`);
       } else {
         await releaseActivationTicket(ticket.id, action);
         ui.setStatusMessage(`Ticket ${ticket.id} ${action} complete.`);
       }
       await Promise.all([runtime.loadSnapshot(), runtime.loadNotifications()]);
     } catch (error) {
-      ui.setStatusMessage(`Failed to update ticket: ${String(error)}`);
+      ui.setStatusMessage(
+        action === 'retry'
+          ? `Failed to move ticket ${ticket.id} to the next route: ${String(error)}`
+          : `Failed to update ticket: ${String(error)}`,
+      );
+      await Promise.allSettled([runtime.loadSnapshot(), runtime.loadNotifications()]);
     } finally {
       ui.setBusyAction('');
     }

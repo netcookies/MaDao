@@ -29,8 +29,10 @@ impl ProviderRegistry {
             }
             let text = fs::read_to_string(&path)
                 .map_err(|err| SmsError::Io(format!("read provider manifest failed: {err}")))?;
-            let manifest: ProviderManifest = toml::from_str(&text)
-                .map_err(|err| SmsError::Config(format!("parse provider manifest failed: {err}")))?;
+            let manifest: ProviderManifest = normalize_manifest_defaults(
+                toml::from_str(&text)
+                    .map_err(|err| SmsError::Config(format!("parse provider manifest failed: {err}")))?,
+            );
             let id = manifest.id.clone();
             let provider = build_provider(manifest.clone())?;
             manifests.insert(id.clone(), manifest);
@@ -133,5 +135,46 @@ impl ProviderRegistry {
             return Err(err);
         }
         self.manifest(id)
+    }
+}
+
+fn normalize_manifest_defaults(mut manifest: ProviderManifest) -> ProviderManifest {
+    if manifest.id == "smsbower" && manifest.defaults.country == "0" {
+        manifest.defaults.country = "31".to_string();
+    }
+    manifest
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::path::PathBuf;
+    use uuid::Uuid;
+
+    fn repo_root() -> PathBuf {
+        PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+            .join("..")
+            .join("..")
+            .canonicalize()
+            .unwrap()
+    }
+
+    #[test]
+    fn normalizes_legacy_smsbower_default_country() {
+        let base = std::env::temp_dir().join(format!("madao-registry-test-{}", Uuid::now_v7()));
+        fs::create_dir_all(&base).unwrap();
+        fs::copy(
+            repo_root().join("plugins/providers").join("smsbower.toml"),
+            base.join("smsbower.toml"),
+        )
+        .unwrap();
+        let legacy_path = base.join("smsbower.toml");
+        let content = fs::read_to_string(&legacy_path).unwrap();
+        fs::write(&legacy_path, content.replace("country = \"31\"", "country = \"0\"")).unwrap();
+
+        let registry = ProviderRegistry::load_from_dir(&base).unwrap();
+        let manifest = registry.manifest("smsbower").unwrap();
+
+        assert_eq!(manifest.defaults.country, "31");
     }
 }

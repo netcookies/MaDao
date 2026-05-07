@@ -19,7 +19,7 @@ import {
   DataTable,
   DetailRow,
   SearchField,
-  StatusPill,
+  StatusBadge,
 } from './app/ui-bridge';
 import { MessagesScreen } from './app/messages/MessagesScreen';
 import { NewActivationModal } from './app/overlays/NewActivationModal';
@@ -296,6 +296,7 @@ export function App() {
       busyAction,
       setBusyAction,
       setStatusMessage,
+      setMessageFilter,
     },
     {
       loadSnapshot,
@@ -547,7 +548,11 @@ export function App() {
         return [...current, saved];
       });
       setSelectedRoutingPlanId(saved.id);
-      setRoutingView('detail');
+      setRoutingView('matrix');
+      setRoutingEditorState(null);
+      setRoutingItemEditor(null);
+      setRoutingItemPriceOptions([]);
+      setRoutingItemPriceLoading(false);
       setStatusMessage(`Saved routing plan ${saved.name}.`);
     } catch (error) {
       setStatusMessage(`Failed to save routing plan: ${String(error)}`);
@@ -701,6 +706,10 @@ export function App() {
 
   function applyRoutingItemEditor() {
     if (!routingItemEditor) return;
+    if (!routingItemEditor.providerId.trim()) {
+      setStatusMessage('Provider is required for each route candidate.');
+      return;
+    }
 
     const minPrice = routingItemEditor.minPrice.trim() === '' ? null : Number(routingItemEditor.minPrice);
     const maxPrice = routingItemEditor.maxPrice.trim() === '' ? null : Number(routingItemEditor.maxPrice);
@@ -722,6 +731,7 @@ export function App() {
       const fixedPrice = nextPriceMode === 'fixed' ? minPrice : null;
       return {
         ...item,
+        provider: routingItemEditor.providerId,
         country: routingItemEditor.country.trim(),
         operator: routingItemEditor.operator.trim(),
         price_mode: nextPriceMode,
@@ -926,11 +936,18 @@ export function App() {
     setSelectorState({
       kind: 'activation-routing-plan',
       title: 'Select Routing Plan',
-      options: routingPlans.filter((plan) => plan.enabled).map((plan) => ({
-        value: plan.id,
-        label: plan.name,
-        hint: `${formatServiceLabel(plan.service)} · ${plan.execution_mode === 'random' ? 'Random' : 'Sequential'}`,
-      })),
+      options: [
+        {
+          value: '',
+          label: 'No routing plan',
+          hint: 'Use manual provider, service, and country controls',
+        },
+        ...routingPlans.filter((plan) => plan.enabled).map((plan) => ({
+          value: plan.id,
+          label: plan.name,
+          hint: `${formatServiceLabel(plan.service)} · ${plan.execution_mode === 'random' ? 'Random' : 'Sequential'}`,
+        })),
+      ],
     });
   }
 
@@ -1165,6 +1182,12 @@ export function App() {
         noPadding={activeScreen === 'providers' && providerView === 'workspace'}
         contentClassName="max-[760px]:pt-5"
       >
+            <div className="mb-4 flex items-center justify-between gap-3 rounded-[12px] border border-ds-border bg-ds-surface px-4 py-3 shadow-ds">
+              <span className="min-w-0 text-[13px] text-ds-text-primary">{statusMessage}</span>
+              <StatusBadge tone={busyAction ? 'orange' : 'green'}>
+                {busyAction ? 'Working' : 'Ready'}
+              </StatusBadge>
+            </div>
             {activeScreen === 'overview' && (
               <OverviewScreen
                 stats={overviewStats}
@@ -1215,12 +1238,10 @@ export function App() {
                 onUpdateRoutingFilter={setRoutingFilter}
                 onUpdateRoutingSearch={setRoutingSearch}
                 onOpenServicePicker={openRoutingServiceSelector}
-                onSavePlan={(plan) => void persistRoutingPlan(plan)}
                 onOpenProviderPicker={(itemId) => void openRoutingItemSelector(itemId, 'provider')}
                 onOpenItemSelector={(itemId, field) => void openRoutingItemSelector(itemId, field, 'editor')}
                 onAddItem={addRoutingPlanItem}
                 onRemoveItem={removeRoutingPlanItem}
-                onMoveItem={moveRoutingPlanItem}
                 onReorderItem={reorderRoutingPlanItem}
                 onOpenItemEditor={openRoutingItemEditor}
                 onCloseItemEditor={closeRoutingItemEditor}

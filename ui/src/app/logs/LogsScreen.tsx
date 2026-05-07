@@ -21,6 +21,10 @@ export type LogsScreenProps = {
 };
 
 export function LogsScreen(props: LogsScreenProps) {
+  const visibleLogs = [...props.logs].sort((left, right) => (
+    new Date(right.timestamp).getTime() - new Date(left.timestamp).getTime()
+  ));
+
   return (
     <div className="flex flex-col gap-5">
       <PageHeader
@@ -51,7 +55,7 @@ export function LogsScreen(props: LogsScreenProps) {
             </>
           )}
         >
-          {props.logs.length > 0 ? props.logs.map((entry, index) => (
+          {visibleLogs.length > 0 ? visibleLogs.map((entry, index) => (
             <div
               className={cx(
                 'grid grid-cols-1 items-center gap-3 border-b border-solid border-ds-border border-x-0 border-t-0 px-4 py-2.5 last:border-b-0 min-[760px]:grid-cols-[58px_96px_72px_minmax(0,1fr)]',

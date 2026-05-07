@@ -768,11 +768,10 @@ function renderPageTarget(target: ScreenshotTarget) {
         onUpdateRoutingSearch={noop}
         onOpenServicePicker={noop}
         onOpenProviderPicker={noop}
+        onOpenItemSelector={noop}
         onAddItem={noop}
         onRemoveItem={noop}
-        onMoveItem={noop}
         onReorderItem={noop}
-        onSavePlan={noop}
         onOpenItemEditor={noop}
         onCloseItemEditor={noop}
         onItemEditorChange={noop}

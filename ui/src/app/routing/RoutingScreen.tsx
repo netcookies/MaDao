@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react';
 import { ChevronRight, GripVertical, Plus } from 'lucide-react';
 import { Modal } from '../../components/overlays';
 import { formatCountryLabel, formatProviderLabel, formatServiceLabel } from '../../lib/formatters';
+import { cx } from '../../lib/cx';
 import {
   AppButton,
   ModalField,
@@ -54,9 +55,7 @@ export type RoutingScreenProps = {
   onOpenItemSelector: (itemId: string, field: 'provider' | 'country' | 'operator') => void;
   onAddItem: () => void;
   onRemoveItem: (itemId: string) => void;
-  onMoveItem: (itemId: string, direction: 'up' | 'down') => void;
   onReorderItem: (fromIndex: number, toIndex: number) => void;
-  onSavePlan: (plan: RoutingPlan) => void;
   onOpenItemEditor: (itemId: string) => void;
   onCloseItemEditor: () => void;
   onItemEditorChange: (patch: Partial<RoutingItemEditorState>) => void;
@@ -135,10 +134,8 @@ export function RoutingScreen(props: RoutingScreenProps) {
         onDeletePlan={props.onDeletePlan}
         onUpdatePlan={props.onUpdatePlan}
         onOpenServicePicker={props.onOpenServicePicker}
-        onSavePlan={props.onSavePlan}
         onAddItem={props.onAddItem}
         onRemoveItem={props.onRemoveItem}
-        onMoveItem={props.onMoveItem}
         onReorderItem={props.onReorderItem}
         onOpenProviderPicker={props.onOpenProviderPicker}
         onOpenItemSelector={props.onOpenItemSelector}
@@ -278,16 +275,21 @@ function RoutingPlanDetailScreen(props: {
   onDeletePlan: (planId: string) => void;
   onUpdatePlan: (plan: RoutingPlan) => void;
   onOpenServicePicker: () => void;
-  onSavePlan: (plan: RoutingPlan) => void;
   onAddItem: () => void;
   onRemoveItem: (itemId: string) => void;
-  onMoveItem: (itemId: string, direction: 'up' | 'down') => void;
   onReorderItem: (fromIndex: number, toIndex: number) => void;
   onOpenProviderPicker: (itemId: string) => void;
   onOpenItemSelector: (itemId: string, field: 'provider' | 'country' | 'operator') => void;
   onOpenItemEditor: (itemId: string) => void;
 }) {
   const toggleLabel = props.plan.enabled ? 'Enabled' : 'Disabled';
+  const [draggedItemId, setDraggedItemId] = useState<string | null>(null);
+  const [dragOverItemId, setDragOverItemId] = useState<string | null>(null);
+
+  useEffect(() => {
+    setDraggedItemId(null);
+    setDragOverItemId(null);
+  }, [props.plan.id, props.plan.items.length]);
 
   return (
     <div className="flex flex-col gap-6">
@@ -430,20 +432,45 @@ function RoutingPlanDetailScreen(props: {
             return (
               <div
                 key={item.id}
-                onDragOver={(event) => event.preventDefault()}
-                onDrop={(event) => {
+                onDragOver={(event) => {
+                  if (!draggedItemId || draggedItemId === item.id) return;
                   event.preventDefault();
-                  const fromIndex = Number(event.dataTransfer.getData('text/plain'));
-                  if (!Number.isNaN(fromIndex)) props.onReorderItem(fromIndex, index);
+                  if (dragOverItemId !== item.id) setDragOverItemId(item.id);
                 }}
-                className={`grid grid-cols-[24px_minmax(0,1fr)_auto] gap-3 border-b border-ds-border px-4 py-3 last:border-b-0 min-[900px]:grid-cols-[24px_36px_minmax(0,1fr)_160px_120px_60px] min-[900px]:items-center ${
-                  item.enabled ? 'bg-ds-surface' : 'bg-ds-surface opacity-60'
-                }`}
+                onDrop={(event) => {
+                  if (!draggedItemId || draggedItemId === item.id) return;
+                  event.preventDefault();
+                  const fromIndex = props.plan.items.findIndex((entry) => entry.id === draggedItemId);
+                  if (fromIndex >= 0 && fromIndex !== index) props.onReorderItem(fromIndex, index);
+                  setDraggedItemId(null);
+                  setDragOverItemId(null);
+                }}
+                onDragLeave={(event) => {
+                  const nextTarget = event.relatedTarget;
+                  if (nextTarget instanceof Node && event.currentTarget.contains(nextTarget)) return;
+                  if (dragOverItemId === item.id) setDragOverItemId(null);
+                }}
+                className={cx(
+                  'grid grid-cols-[24px_minmax(0,1fr)_auto] gap-3 border-b border-ds-border px-4 py-3 last:border-b-0 min-[900px]:grid-cols-[24px_36px_minmax(0,1fr)_160px_120px_60px] min-[900px]:items-center',
+                  item.enabled ? 'bg-ds-surface' : 'bg-ds-surface opacity-60',
+                  dragOverItemId === item.id && 'border-t-2 border-t-ds-accent-blue',
+                  draggedItemId === item.id && 'opacity-45',
+                )}
               >
                 <div
                   draggable
-                  onDragStart={(event) => event.dataTransfer.setData('text/plain', String(index))}
+                  onDragStart={(event) => {
+                    event.dataTransfer.effectAllowed = 'move';
+                    event.dataTransfer.setData('text/plain', item.id);
+                    setDraggedItemId(item.id);
+                    setDragOverItemId(item.id);
+                  }}
+                  onDragEnd={() => {
+                    setDraggedItemId(null);
+                    setDragOverItemId(null);
+                  }}
                   className="flex cursor-grab items-center justify-center text-ds-text-secondary min-[900px]:justify-start"
+                  aria-label={`Drag candidate ${index + 1}`}
                 >
                   <GripVertical size={14} className="opacity-30" />
                 </div>

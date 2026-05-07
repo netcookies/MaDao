@@ -30,6 +30,13 @@ function serviceIcon(service: string) {
 
 export function MessagesScreen(props: MessagesScreenProps) {
   const [now, setNow] = useState(() => Date.now());
+  const visibleTickets = [...props.tickets]
+    .sort((left, right) => {
+      const leftTime = new Date(left.created_at ?? 0).getTime();
+      const rightTime = new Date(right.created_at ?? 0).getTime();
+      return rightTime - leftTime;
+    })
+    .slice(0, 8);
 
   useEffect(() => {
     const needsHeroCancelCountdown = props.tickets.some((ticket) =>
@@ -53,7 +60,7 @@ export function MessagesScreen(props: MessagesScreenProps) {
       />
 
       <div className="flex flex-col gap-5">
-        {props.tickets.length > 0 ? props.tickets.slice(0, 8).map((ticket) => {
+        {visibleTickets.length > 0 ? visibleTickets.map((ticket) => {
           const phase = getTicketPhase(ticket.status);
           const isReceived = phase === 'received';
           const isWaiting = phase === 'waiting';

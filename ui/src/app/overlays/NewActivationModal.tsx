@@ -44,12 +44,25 @@ export function NewActivationModal(props: NewActivationModalProps) {
       <div className="h-px w-full bg-ds-border" />
       <div className="flex flex-col gap-[14px] overflow-y-auto">
         <ModalField label="ROUTING PLAN">
-          <SelectTrigger
-            compact
-            value={routingPlanLabel}
-            placeholder="select a routing plan"
-            onClick={props.onOpenRoutingPlanSelector}
-          />
+          <div className="flex items-center gap-2">
+            <SelectTrigger
+              compact
+              value={routingPlanLabel}
+              placeholder="select a routing plan"
+              onClick={props.onOpenRoutingPlanSelector}
+              className="flex-1"
+            />
+            {usesRoutingPlan && (
+              <AppButton
+                variant="ghost"
+                size="utility"
+                className="shrink-0"
+                onClick={() => props.onChange('routing_plan_id', '')}
+              >
+                Clear
+              </AppButton>
+            )}
+          </div>
         </ModalField>
         <ModalField label="SERVICE">
           <SelectTrigger

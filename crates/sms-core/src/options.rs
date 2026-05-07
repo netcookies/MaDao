@@ -303,24 +303,40 @@ fn canonical_service_value(manifest: &ProviderManifest, raw: &str, label: Option
 }
 
 fn canonical_country_value(raw: &str, label: Option<&str>, hint: Option<&str>) -> String {
-    let probe = format!("{} {} {}", raw, label.unwrap_or(""), hint.unwrap_or("")).to_ascii_lowercase();
+    let raw_normalized = normalize_token(raw);
+    let label_normalized = normalize_token(label.unwrap_or(""));
+    let hint_normalized = normalize_token(hint.unwrap_or(""));
+    let signals = [raw_normalized.as_str(), label_normalized.as_str(), hint_normalized.as_str()];
+
     for (candidate, aliases) in [
         ("any", &["any", "all countries", "auto select"][..]),
         ("local", &["local"][..]),
-        ("usa", &["usa", "united states", "us", "50", "america"][..]),
+        ("usa", &["usa", "united states", "50", "america"][..]),
         ("uk", &["england", "uk", "united kingdom", "44", "britain"][..]),
         ("germany", &["germany", "deutschland"][..]),
         ("japan", &["japan"][..]),
         ("canada", &["canada"][..]),
         ("australia", &["australia", "61"][..]),
         ("russia", &["russia", "0", "россия"][..]),
-        ("argentina", &["argentina", "ar", "阿根廷"][..]),
+        ("argentina", &["argentina", "阿根廷"][..]),
     ] {
-        if aliases.iter().any(|alias| probe.contains(alias)) {
+        if signals
+            .iter()
+            .filter(|signal| !signal.is_empty())
+            .any(|signal| aliases.iter().any(|alias| signal == alias))
+        {
             return candidate.to_string();
         }
     }
-    normalize_token(raw)
+
+    if raw_normalized == "us" {
+        return "usa".to_string();
+    }
+    if raw_normalized == "ar" {
+        return "argentina".to_string();
+    }
+
+    raw_normalized
 }
 
 fn canonical_operator_value(raw: &str, label: Option<&str>) -> String {
@@ -397,4 +413,17 @@ fn title_case_token(input: &str) -> String {
         })
         .collect::<Vec<_>>()
         .join(" ")
+}
+
+#[cfg(test)]
+mod tests {
+    use super::canonical_country_value;
+
+    #[test]
+    fn canonical_country_value_keeps_russia_distinct_from_usa() {
+        assert_eq!(canonical_country_value("0", Some("Russia"), Some("Russia")), "russia");
+        assert_eq!(canonical_country_value("50", Some("Austria"), Some("Austria")), "usa");
+        assert_eq!(canonical_country_value("31", Some("South Africa"), Some("South Africa")), "31");
+        assert_eq!(canonical_country_value("us", Some("United States"), Some("United States")), "usa");
+    }
 }
