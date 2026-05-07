@@ -49,7 +49,7 @@ export function ProvidersListScreen(props: ProvidersListScreenProps) {
               </div>
 
               <div>
-                <StatusBadge tone={provider.enabled ? 'blue' : 'gray'}>
+                <StatusBadge tone="blue">
                   {protocolTag}
                 </StatusBadge>
               </div>
