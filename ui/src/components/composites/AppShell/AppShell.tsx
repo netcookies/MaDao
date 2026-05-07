@@ -11,6 +11,7 @@ export type AppShellProps = {
   fillViewport?: boolean;
   windowClassName?: string;
   contentClassName?: string;
+  noPadding?: boolean;
 };
 
 export function AppShell(props: AppShellProps) {
@@ -24,6 +25,7 @@ export function AppShell(props: AppShellProps) {
     fillViewport = true,
     windowClassName,
     contentClassName,
+    noPadding = false,
   } = props;
 
   return (
@@ -46,8 +48,9 @@ export function AppShell(props: AppShellProps) {
           {toolbar}
           <main
             className={cx(
-              'flex-1 bg-ds-content px-10 pb-8 pt-8 max-[760px]:px-5 max-[760px]:pb-5 max-[760px]:pt-5 min-[980px]:overflow-y-auto',
-              compact && 'px-8 pb-8 pt-6',
+              'flex-1 bg-ds-content min-[980px]:overflow-y-auto',
+              !noPadding && 'px-10 pb-8 pt-8 max-[760px]:px-5 max-[760px]:pb-5 max-[760px]:pt-5',
+              !noPadding && compact && 'px-8 pb-8 pt-6',
               contentClassName,
             )}
           >
