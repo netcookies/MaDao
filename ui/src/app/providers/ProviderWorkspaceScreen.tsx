@@ -161,10 +161,10 @@ function WorkspaceConfig(props: {
   return (
     <div className="flex flex-col gap-3">
       <div className="flex flex-col gap-[3px]">
-        <h1 className="text-[20px] font-semibold leading-none tracking-[-0.3px] text-ds-text-primary">
+        <h1 className="m-0 text-[20px] font-semibold leading-none tracking-[-0.3px] text-ds-text-primary">
           {manifest.name}
         </h1>
-        <p className="text-[13px] leading-none text-ds-text-secondary opacity-50">
+        <p className="m-0 text-[13px] leading-none text-ds-text-secondary opacity-50">
           Manage API credentials and connection settings
         </p>
       </div>
@@ -252,10 +252,10 @@ function WorkspaceStore(props: {
     <div className="flex flex-col gap-5">
       <div className="flex items-start justify-between gap-6">
         <div className="flex flex-col gap-[3px]">
-          <h2 className="text-[20px] font-semibold leading-none tracking-[-0.3px] text-ds-text-primary">
+          <h2 className="m-0 text-[20px] font-semibold leading-none tracking-[-0.3px] text-ds-text-primary">
             Price Inventory
           </h2>
-          <p className="text-[13px] leading-none text-ds-text-secondary opacity-50">
+          <p className="m-0 text-[13px] leading-none text-ds-text-secondary opacity-50">
             Stock by service, country and operator
           </p>
         </div>
