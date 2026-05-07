@@ -1,6 +1,6 @@
 import { Moon, Sun } from 'lucide-react';
 import {
-  AppButton,
+  PageHeader,
   SegmentedControl,
   SettingChoiceRow,
   ToggleSetting,
@@ -27,31 +27,29 @@ export type SettingsScreenProps = {
   optionCacheOverview: OptionCacheOverview;
   onOptionCacheEnabledChange: (enabled: boolean) => void;
   onOptionCachePollIntervalChange: (minutes: number) => void;
-  onReload: () => void;
-  reloadBusy: boolean;
   apiBase: string;
   socketPath: string;
   configDirectory: string;
-  onOpenConfigDirectory: () => void;
 };
 
 export function SettingsScreen(props: SettingsScreenProps) {
   return (
     <div className="flex flex-col gap-8">
-      <p className="m-0 max-w-[640px] font-text text-utility font-normal tracking-[var(--ds-type-utility-tracking)] text-ds-text-secondary">
-        Configure global preferences and app behavior.
-      </p>
+      <PageHeader
+        title="Settings"
+        subtitle="Configure global preferences and app behavior."
+      />
 
       <div className="overflow-hidden rounded-sm border border-ds-border bg-ds-surface py-2 shadow-ds backdrop-blur-ds">
         <div className="flex flex-col gap-0 border-b border-solid border-ds-border border-x-0 border-t-0 px-6 py-4">
           <h3 className="m-0 text-section-title font-semibold tracking-[var(--ds-type-section-title-tracking)] text-ds-text-primary">Appearance</h3>
           <SettingChoiceRow
             label="Language"
-            control={<SegmentedControl items={[{ id: 'en', label: 'English' }, { id: 'zh', label: '中文' }]} value={props.language} onChange={props.setLanguage} appearance="rail" className="flex-nowrap" />}
+            control={<SegmentedControl items={[{ id: 'en', label: 'English' }, { id: 'zh', label: '中文' }]} value={props.language} onChange={props.setLanguage} appearance="rail" className="min-h-0" />}
           />
           <SettingChoiceRow
             label="Theme"
-            control={<SegmentedControl items={[{ id: 'light', label: 'Light', icon: <Sun size={13} /> }, { id: 'dark', label: 'Dark', icon: <Moon size={13} /> }, { id: 'system', label: 'System' }]} value={props.appearanceTheme} onChange={props.setAppearanceTheme} appearance="rail" className="flex-nowrap" />}
+            control={<SegmentedControl items={[{ id: 'light', label: 'Light', icon: <Sun size={13} /> }, { id: 'dark', label: 'Dark', icon: <Moon size={13} /> }, { id: 'system', label: 'System' }]} value={props.appearanceTheme} onChange={props.setAppearanceTheme} appearance="rail" className="min-h-0" />}
           />
         </div>
 
@@ -89,12 +87,7 @@ export function SettingsScreen(props: SettingsScreenProps) {
         </div>
 
         <div className="flex flex-col gap-4 px-6 py-4">
-          <div className="flex items-center justify-between gap-4">
-            <h3 className="m-0 text-section-title font-semibold tracking-[var(--ds-type-section-title-tracking)] text-ds-text-primary">Server Configuration</h3>
-            <AppButton variant="outline" size="utility" onClick={props.onReload} disabled={props.reloadBusy}>
-              {props.reloadBusy ? 'Reloading…' : 'Reload Providers'}
-            </AppButton>
-          </div>
+          <h3 className="m-0 text-section-title font-semibold tracking-[var(--ds-type-section-title-tracking)] text-ds-text-primary">Server Configuration</h3>
           <div className="flex items-center justify-between gap-4">
             <span className="font-text text-utility font-normal tracking-[var(--ds-type-utility-tracking)] text-ds-text-secondary">HTTP Endpoint</span>
             <div className="inline-block rounded-xs border border-ds-border bg-ds-surface-subtle px-2.5 py-[5px] font-mono text-caption text-ds-text-secondary">
@@ -109,13 +102,8 @@ export function SettingsScreen(props: SettingsScreenProps) {
           </div>
           <div className="flex items-center justify-between gap-4">
             <span className="font-text text-utility font-normal tracking-[var(--ds-type-utility-tracking)] text-ds-text-secondary">Config Directory</span>
-            <div className="flex items-center gap-3">
-              <div className="inline-block rounded-xs border border-ds-border bg-ds-surface-subtle px-2.5 py-[5px] font-mono text-caption text-ds-text-secondary">
-                {props.configDirectory}
-              </div>
-              <AppButton variant="outline" size="utility" onClick={props.onOpenConfigDirectory}>
-                Open Folder
-              </AppButton>
+            <div className="inline-block rounded-xs border border-ds-border bg-ds-surface-subtle px-2.5 py-[5px] font-mono text-caption text-ds-text-secondary">
+              {props.configDirectory}
             </div>
           </div>
           <div className="flex items-center justify-between gap-4">

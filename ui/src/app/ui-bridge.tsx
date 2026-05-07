@@ -87,7 +87,7 @@ export function SectionHeader(props: {
 }
 
 export function SegmentedControl<T extends string>(props: {
-  items: Array<{ id: T; label: string }>;
+  items: Array<{ id: T; label: string; icon?: ReactNode }>;
   value: T;
   onChange: (value: T) => void;
   appearance?: 'pill' | 'rail';

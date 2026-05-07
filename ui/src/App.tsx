@@ -1018,6 +1018,27 @@ export function App() {
         >
           {busyAction.includes('prices') ? 'Loading…' : 'Load Prices'}
         </AppButton>
+      ) : activeScreen === 'providers' && providerView === 'list' ? (
+        <AppButton
+          variant="primary"
+          size="utility"
+          onClick={() => void reloadProviders()}
+          disabled={busyAction === 'reload'}
+        >
+          {busyAction === 'reload' ? 'Reloading…' : 'Reload Providers'}
+        </AppButton>
+      ) : activeScreen === 'settings' ? (
+        <AppButton variant="primary" size="utility" onClick={() => void openAppConfigDirectory()}>
+          Open Folder
+        </AppButton>
+      ) : activeScreen === 'logs' ? (
+        <AppButton
+          variant="primary"
+          size="utility"
+          onClick={() => void Promise.all([loadSnapshot(), loadNotifications()])}
+        >
+          Refresh
+        </AppButton>
       ) : activeScreen === 'providers' && providerView === 'workspace' ? null : (
         <AppButton variant="primary" size="utility" onClick={openActivationModal}>
           <Plus size={14} />
@@ -1194,12 +1215,9 @@ export function App() {
                     option_cache_enabled: runtimeSettings.option_cache_enabled,
                     option_cache_poll_interval_minutes: minutes,
                   })}
-                onReload={() => void reloadProviders()}
-                reloadBusy={busyAction === 'reload'}
                 apiBase={API_BASE}
                 socketPath={SOCKET_PATH}
                 configDirectory={configDirectory}
-                onOpenConfigDirectory={() => void openAppConfigDirectory()}
               />
             )}
 
@@ -1209,7 +1227,6 @@ export function App() {
                   filter={logsFilter}
                   setFilter={setLogsFilter}
                   filters={LOG_FILTERS}
-                  onRefresh={() => void Promise.all([loadSnapshot(), loadNotifications()])}
                   search={logsSearch}
                   onSearch={setLogsSearch}
                 />

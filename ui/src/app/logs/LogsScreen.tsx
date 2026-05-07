@@ -1,5 +1,5 @@
-import { RefreshCw, Trash2 } from 'lucide-react';
-import { AppButton, DataTable, SearchField, SegmentedControl } from '../ui-bridge';
+import { Trash2 } from 'lucide-react';
+import { AppButton, DataTable, PageHeader, SearchField, SegmentedControl } from '../ui-bridge';
 import { cx } from '../../lib/cx';
 
 export type LogFilter = 'all' | 'info' | 'warn' | 'error';
@@ -16,7 +16,6 @@ export type LogsScreenProps = {
   filter: LogFilter;
   setFilter: (value: LogFilter) => void;
   filters: Array<{ id: LogFilter; label: string }>;
-  onRefresh: () => void;
   search: string;
   onSearch: (value: string) => void;
 };
@@ -24,21 +23,17 @@ export type LogsScreenProps = {
 export function LogsScreen(props: LogsScreenProps) {
   return (
     <div className="flex flex-col gap-5">
-      <div className="flex flex-wrap items-start justify-between gap-4">
-        <p className="m-0 max-w-[640px] font-text text-utility font-normal tracking-[var(--ds-type-utility-tracking)] text-ds-text-secondary">
-          Real-time event stream for debugging and monitoring.
-        </p>
-        <div className="flex flex-wrap items-center gap-3">
-          <AppButton variant="outline" size="utility" onClick={props.onRefresh}>
-            <RefreshCw size={14} />
-            Refresh
-          </AppButton>
+      <PageHeader
+        title="System Logs"
+        subtitle="Real-time event stream for debugging and monitoring."
+        align="center"
+        actions={(
           <AppButton variant="danger-outline" size="utility" onClick={() => props.onSearch('')}>
             <Trash2 size={14} />
             Clear Logs
           </AppButton>
-        </div>
-      </div>
+        )}
+      />
 
       <div className="flex flex-wrap items-center justify-between gap-4">
         <SegmentedControl items={props.filters} value={props.filter} onChange={props.setFilter} appearance="rail" className="min-h-0" />
