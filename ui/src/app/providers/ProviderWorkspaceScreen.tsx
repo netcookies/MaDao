@@ -26,6 +26,7 @@ import {
   countryBadge,
   formatCountryLabel,
   formatServiceLabel,
+  serviceBadge,
 } from '../../lib/formatters';
 import { cx } from '../../lib/cx';
 
@@ -276,12 +277,12 @@ function WorkspaceStore(props: {
         <div className="flex shrink-0 items-center gap-2">
           <SelectTrigger
             compact={props.compact}
-            value={formatServiceLabel(props.storeQuery.service || props.manifest.defaults.service)}
+            value={`${serviceBadge(props.storeQuery.service || props.manifest.defaults.service)} ${formatServiceLabel(props.storeQuery.service || props.manifest.defaults.service)}`}
             onClick={() => props.onOpenSelector('store-service')}
           />
           <SelectTrigger
             compact={props.compact}
-            value={props.storeQuery.country ? formatCountryLabel(props.storeQuery.country) : ''}
+            value={props.storeQuery.country ? `${countryBadge(props.storeQuery.country)} ${formatCountryLabel(props.storeQuery.country)}` : ''}
             placeholder="All countries"
             muted={!props.storeQuery.country}
             onClick={() => props.onOpenSelector('store-country')}

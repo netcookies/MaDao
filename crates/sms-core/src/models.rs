@@ -158,6 +158,26 @@ pub struct ProviderDynamicOptions {
     pub fetched_at: Option<DateTime<Utc>>,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct OptionListResponse {
+    pub provider: String,
+    pub items: Vec<OptionItem>,
+}
+
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+pub struct ProviderServicesQuery {
+    #[serde(default)]
+    pub country: Option<String>,
+    #[serde(default)]
+    pub operator: Option<String>,
+}
+
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+pub struct ProviderOperatorsQuery {
+    #[serde(default)]
+    pub country: Option<String>,
+}
+
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, Default)]
 #[serde(rename_all = "snake_case")]
 pub enum OptionCacheState {
@@ -223,6 +243,47 @@ pub struct ProviderManifestList {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct NotificationFeed {
     pub items: Vec<LogEntry>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct TicketListResponse {
+    pub items: Vec<TicketRecord>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct TicketCallbackRegistrationRequest {
+    pub url: String,
+    #[serde(default)]
+    pub secret: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct TicketCallbackSubscription {
+    pub id: String,
+    pub ticket_id: String,
+    pub url: String,
+    #[serde(default)]
+    pub secret: Option<String>,
+    pub created_at: DateTime<Utc>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct TicketCallbackListResponse {
+    pub items: Vec<TicketCallbackSubscription>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct TicketCodeCallbackPayload {
+    pub ticket_id: String,
+    pub provider: String,
+    pub service: String,
+    pub country: String,
+    pub phone_number: String,
+    #[serde(default)]
+    pub code: Option<String>,
+    #[serde(default)]
+    pub message: Option<String>,
+    pub received_at: DateTime<Utc>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

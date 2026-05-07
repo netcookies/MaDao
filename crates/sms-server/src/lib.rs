@@ -6,9 +6,10 @@ use serde::Serialize;
 use sms_core::config::ServerConfig;
 use sms_core::models::{
     AcquireCodeRequest, NotificationFeed, OptionCacheOverview, PollCodeRequest, ProviderDynamicOptions,
-    ProviderManifestList, ProviderPriceQuery, ProviderReorderRequest, ReleaseCodeRequest,
-    RoutingFailoverRequest, RoutingPlan, RoutingPlanList, RuntimeSettings, RuntimeSettingsUpdate,
-    RuntimeSnapshot,
+    ProviderManifestList, ProviderOperatorsQuery, ProviderPriceQuery, ProviderReorderRequest,
+    ProviderServicesQuery, ReleaseCodeRequest, RoutingFailoverRequest, RoutingPlan, RoutingPlanList,
+    RuntimeSettings, RuntimeSettingsUpdate, RuntimeSnapshot, TicketCallbackRegistrationRequest,
+    TicketListResponse,
 };
 use sms_core::service::SmsService;
 use std::net::SocketAddr;
@@ -37,6 +38,9 @@ pub fn build_router(service: Arc<SmsService>) -> Router {
         .route("/api/routing-plans", get(list_routing_plans).post(save_routing_plan))
         .route("/api/routing-plans/{plan_id}", get(get_routing_plan).delete(delete_routing_plan))
         .route("/api/notifications", get(get_notifications))
+        .route("/api/tickets", get(list_tickets))
+        .route("/api/tickets/{ticket_id}", get(get_ticket))
+        .route("/api/tickets/{ticket_id}/callbacks", get(list_ticket_callbacks).post(register_ticket_callback))
         .route("/api/settings/runtime", get(get_runtime_settings).post(update_runtime_settings))
         .route("/api/settings/option-cache", get(get_option_cache_overview))
         .route("/api/acquire", post(acquire_code))
@@ -46,6 +50,9 @@ pub fn build_router(service: Arc<SmsService>) -> Router {
         .route("/api/providers/{provider}/balance", get(get_balance))
         .route("/api/providers/{provider}/prices", post(get_prices))
         .route("/api/providers/{provider}/options", get(get_provider_options))
+        .route("/api/providers/{provider}/countries", get(get_provider_countries))
+        .route("/api/providers/{provider}/services", post(get_provider_services))
+        .route("/api/providers/{provider}/operators", post(get_provider_operators))
         .route("/api/providers/{provider}/manifest", get(get_manifest).put(put_manifest))
         .layer(CorsLayer::permissive())
         .layer(TraceLayer::new_for_http())
@@ -92,6 +99,51 @@ async fn list_provider_manifests(State(state): State<ApiState>) -> Json<Provider
 async fn get_notifications(State(state): State<ApiState>) -> Json<NotificationFeed> {
     state.service.log_http_access("GET", "/api/notifications", "200");
     Json(state.service.notification_feed())
+}
+
+async fn list_tickets(State(state): State<ApiState>) -> Json<TicketListResponse> {
+    state.service.log_http_access("GET", "/api/tickets", "200");
+    Json(state.service.list_tickets())
+}
+
+async fn get_ticket(
+    State(state): State<ApiState>,
+    Path(ticket_id): Path<String>,
+) -> Result<Json<serde_json::Value>, (StatusCode, Json<ApiError>)> {
+    let result = state
+        .service
+        .ticket(&ticket_id)
+        .map(|value| Json(serde_json::json!(value)))
+        .map_err(to_api_error);
+    state.service.log_http_access("GET", format!("/api/tickets/{ticket_id}"), if result.is_ok() { "200" } else { "400" });
+    result
+}
+
+async fn list_ticket_callbacks(
+    State(state): State<ApiState>,
+    Path(ticket_id): Path<String>,
+) -> Result<Json<serde_json::Value>, (StatusCode, Json<ApiError>)> {
+    let result = state
+        .service
+        .list_ticket_callbacks(&ticket_id)
+        .map(|value| Json(serde_json::json!(value)))
+        .map_err(to_api_error);
+    state.service.log_http_access("GET", format!("/api/tickets/{ticket_id}/callbacks"), if result.is_ok() { "200" } else { "400" });
+    result
+}
+
+async fn register_ticket_callback(
+    State(state): State<ApiState>,
+    Path(ticket_id): Path<String>,
+    Json(request): Json<TicketCallbackRegistrationRequest>,
+) -> Result<Json<serde_json::Value>, (StatusCode, Json<ApiError>)> {
+    let result = state
+        .service
+        .register_ticket_callback(&ticket_id, request)
+        .map(|value| Json(serde_json::json!(value)))
+        .map_err(to_api_error);
+    state.service.log_http_access("POST", format!("/api/tickets/{ticket_id}/callbacks"), if result.is_ok() { "200" } else { "400" });
+    result
 }
 
 async fn list_routing_plans(State(state): State<ApiState>) -> Json<RoutingPlanList> {
@@ -277,6 +329,50 @@ async fn get_provider_options(
         Err(error) => Err(to_api_error(error)),
     };
     state.service.log_http_access("GET", format!("/api/providers/{provider}/options"), if result.is_ok() { "200" } else { "400" });
+    result
+}
+
+async fn get_provider_countries(
+    State(state): State<ApiState>,
+    Path(provider): Path<String>,
+) -> Result<Json<serde_json::Value>, (StatusCode, Json<ApiError>)> {
+    let result = state
+        .service
+        .list_provider_countries(&provider)
+        .await
+        .map(|value| Json(serde_json::json!(value)))
+        .map_err(to_api_error);
+    state.service.log_http_access("GET", format!("/api/providers/{provider}/countries"), if result.is_ok() { "200" } else { "400" });
+    result
+}
+
+async fn get_provider_services(
+    State(state): State<ApiState>,
+    Path(provider): Path<String>,
+    Json(query): Json<ProviderServicesQuery>,
+) -> Result<Json<serde_json::Value>, (StatusCode, Json<ApiError>)> {
+    let result = state
+        .service
+        .list_provider_services(&provider, query)
+        .await
+        .map(|value| Json(serde_json::json!(value)))
+        .map_err(to_api_error);
+    state.service.log_http_access("POST", format!("/api/providers/{provider}/services"), if result.is_ok() { "200" } else { "400" });
+    result
+}
+
+async fn get_provider_operators(
+    State(state): State<ApiState>,
+    Path(provider): Path<String>,
+    Json(query): Json<ProviderOperatorsQuery>,
+) -> Result<Json<serde_json::Value>, (StatusCode, Json<ApiError>)> {
+    let result = state
+        .service
+        .list_provider_operators(&provider, query)
+        .await
+        .map(|value| Json(serde_json::json!(value)))
+        .map_err(to_api_error);
+    state.service.log_http_access("POST", format!("/api/providers/{provider}/operators"), if result.is_ok() { "200" } else { "400" });
     result
 }
 
@@ -559,6 +655,181 @@ mod tests {
             .await
             .unwrap();
         assert_eq!(acquire_response.status(), StatusCode::BAD_REQUEST);
+    }
+
+    #[tokio::test]
+    async fn provider_option_resource_endpoints_work_over_http() {
+        let app = test_router();
+
+        let countries_response = app
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .method(Method::GET)
+                    .uri("/api/providers/mock/countries")
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(countries_response.status(), StatusCode::OK);
+
+        let services_response = app
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .method(Method::POST)
+                    .uri("/api/providers/mock/services")
+                    .header("content-type", "application/json")
+                    .body(Body::from("{}"))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(services_response.status(), StatusCode::OK);
+
+        let operators_response = app
+            .oneshot(
+                Request::builder()
+                    .method(Method::POST)
+                    .uri("/api/providers/mock/operators")
+                    .header("content-type", "application/json")
+                    .body(Body::from("{}"))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(operators_response.status(), StatusCode::OK);
+    }
+
+    #[tokio::test]
+    async fn tickets_endpoint_lists_acquired_ticket() {
+        let app = test_router();
+
+        let acquire_response = app
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .method(Method::POST)
+                    .uri("/api/acquire")
+                    .header("content-type", "application/json")
+                    .body(Body::from(
+                        json!({
+                            "provider": "mock",
+                            "service": "openai",
+                            "country": "local"
+                        })
+                        .to_string(),
+                    ))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(acquire_response.status(), StatusCode::OK);
+
+        let tickets_response = app
+            .oneshot(
+                Request::builder()
+                    .method(Method::GET)
+                    .uri("/api/tickets")
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(tickets_response.status(), StatusCode::OK);
+        let tickets_body = axum::body::to_bytes(tickets_response.into_body(), usize::MAX)
+            .await
+            .unwrap();
+        let tickets_json: serde_json::Value = serde_json::from_slice(&tickets_body).unwrap();
+        assert_eq!(
+            tickets_json.pointer("/items/0/provider").and_then(serde_json::Value::as_str),
+            Some("mock")
+        );
+    }
+
+    #[tokio::test]
+    async fn ticket_detail_and_callback_endpoints_work_over_http() {
+        let app = test_router();
+
+        let acquire_response = app
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .method(Method::POST)
+                    .uri("/api/acquire")
+                    .header("content-type", "application/json")
+                    .body(Body::from(
+                        json!({
+                            "provider": "mock",
+                            "service": "openai",
+                            "country": "local"
+                        })
+                        .to_string(),
+                    ))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(acquire_response.status(), StatusCode::OK);
+        let acquire_body = axum::body::to_bytes(acquire_response.into_body(), usize::MAX)
+            .await
+            .unwrap();
+        let acquire_json: serde_json::Value = serde_json::from_slice(&acquire_body).unwrap();
+        let ticket_id = acquire_json.pointer("/ticket_id").and_then(serde_json::Value::as_str).unwrap();
+
+        let detail_response = app
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .method(Method::GET)
+                    .uri(format!("/api/tickets/{ticket_id}"))
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(detail_response.status(), StatusCode::OK);
+
+        let register_response = app
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .method(Method::POST)
+                    .uri(format!("/api/tickets/{ticket_id}/callbacks"))
+                    .header("content-type", "application/json")
+                    .body(Body::from(
+                        json!({
+                            "url": "https://example.com/callback",
+                            "secret": "demo"
+                        })
+                        .to_string(),
+                    ))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(register_response.status(), StatusCode::OK);
+
+        let callbacks_response = app
+            .oneshot(
+                Request::builder()
+                    .method(Method::GET)
+                    .uri(format!("/api/tickets/{ticket_id}/callbacks"))
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(callbacks_response.status(), StatusCode::OK);
+        let callbacks_body = axum::body::to_bytes(callbacks_response.into_body(), usize::MAX)
+            .await
+            .unwrap();
+        let callbacks_json: serde_json::Value = serde_json::from_slice(&callbacks_body).unwrap();
+        assert_eq!(
+            callbacks_json.pointer("/items/0/url").and_then(serde_json::Value::as_str),
+            Some("https://example.com/callback")
+        );
     }
 
     #[tokio::test]

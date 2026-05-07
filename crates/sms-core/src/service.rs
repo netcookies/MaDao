@@ -1,12 +1,14 @@
 use crate::error::SmsError;
 use crate::models::{
     AcquireCodeRequest, AcquireCodeResponse, LogEntry, NotificationFeed, OptionCacheOverview,
-    OptionCacheState, PollCodeRequest, PollCodeResponse, ProviderBalance, ProviderDynamicOptions,
-    ProviderManifestList, ProviderManifestSaveResponse, ProviderOptionCacheEntry, ProviderPriceQuery,
-    ProviderPriceResponse, ProviderReorderRequest, ProviderSummary, ReleaseCodeRequest,
-    ReleaseCodeResponse, RoutingExecutionMode, RoutingFailoverRequest, RoutingPlan, RoutingPlanItem,
-    RoutingPlanList, RoutingPlanStore, RuntimeSettings, RuntimeSettingsUpdate, RuntimeSnapshot,
-    TicketRecord, TicketStatus,
+    OptionCacheState, OptionListResponse, PollCodeRequest, PollCodeResponse, ProviderBalance,
+    ProviderDynamicOptions, ProviderManifestList, ProviderManifestSaveResponse, ProviderOperatorsQuery,
+    ProviderOptionCacheEntry, ProviderPriceQuery, ProviderPriceResponse, ProviderReorderRequest,
+    ProviderServicesQuery, ProviderSummary, ReleaseCodeRequest, ReleaseCodeResponse,
+    RoutingExecutionMode, RoutingFailoverRequest, RoutingPlan, RoutingPlanItem, RoutingPlanList,
+    RoutingPlanStore, RuntimeSettings, RuntimeSettingsUpdate, RuntimeSnapshot,
+    TicketCallbackListResponse, TicketCallbackRegistrationRequest, TicketCallbackSubscription,
+    TicketCodeCallbackPayload, TicketListResponse, TicketRecord, TicketStatus,
 };
 use crate::options::{
     build_cache_overview, cache_state, load_option_cache_store, normalize_price_items,
@@ -17,6 +19,7 @@ use crate::registry::ProviderRegistry;
 use chrono::Utc;
 use parking_lot::RwLock;
 use plugin_sdk::ProviderManifest;
+use reqwest::Client;
 use std::collections::{BTreeMap, VecDeque};
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -35,6 +38,8 @@ pub struct SmsService {
     routing_plans_path: Option<PathBuf>,
     routing_plans: RwLock<RoutingPlanStore>,
     provider_option_cache: RwLock<ProviderOptionCacheStore>,
+    callback_subscriptions: RwLock<BTreeMap<String, Vec<TicketCallbackSubscription>>>,
+    callback_client: Client,
     log_buffer: usize,
 }
 
@@ -91,6 +96,11 @@ impl SmsService {
             routing_plans_path,
             routing_plans: RwLock::new(routing_plans),
             provider_option_cache: RwLock::new(provider_option_cache),
+            callback_subscriptions: RwLock::new(BTreeMap::new()),
+            callback_client: Client::builder()
+                .timeout(std::time::Duration::from_secs(5))
+                .build()
+                .expect("callback client should build"),
             log_buffer,
         }
     }
@@ -590,6 +600,169 @@ impl SmsService {
         })
     }
 
+    pub async fn list_provider_countries(&self, provider_id: &str) -> Result<OptionListResponse, SmsError> {
+        let provider = {
+            let registry = self.registry.read();
+            registry.get(provider_id)?
+        };
+        let items = provider.list_countries().await?;
+        Ok(OptionListResponse {
+            provider: provider_id.to_string(),
+            items,
+        })
+    }
+
+    pub async fn list_provider_services(
+        &self,
+        provider_id: &str,
+        query: ProviderServicesQuery,
+    ) -> Result<OptionListResponse, SmsError> {
+        let provider = {
+            let registry = self.registry.read();
+            registry.get(provider_id)?
+        };
+        let items = provider.list_services(query).await?;
+        Ok(OptionListResponse {
+            provider: provider_id.to_string(),
+            items,
+        })
+    }
+
+    pub async fn list_provider_operators(
+        &self,
+        provider_id: &str,
+        query: ProviderOperatorsQuery,
+    ) -> Result<OptionListResponse, SmsError> {
+        let provider = {
+            let registry = self.registry.read();
+            registry.get(provider_id)?
+        };
+        let items = provider.list_operators(query).await?;
+        Ok(OptionListResponse {
+            provider: provider_id.to_string(),
+            items,
+        })
+    }
+
+    pub fn list_tickets(&self) -> TicketListResponse {
+        TicketListResponse {
+            items: self.tickets.read().values().cloned().collect(),
+        }
+    }
+
+    pub fn ticket(&self, ticket_id: &str) -> Result<TicketRecord, SmsError> {
+        self.tickets
+            .read()
+            .get(ticket_id)
+            .cloned()
+            .ok_or_else(|| SmsError::InvalidRequest(format!("unknown ticket {ticket_id}")))
+    }
+
+    pub fn register_ticket_callback(
+        &self,
+        ticket_id: &str,
+        request: TicketCallbackRegistrationRequest,
+    ) -> Result<TicketCallbackSubscription, SmsError> {
+        if !self.tickets.read().contains_key(ticket_id) {
+            return Err(SmsError::InvalidRequest(format!("unknown ticket {ticket_id}")));
+        }
+        let subscription = TicketCallbackSubscription {
+            id: Uuid::now_v7().to_string(),
+            ticket_id: ticket_id.to_string(),
+            url: request.url,
+            secret: request.secret,
+            created_at: Utc::now(),
+        };
+        self.callback_subscriptions
+            .write()
+            .entry(ticket_id.to_string())
+            .or_default()
+            .push(subscription.clone());
+        Ok(subscription)
+    }
+
+    pub fn list_ticket_callbacks(&self, ticket_id: &str) -> Result<TicketCallbackListResponse, SmsError> {
+        if !self.tickets.read().contains_key(ticket_id) {
+            return Err(SmsError::InvalidRequest(format!("unknown ticket {ticket_id}")));
+        }
+        Ok(TicketCallbackListResponse {
+            items: self
+                .callback_subscriptions
+                .read()
+                .get(ticket_id)
+                .cloned()
+                .unwrap_or_default(),
+        })
+    }
+
+    pub async fn maybe_dispatch_ticket_callbacks(&self) {
+        let pending = self
+            .callback_subscriptions
+            .read()
+            .iter()
+            .filter(|(_, items)| !items.is_empty())
+            .map(|(ticket_id, _)| ticket_id.clone())
+            .collect::<Vec<_>>();
+
+        for ticket_id in pending {
+            let ticket = match self.ticket(&ticket_id) {
+                Ok(ticket) => ticket,
+                Err(_) => continue,
+            };
+
+            let latest = if ticket.code.is_some() {
+                ticket
+            } else {
+                match self
+                    .poll_code(PollCodeRequest {
+                        ticket_id: ticket_id.clone(),
+                    })
+                    .await
+                {
+                    Ok(_) => match self.ticket(&ticket_id) {
+                        Ok(updated) => updated,
+                        Err(_) => continue,
+                    },
+                    Err(_) => continue,
+                }
+            };
+
+            if latest.code.is_none() {
+                continue;
+            }
+
+            let callbacks = self
+                .callback_subscriptions
+                .write()
+                .remove(&ticket_id)
+                .unwrap_or_default();
+            for callback in callbacks {
+                let payload = TicketCodeCallbackPayload {
+                    ticket_id: latest.id.clone(),
+                    provider: latest.provider.clone(),
+                    service: latest.service.clone(),
+                    country: latest.country.clone(),
+                    phone_number: latest.phone_number.clone(),
+                    code: latest.code.clone(),
+                    message: latest.message.clone(),
+                    received_at: Utc::now(),
+                };
+                let result = self.callback_client.post(&callback.url).json(&payload).send().await;
+                match result {
+                    Ok(response) if response.status().is_success() => {
+                        self.log("callback", "info", format!("delivered callback for ticket `{ticket_id}`"));
+                    }
+                    Ok(response) => {
+                        self.log("callback", "warn", format!("callback failed for ticket `{ticket_id}`: {}", response.status()));
+                    }
+                    Err(error) => {
+                        self.log("callback", "warn", format!("callback delivery error for ticket `{ticket_id}`: {error}"));
+                    }
+                }
+            }
+        }
+    }
+
     pub fn list_provider_manifests(&self) -> ProviderManifestList {
         let manifests = self.registry.read().list_manifests();
         ProviderManifestList { manifests }
@@ -1058,10 +1231,16 @@ fn ensure_routing_plan_enabled(plan: RoutingPlan) -> Result<RoutingPlan, SmsErro
 #[cfg(test)]
 mod tests {
     use super::*;
+    use axum::extract::State;
+    use axum::routing::post;
+    use axum::{Json, Router};
     use crate::registry::ProviderRegistry;
     use crate::models::{RoutingExecutionMode, RoutingFailoverRequest, RoutingPlan, RoutingPlanItem, RoutingPriceMode};
     use std::fs;
+    use std::net::SocketAddr;
     use std::path::PathBuf;
+    use std::sync::Arc;
+    use tokio::net::TcpListener;
     use uuid::Uuid;
 
     fn repo_root() -> PathBuf {
@@ -1367,6 +1546,69 @@ mod tests {
 
         assert_eq!(feed.items.first().map(|entry| entry.message.as_str()), Some("entry-3"));
         assert_eq!(feed.items.get(1).map(|entry| entry.message.as_str()), Some("entry-2"));
+    }
+
+    #[tokio::test]
+    async fn callback_subscription_dispatches_after_code_is_available() {
+        #[derive(Clone, Default)]
+        struct CallbackState {
+            payloads: Arc<parking_lot::Mutex<Vec<TicketCodeCallbackPayload>>>,
+        }
+
+        async fn receive_callback(
+            State(state): State<CallbackState>,
+            Json(payload): Json<TicketCodeCallbackPayload>,
+        ) -> Json<serde_json::Value> {
+            state.payloads.lock().push(payload);
+            Json(serde_json::json!({ "status": "ok" }))
+        }
+
+        let callback_state = CallbackState::default();
+        let router = Router::new()
+            .route("/callback", post(receive_callback))
+            .with_state(callback_state.clone());
+        let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let addr: SocketAddr = listener.local_addr().unwrap();
+        let server = tokio::spawn(async move {
+            let _ = axum::serve(listener, router).await;
+        });
+
+        let service = make_service();
+        let acquire = service
+            .acquire_code(AcquireCodeRequest {
+                provider: "mock".to_string(),
+                service: Some("openai".to_string()),
+                country: Some("local".to_string()),
+                max_price: None,
+                min_price: None,
+                auto_pick_country: None,
+                reuse_phone: None,
+                reuse_key: None,
+                metadata: BTreeMap::new(),
+                routing_plan_id: None,
+                routing_plan_name: None,
+            })
+            .await
+            .unwrap();
+
+        service
+            .register_ticket_callback(
+                &acquire.ticket_id,
+                TicketCallbackRegistrationRequest {
+                    url: format!("http://{addr}/callback"),
+                    secret: Some("demo".to_string()),
+                },
+            )
+            .unwrap();
+
+        service.maybe_dispatch_ticket_callbacks().await;
+
+        let payloads = callback_state.payloads.lock().clone();
+        assert_eq!(payloads.len(), 1);
+        assert_eq!(payloads[0].ticket_id, acquire.ticket_id);
+        assert_eq!(payloads[0].code.as_deref(), Some("123456"));
+
+        server.abort();
     }
 
     #[tokio::test]

@@ -32,7 +32,7 @@
 
 - 统一领域模型：请求 / 响应 / runtime snapshot / provider summary
 - `SmsProvider` trait
-- `HandlerApiProvider / FiveSimProvider / MockProvider`
+- `HeroSmsProvider / SmsBowerProvider / FiveSimProvider / MockProvider`
 - `ProviderRegistry`
 - `SmsService`
 
@@ -50,6 +50,7 @@
 - runtime snapshot
 - provider manifest list / get / save / reload
 - balance / prices
+- daemon-facing activation / routing / callback API，详见 [docs/daemon-api.md](daemon-api.md)
 
 ### `apps/daemon`
 

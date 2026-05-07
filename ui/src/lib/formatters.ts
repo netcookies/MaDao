@@ -11,6 +11,17 @@ const SERVICE_LABELS: Record<string, string> = {
   discord: 'Discord',
 };
 
+const SERVICE_EMOJIS: Record<string, string> = {
+  openai: '🤖',
+  dr: '🤖',
+  telegram: '✈️',
+  tg: '✈️',
+  whatsapp: '💬',
+  wa: '💬',
+  paypal: '💳',
+  discord: '🎮',
+};
+
 const COUNTRY_LABELS: Record<string, string> = {
   any: 'All countries',
   local: 'Local',
@@ -95,12 +106,19 @@ export function formatServiceLabel(service: string) {
   return SERVICE_LABELS[normalized] ?? titleCaseToken(service);
 }
 
+export function serviceBadge(service: string) {
+  const normalized = service.toLowerCase();
+  return SERVICE_EMOJIS[normalized] ?? '🧩';
+}
+
 export function formatProviderLabel(provider: string) {
   const normalized = provider.toLowerCase();
   const labels: Record<string, string> = {
     fivesim: 'FiveSim',
     herosms: 'HeroSMS',
     smsbower: 'SMSBower',
+    status: 'Status',
+    ui: 'UI',
   };
   return labels[normalized] ?? provider;
 }

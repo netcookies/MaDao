@@ -18,6 +18,12 @@
 
 所有请求使用 HTTP GET，认证通过 `api_key` query 参数传递。
 
+说明：
+
+- `HeroSMS` 官方 API 页是 `https://hero-sms.com/api#tag/sms-activate`，但页面是前端渲染文档，纯 HTML 抓取不易直接抽出完整 OpenAPI 文本。
+- `SmsBower` 官方文档页明确列出了 `getServicesList`、`getCountries`、`getNumberV2`、`getPricesV2`、`getPricesV3` 等扩展能力。
+- 本文件会将“协议共性”和“SmsBower 扩展能力”分开写，避免误认为 HeroSMS 一定支持全部扩展。
+
 ---
 
 ## getBalance — 查询余额
@@ -86,13 +92,19 @@ ACCESS_NUMBER:{activationId}:{phoneNumber}
 
 ---
 
-## getNumberV2 — JSON 响应版（SmsBower 专用）
+## getNumberV2 — JSON 响应版（SmsBower 扩展）
 
 ```
 GET ?action=getNumberV2&api_key=XXX&service=XXX&country=XXX[&可选参数]
 ```
 
 参数与 `getNumber` 完全相同，仅 `action` 不同。
+
+说明：
+
+- `SmsBower` 官方文档明确列出 `getNumberV2`
+- `HeroSMS` 官方文档页面未明确列出这一变体
+- 因此该能力应视为 `SmsBower 扩展`，不是 `handler_api` 的最低共性
 
 ### 成功响应（JSON）
 
@@ -234,7 +246,15 @@ GET ?action=getCountries&api_key=XXX
 ]
 ```
 
-本项目当前未调用此端点（国家通过 TOML 配置固定传入）。
+当前实现**已经调用**此端点来构建动态国家选项，见 `request_countries()`：
+
+- [provider.rs](/Users/isulewli/Projects/MaDao/crates/sms-core/src/provider.rs:195)
+
+兼容性说明：
+
+- `SmsBower` 文档页展示的是富结构国家对象，包含 `title / iso / prefix / operators / alternative_params`
+- 当前代码只读取 `id / chn / eng / rus`
+- 如果后续要支持更细粒度的 operator 级联，现有解析需要扩展
 
 ---
 
@@ -248,6 +268,13 @@ GET ?action=getCountries&api_key=XXX
 | `minPrice` 参数 | 支持 | 不支持 |
 | Webhook 通知 | 支持（IP: `167.235.198.205`） | 不支持 |
 | 协议基础 | handler_api 兼容 | handler_api 兼容 |
+
+另外两个与当前实现直接相关的差异：
+
+| 特性 | SmsBower | HeroSMS |
+|------|---------|---------|
+| `getServicesList` | 文档明确列出 | 页面未直接确认 |
+| `getCountries` | 文档明确列出，且返回富结构国家数据 | 运行时可调用，但公开页面不易直接提取结构 |
 
 ---
 
@@ -277,7 +304,7 @@ GET ?action=getCountries&api_key=XXX
 base_url                = "https://smsbower.page/stubs/handler_api.php"
 api_key                 = ""
 
-# Action 名称（HeroSMS 使用 getNumber，SmsBower 使用 getNumberV2）
+# Action 名称（当前内置配置：HeroSMS 使用 `getNumber`，SmsBower 使用 `getNumberV2`）
 get_balance_action      = "getBalance"
 get_prices_action       = "getPrices"
 get_countries_action    = "getCountries"
@@ -294,7 +321,7 @@ status_cancel           = 8   # ReleaseAction::Cancel / Ban
 # 文本响应解析
 balance_prefix          = "ACCESS_BALANCE:"
 success_status_prefix   = "STATUS_OK:"
-wait_status_tokens      = ["STATUS_WAIT_CODE"]   # 仅文档用，当前轮询逻辑以 catch-all 处理等待
+wait_status_tokens      = ["STATUS_WAIT_CODE"]   # 当前代码实际会读取
 failure_status_tokens   = ["STATUS_CANCEL", "BAD_STATUS", "NO_ACTIVATION", "BAD_KEY", "BAD_SERVICE"]
 
 # JSON 响应解析（用于 getNumberV2）
@@ -305,4 +332,25 @@ balance_json_pointers   = ["/balance", "/amount", "/data/balance", "/data/amount
 code_json_pointers      = ["/sms/code", "/code", "/data/code", "/sms/0/code"]
 ```
 
-> `wait_status_tokens` 当前在代码中**未被读取**（轮询逻辑以"既不成功也不失败即为等待"的方式处理），保留该字段主要用于文档说明和未来扩展。
+> `wait_status_tokens` 当前代码**已经读取**，见 [provider.rs](/Users/isulewli/Projects/MaDao/crates/sms-core/src/provider.rs:448)。未知状态不会被静默当作等待，而是按失败处理。
+
+---
+
+## 当前实现范围
+
+虽然 `SmsBower` 文档还列出了 `getPricesV2`、`getPricesV3` 等扩展接口，但当前代码实际使用范围只有：
+
+- `getBalance`
+- `getNumber` / `getNumberV2`
+- `getStatus`
+- `setStatus`
+- `getPrices`
+- `getCountries`
+- `getServicesList` / `getServices`
+
+对应实现入口：
+
+- 国家列表：[provider.rs](/Users/isulewli/Projects/MaDao/crates/sms-core/src/provider.rs:195)
+- 服务列表：[provider.rs](/Users/isulewli/Projects/MaDao/crates/sms-core/src/provider.rs:228)
+- 价格解析：[provider.rs](/Users/isulewli/Projects/MaDao/crates/sms-core/src/provider.rs:280)
+- 号码获取：[provider.rs](/Users/isulewli/Projects/MaDao/crates/sms-core/src/provider.rs:377)

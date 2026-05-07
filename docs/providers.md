@@ -6,8 +6,8 @@
 
 当前兼容三类协议风格：
 
-- `HeroSMS` 风格 `handler_api`
-- `SmsBower` 风格 `handler_api`
+- `HeroSMS` 独立适配器（兼容层 + 扩展）
+- `SmsBower` 独立适配器（兼容层 + 扩展）
 - `5SIM` 风格 REST
 
 ## API 详细文档
@@ -16,8 +16,10 @@
 
 | Provider | 文档 |
 |----------|------|
+| HeroSMS | [docs/providers/herosms.md](providers/herosms.md) |
+| SmsBower | [docs/providers/smsbower.md](providers/smsbower.md) |
 | 5SIM REST API | [docs/providers/5sim.md](providers/5sim.md) |
-| handler_api（HeroSMS / SmsBower） | [docs/providers/handler-api.md](providers/handler-api.md) |
+| handler_api 共性参考 | [docs/providers/handler-api.md](providers/handler-api.md) |
 | Mock（本地联调） | [docs/providers/mock.md](providers/mock.md) |
 
 ## Provider Manifest
@@ -37,7 +39,12 @@ plugins/providers/*.toml
 
 ## `handler_api` 风格
 
-适用于 `HeroSMS / SmsBower` 风格平台。
+适用于共性的 `sms-activate / handler_api` 风格平台。
+
+但当前项目不再把 `HeroSMS` 与 `SmsBower` 完全视作同一个协议实现，而是：
+
+- 各自独立适配器
+- 底层只共享少量工具与兼容逻辑
 
 关键字段：
 

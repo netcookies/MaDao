@@ -57,6 +57,8 @@ impl ProviderManifest {
 
     pub fn protocol_name(&self) -> &'static str {
         match self.kind {
+            ProviderKind::HandlerApi if self.id == "herosms" => "herosms",
+            ProviderKind::HandlerApi if self.id == "smsbower" => "smsbower",
             ProviderKind::HandlerApi => "handler_api",
             ProviderKind::FiveSim => "five_sim",
             ProviderKind::Mock => "mock",

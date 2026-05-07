@@ -559,6 +559,7 @@ pub fn run() {
             tauri::async_runtime::spawn(async move {
                 loop {
                     let _ = cache_service.maybe_poll_provider_options().await;
+                    cache_service.maybe_dispatch_ticket_callbacks().await;
                     tokio::time::sleep(std::time::Duration::from_secs(60)).await;
                 }
             });

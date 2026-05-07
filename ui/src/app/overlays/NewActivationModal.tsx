@@ -1,7 +1,7 @@
 import { X } from 'lucide-react';
 import { AppButton, ModalField, SelectTrigger } from '../ui-bridge';
 import type { ActivationFormState, ProviderManifest, RoutingPlan, SelectorKind } from '../types';
-import { formatCountryLabel, formatServiceLabel } from '../../lib/formatters';
+import { countryBadge, formatCountryLabel, formatServiceLabel, serviceBadge } from '../../lib/formatters';
 
 export type NewActivationModalProps = {
   providers: ProviderManifest[];
@@ -67,14 +67,14 @@ export function NewActivationModal(props: NewActivationModalProps) {
         <ModalField label="SERVICE">
           <SelectTrigger
             compact
-            value={props.form.service ? formatServiceLabel(props.form.service) : ''}
+            value={props.form.service ? `${serviceBadge(props.form.service)} ${formatServiceLabel(props.form.service)}` : ''}
             placeholder={usesRoutingPlan ? 'controlled by routing plan' : 'e.g. telegram, openai, whatsapp'}
             onClick={() => props.onOpenSelector('activation-service')}
             disabled={usesRoutingPlan}
           />
         </ModalField>
         <ModalField label="COUNTRY">
-          <SelectTrigger compact value={props.form.country ? formatCountryLabel(props.form.country) : ''} placeholder={usesRoutingPlan ? 'controlled by routing plan' : 'any — auto select'} onClick={() => props.onOpenSelector('activation-country')} disabled={usesRoutingPlan} />
+          <SelectTrigger compact value={props.form.country ? `${countryBadge(props.form.country)} ${formatCountryLabel(props.form.country)}` : ''} placeholder={usesRoutingPlan ? 'controlled by routing plan' : 'any — auto select'} onClick={() => props.onOpenSelector('activation-country')} disabled={usesRoutingPlan} />
         </ModalField>
         <ModalField label="PROVIDER">
           <SelectTrigger compact value={providerLabel} placeholder={usesRoutingPlan ? 'controlled by routing plan' : 'select provider'} onClick={() => props.onOpenSelector('provider')} disabled={usesRoutingPlan} />

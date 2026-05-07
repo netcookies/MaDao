@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react';
 import { ChevronRight, GripVertical, Plus } from 'lucide-react';
 import { Modal } from '../../components/overlays';
-import { formatCountryLabel, formatProviderLabel, formatServiceLabel } from '../../lib/formatters';
+import { countryBadge, formatCountryLabel, formatProviderLabel, formatServiceLabel, serviceBadge } from '../../lib/formatters';
 import { cx } from '../../lib/cx';
 import {
   AppButton,
@@ -228,7 +228,7 @@ function RoutingPlanMatrixScreen(props: {
                       : 'bg-ds-surface-subtle text-ds-text-secondary'
                   }`}
                 >
-                  {plan.service ? formatServiceLabel(plan.service) : 'No Service'}
+                  {plan.service ? `${serviceBadge(plan.service)} ${formatServiceLabel(plan.service)}` : 'No Service'}
                 </span>
               </div>
 
@@ -351,7 +351,7 @@ function RoutingPlanDetailScreen(props: {
                 Service
               </span>
               <SelectTrigger
-                value={props.plan.service ? formatServiceLabel(props.plan.service) : ''}
+              value={props.plan.service ? `${serviceBadge(props.plan.service)} ${formatServiceLabel(props.plan.service)}` : ''}
                 placeholder="Choose service"
                 onClick={props.onOpenServicePicker}
                 className="w-full"
@@ -671,7 +671,7 @@ function RoutingItemEditorModal(props: {
           <ModalField label="COUNTRY">
             <SelectTrigger
               compact
-              value={editor.country ? formatCountryLabel(editor.country) : ''}
+              value={editor.country ? `${countryBadge(editor.country)} ${formatCountryLabel(editor.country)}` : ''}
               placeholder="Any country"
               onClick={() => props.onOpenSelector('country')}
               className="w-full"
