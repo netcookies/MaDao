@@ -9536,22 +9536,12 @@
                               "type": "frame",
                               "id": "t2a2d",
                               "name": "modeCtrl",
-                              "fill": "#ffffff60",
+                              "fill": "#c7c7cc",
                               "cornerRadius": 8,
                               "stroke": {
                                 "align": "inside",
                                 "thickness": 1,
-                                "fill": "#ffffff40"
-                              },
-                              "effect": {
-                                "type": "shadow",
-                                "shadowType": "outer",
-                                "color": "#00000012",
-                                "offset": {
-                                  "x": 0,
-                                  "y": 1
-                                },
-                                "blur": 3
+                                "fill": "#00000014"
                               },
                               "gap": 2,
                               "padding": 3,
@@ -9560,7 +9550,7 @@
                                   "type": "frame",
                                   "id": "TXdMJ",
                                   "name": "modeSeq",
-                                  "fill": "#ffffffee",
+                                  "fill": "#ffffff",
                                   "cornerRadius": 6,
                                   "effect": {
                                     "type": "shadow",

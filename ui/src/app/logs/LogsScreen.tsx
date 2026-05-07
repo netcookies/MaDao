@@ -1,5 +1,5 @@
 import { Trash2 } from 'lucide-react';
-import { AppButton, DataTable, PageHeader, SearchField, SegmentedControl } from '../ui-bridge';
+import { AppButton, DataTable, PageHeader, SegmentedControl } from '../ui-bridge';
 import { cx } from '../../lib/cx';
 
 export type LogFilter = 'all' | 'info' | 'warn' | 'error';
@@ -35,15 +35,8 @@ export function LogsScreen(props: LogsScreenProps) {
         )}
       />
 
-      <div className="flex flex-wrap items-center justify-between gap-4">
+      <div className="flex flex-wrap items-center justify-end gap-4">
         <SegmentedControl items={props.filters} value={props.filter} onChange={props.setFilter} appearance="rail" className="min-h-0" />
-        <SearchField
-          compact
-          className="w-full min-[760px]:w-[200px]"
-          value={props.search}
-          onChange={(event) => props.onSearch(event.target.value)}
-          placeholder="Search logs..."
-        />
       </div>
 
       <div className="overflow-hidden rounded-[12px] border border-solid border-ds-border-strong bg-ds-surface shadow-ds backdrop-blur-ds">

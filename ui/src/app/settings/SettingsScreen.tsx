@@ -1,4 +1,4 @@
-import { Moon, Sun } from 'lucide-react';
+import { ChevronDown, ChevronUp, Moon, Sun } from 'lucide-react';
 import {
   PageHeader,
   SegmentedControl,
@@ -33,6 +33,10 @@ export type SettingsScreenProps = {
 };
 
 export function SettingsScreen(props: SettingsScreenProps) {
+  function handlePollIntervalStep(nextValue: number) {
+    props.onOptionCachePollIntervalChange(Math.max(1, nextValue));
+  }
+
   return (
     <div className="flex flex-col gap-8">
       <PageHeader
@@ -69,14 +73,34 @@ export function SettingsScreen(props: SettingsScreenProps) {
           <SettingChoiceRow
             label="Polling Interval"
             control={(
-              <input
-                type="number"
-                min={1}
-                step={1}
-                value={props.optionCachePollIntervalMinutes}
-                onChange={(event) => props.onOptionCachePollIntervalChange(Number(event.target.value || 30))}
-                className="w-[92px] rounded-sm border border-ds-border-strong bg-ds-surface px-3 py-2 text-[13px] text-ds-text-primary"
-              />
+              <div className="flex min-h-control w-[92px] overflow-hidden rounded-sm border border-ds-border-strong bg-ds-surface">
+                <input
+                  type="number"
+                  min={1}
+                  step={1}
+                  value={props.optionCachePollIntervalMinutes}
+                  onChange={(event) => props.onOptionCachePollIntervalChange(Number(event.target.value || 30))}
+                  className="min-w-0 flex-1 appearance-none bg-transparent px-4 py-[11px] text-utility tracking-[var(--ds-type-utility-tracking)] text-ds-text-primary outline-none [-moz-appearance:textfield] [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:appearance-none"
+                />
+                <div className="flex w-7 flex-col border-l border-ds-border">
+                  <button
+                    type="button"
+                    aria-label="Increase polling interval"
+                    className="inline-flex flex-1 items-center justify-center text-ds-text-secondary transition-colors duration-fast ease-[var(--ds-motion-transition-fast)] hover:bg-ds-surface-subtle hover:text-ds-text-primary"
+                    onClick={() => handlePollIntervalStep(props.optionCachePollIntervalMinutes + 1)}
+                  >
+                    <ChevronUp size={12} />
+                  </button>
+                  <button
+                    type="button"
+                    aria-label="Decrease polling interval"
+                    className="inline-flex flex-1 items-center justify-center border-t border-ds-border text-ds-text-secondary transition-colors duration-fast ease-[var(--ds-motion-transition-fast)] hover:bg-ds-surface-subtle hover:text-ds-text-primary"
+                    onClick={() => handlePollIntervalStep(props.optionCachePollIntervalMinutes - 1)}
+                  >
+                    <ChevronDown size={12} />
+                  </button>
+                </div>
+              </div>
             )}
           />
           <div className="flex flex-wrap items-center gap-3 text-caption text-ds-text-secondary">

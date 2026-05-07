@@ -6,7 +6,6 @@ import {
   AppButton,
   ModalField,
   PageHeader,
-  SearchField,
   SegmentedControl,
   SelectTrigger,
   StatusBadge,
@@ -182,15 +181,6 @@ function RoutingPlanMatrixScreen(props: {
       <PageHeader
         title="Routing Plans"
         subtitle="Browse reusable routing plans and open any plan to manage its candidates."
-        actions={(
-          <SearchField
-            compact
-            className="w-full min-[760px]:w-48"
-            value={props.routingSearch}
-            onChange={(event) => props.onUpdateRoutingSearch(event.target.value)}
-            placeholder="Search plans..."
-          />
-        )}
       />
 
       <div className="flex flex-wrap items-center justify-between gap-4">

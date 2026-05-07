@@ -8,9 +8,10 @@
   --ds-color-surface-subtle: rgba(255, 255, 255, 0.45);
   --ds-color-surface-chip: #d2d2d7;
   --ds-color-control-rail: rgba(120, 120, 128, 0.24);
-  --ds-color-control-rail-surface: rgba(120, 120, 128, 0.20);
-  --ds-color-control-rail-border: rgba(120, 120, 128, 0.18);
-  --ds-color-control-rail-active: rgba(255, 255, 255, 0.93);
+  --ds-color-control-rail-surface: rgba(120, 120, 128, 0.34);
+  --ds-color-control-rail-border: rgba(120, 120, 128, 0.24);
+  --ds-color-control-rail-active: rgba(255, 255, 255, 0.98);
+  --ds-color-control-rail-active-border: rgba(0, 0, 0, 0.06);
   --ds-color-control-rail-text: rgba(29, 29, 31, 0.6);
   --ds-color-control-rail-text-active: #1d1d1f;
   --ds-color-toolbar-surface: rgba(255, 255, 255, 0.70);
@@ -114,9 +115,10 @@
   --ds-color-surface-subtle: rgba(58, 58, 62, 0.70);
   --ds-color-surface-chip: #48484a;
   --ds-color-control-rail: rgba(120, 120, 128, 0.34);
-  --ds-color-control-rail-surface: rgba(120, 120, 128, 0.28);
-  --ds-color-control-rail-border: rgba(120, 120, 128, 0.24);
-  --ds-color-control-rail-active: rgba(255, 255, 255, 0.14);
+  --ds-color-control-rail-surface: rgba(18, 18, 20, 0.88);
+  --ds-color-control-rail-border: rgba(255, 255, 255, 0.08);
+  --ds-color-control-rail-active: rgba(99, 99, 102, 0.88);
+  --ds-color-control-rail-active-border: rgba(255, 255, 255, 0.08);
   --ds-color-control-rail-text: rgba(245, 245, 247, 0.62);
   --ds-color-control-rail-text-active: #f5f5f7;
   --ds-color-toolbar-surface: rgba(44, 44, 48, 0.82);

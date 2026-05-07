@@ -597,6 +597,7 @@ function renderPageTarget(target: ScreenshotTarget) {
         manifest={PROVIDERS[2]}
         summary={PROVIDER_SUMMARIES[2]}
         section="config"
+        compact={false}
         prices={PRICE_ITEMS}
         balanceLabel="7.81 USD"
         busyAction=""
@@ -642,6 +643,7 @@ function renderPageTarget(target: ScreenshotTarget) {
         manifest={PROVIDERS[2]}
         summary={PROVIDER_SUMMARIES[2]}
         section="store"
+        compact={false}
         prices={[]}
         balanceLabel="7.81 USD"
         busyAction=""

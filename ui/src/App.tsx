@@ -1023,6 +1023,23 @@ export function App() {
 
   const toolbarActions = (
     <>
+      {activeScreen === 'routing' && routingView === 'matrix' ? (
+        <SearchField
+          compact
+          className="w-full min-[760px]:w-48"
+          value={routingSearch}
+          onChange={(event) => setRoutingSearch(event.target.value)}
+          placeholder="Search plans..."
+        />
+      ) : activeScreen === 'logs' ? (
+        <SearchField
+          compact
+          className="w-full min-[760px]:w-[200px]"
+          value={logsSearch}
+          onChange={(event) => setLogsSearch(event.target.value)}
+          placeholder="Search logs..."
+        />
+      ) : null}
       <div className="relative">
         <IconButton
           variant="toolbar"
@@ -1221,6 +1238,7 @@ export function App() {
                 manifest={selectedManifest}
                 summary={selectedSummary}
                 section={activeProviderSection}
+                compact={compactTables}
                 prices={sortedPrices}
                 balanceLabel={balances[selectedProvider] ?? '—'}
                 busyAction={busyAction}

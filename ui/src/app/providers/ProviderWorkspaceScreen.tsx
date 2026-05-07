@@ -42,6 +42,7 @@ export type ProviderWorkspaceScreenProps = {
   manifest: ProviderManifest;
   summary?: ProviderSummary;
   section: ProviderSectionId;
+  compact?: boolean;
   prices: ProviderPriceItem[];
   balanceLabel: string;
   busyAction: string;
@@ -70,15 +71,21 @@ export type ProviderWorkspaceScreenProps = {
 export function ProviderWorkspaceScreen(props: ProviderWorkspaceScreenProps) {
   const { manifest, section } = props;
   const isConnected = manifest.enabled;
+  const compact = props.compact ?? false;
 
   return (
     <div className="flex flex-col">
-      <div className="flex h-[46px] items-stretch gap-7 border-b border-[var(--ds-color-toolbar-border)] bg-[var(--ds-color-toolbar-surface)] px-10">
+      <div className={cx(
+        'flex h-[46px] items-stretch gap-7 border-b border-[var(--ds-color-toolbar-border)] bg-[var(--ds-color-toolbar-surface)] px-10',
+        compact && 'h-[40px] gap-5 px-8',
+      )}
+      >
         {WORKSPACE_SECTIONS.map(({ id, label, Icon }) => (
           <button
             key={id}
             className={cx(
               'flex items-center gap-[7px] border-b-2 border-transparent font-text text-[14px] transition-colors duration-fast ease-[var(--ds-motion-transition-fast)]',
+              compact && 'text-[13px]',
               section === id
                 ? 'border-ds-accent-blue font-semibold text-ds-accent-blue'
                 : 'font-normal text-ds-text-secondary',
@@ -91,11 +98,12 @@ export function ProviderWorkspaceScreen(props: ProviderWorkspaceScreenProps) {
         ))}
       </div>
 
-      <div className="px-10 pt-6 pb-6 max-[760px]:px-5">
+      <div className={cx('px-10 pt-6 pb-6 max-[760px]:px-5', compact && 'px-8 pt-5 pb-5')}>
         {section === 'config' && (
           <WorkspaceConfig
             manifest={manifest}
             summary={props.summary}
+            compact={compact}
             isConnected={isConnected}
             balanceLabel={props.balanceLabel}
             busyAction={props.busyAction}
@@ -113,6 +121,7 @@ export function ProviderWorkspaceScreen(props: ProviderWorkspaceScreenProps) {
         {section === 'store' && (
           <WorkspaceStore
             manifest={manifest}
+            compact={compact}
             prices={props.prices}
             busyAction={props.busyAction}
             onFetchPrices={props.onFetchPrices}
@@ -131,6 +140,7 @@ export function ProviderWorkspaceScreen(props: ProviderWorkspaceScreenProps) {
 function WorkspaceConfig(props: {
   manifest: ProviderManifest;
   summary?: ProviderSummary;
+  compact: boolean;
   isConnected: boolean;
   balanceLabel: string;
   busyAction: string;
@@ -159,7 +169,7 @@ function WorkspaceConfig(props: {
   const toggleLabel = props.isConnected ? 'Enabled' : 'Disabled';
 
   return (
-    <div className="flex flex-col gap-5">
+    <div className={cx('flex flex-col gap-5', props.compact && 'gap-4')}>
       <div className="flex flex-col gap-[3px]">
         <h1 className="m-0 text-[20px] font-semibold leading-none tracking-[-0.3px] text-ds-text-primary">
           {manifest.name}
@@ -170,7 +180,7 @@ function WorkspaceConfig(props: {
       </div>
 
       <div className="overflow-hidden rounded-[10px] border border-[var(--ds-color-card-border)] bg-ds-surface shadow-ds backdrop-blur-ds">
-        <div className="flex items-center justify-between px-5 py-[14px]">
+        <div className={cx('flex items-center justify-between px-5 py-[14px]', props.compact && 'px-4 py-3')}>
           <span className="text-[11px] font-semibold uppercase tracking-[0.08em] text-ds-text-secondary">
             {manifest.name}
           </span>
@@ -188,13 +198,13 @@ function WorkspaceConfig(props: {
             />
           </div>
         </div>
-        <div className="px-5 pb-[14px]">
+        <div className={cx('px-5 pb-[14px]', props.compact && 'px-4 pb-3')}>
           <span className="text-page-title text-ds-text-primary">
             {props.balanceLabel}
           </span>
         </div>
         <div className="h-px bg-ds-border" />
-        <div className="flex flex-wrap items-center gap-2 px-5 py-3">
+        <div className={cx('flex flex-wrap items-center gap-2 px-5 py-3', props.compact && 'px-4 py-2.5')}>
           <StatusBadge tone={props.isConnected ? 'green' : 'gray'}>
             {props.isConnected ? 'Connected' : 'Disabled'}
           </StatusBadge>
@@ -207,7 +217,10 @@ function WorkspaceConfig(props: {
       <div className="overflow-hidden rounded-[10px] border border-[var(--ds-color-card-border)] bg-ds-surface shadow-ds backdrop-blur-ds">
         <ConfigRow label="API Key" last>
           <input
-            className="min-h-control w-full rounded-sm border border-ds-border-strong bg-ds-surface px-4 py-[11px] text-utility tracking-[var(--ds-type-utility-tracking)] text-ds-text-primary"
+            className={cx(
+              'min-h-control w-full rounded-sm border border-ds-border-strong bg-ds-surface px-4 py-[11px] text-utility tracking-[var(--ds-type-utility-tracking)] text-ds-text-primary',
+              props.compact && 'min-h-control-compact px-3 py-2',
+            )}
             type="password"
             value={props.apiKeyValue}
             onChange={(e) => props.onApiKeyChange(e.target.value)}
@@ -215,7 +228,7 @@ function WorkspaceConfig(props: {
           />
         </ConfigRow>
         <div className="h-px bg-ds-border" />
-        <div className="flex items-center justify-between px-5 py-3">
+        <div className={cx('flex items-center justify-between px-5 py-3', props.compact && 'px-4 py-2.5')}>
           <div>
             {props.showAdvancedEditor && (
               <AppButton variant="ghost" size="utility" className="min-h-0 px-0 py-0 text-ds-accent-blue" onClick={props.onOpenRawJson}>
@@ -239,6 +252,7 @@ function WorkspaceConfig(props: {
 
 function WorkspaceStore(props: {
   manifest: ProviderManifest;
+  compact: boolean;
   prices: ProviderPriceItem[];
   busyAction: string;
   onFetchPrices: () => void;
@@ -249,8 +263,8 @@ function WorkspaceStore(props: {
   priceSort: { key: PriceSortKey; dir: 'asc' | 'desc' };
 }) {
   return (
-    <div className="flex flex-col gap-5">
-      <div className="flex items-start justify-between gap-6">
+    <div className={cx('flex flex-col gap-5', props.compact && 'gap-4')}>
+      <div className={cx('flex items-start justify-between gap-6', props.compact && 'gap-4')}>
         <div className="flex flex-col gap-[3px]">
           <h2 className="m-0 text-[20px] font-semibold leading-none tracking-[-0.3px] text-ds-text-primary">
             Price Inventory
@@ -261,16 +275,19 @@ function WorkspaceStore(props: {
         </div>
         <div className="flex shrink-0 items-center gap-2">
           <SelectTrigger
+            compact={props.compact}
             value={formatServiceLabel(props.storeQuery.service || props.manifest.defaults.service)}
             onClick={() => props.onOpenSelector('store-service')}
           />
           <SelectTrigger
+            compact={props.compact}
             value={props.storeQuery.country ? formatCountryLabel(props.storeQuery.country) : ''}
             placeholder="All countries"
             muted={!props.storeQuery.country}
             onClick={() => props.onOpenSelector('store-country')}
           />
           <SelectTrigger
+            compact={props.compact}
             value={props.storeQuery.operator}
             placeholder="All operators"
             muted={!props.storeQuery.operator}
@@ -280,6 +297,7 @@ function WorkspaceStore(props: {
       </div>
 
       <SearchField
+        compact={props.compact}
         value={props.storeQuery.search}
         onChange={(event) => props.onStoreQueryChange({ search: event.target.value })}
         placeholder="Filter by country or operator..."
@@ -288,7 +306,10 @@ function WorkspaceStore(props: {
 
       <div className="overflow-hidden rounded-xl border border-[var(--ds-color-card-border)] bg-ds-surface">
         <DataTable
-          headerClassName="grid grid-cols-1 items-center gap-4 border-b border-solid border-[var(--ds-color-divider-soft)] border-x-0 border-t-0 bg-[var(--ds-color-table-header)] px-4 py-[10px] text-[12px] font-medium text-ds-text-primary/60 min-[760px]:grid-cols-[minmax(0,1.5fr)_minmax(0,1fr)_120px_96px]"
+          headerClassName={cx(
+            'grid grid-cols-1 items-center gap-4 border-b border-solid border-[var(--ds-color-divider-soft)] border-x-0 border-t-0 bg-[var(--ds-color-table-header)] px-4 py-[10px] text-[12px] font-medium text-ds-text-primary/60 min-[760px]:grid-cols-[minmax(0,1.5fr)_minmax(0,1fr)_120px_96px]',
+            props.compact && 'gap-3 px-3 py-2 text-[11px]',
+          )}
           header={(
             <>
               <button className="inline-flex items-center justify-start gap-1.5 bg-transparent p-0 text-left text-inherit" onClick={() => props.onSortPrices('country')}>
@@ -308,7 +329,13 @@ function WorkspaceStore(props: {
           )}
         >
         {props.prices.length > 0 ? props.prices.slice(0, 20).map((item) => (
-            <div className="grid grid-cols-1 items-center gap-4 border-b border-solid border-[var(--ds-color-divider-subtle)] border-x-0 border-t-0 px-4 py-3 last:border-b-0 min-[760px]:grid-cols-[minmax(0,1.5fr)_minmax(0,1fr)_120px_96px]" key={`${item.country}-${item.display_name}`}>
+            <div
+              className={cx(
+                'grid grid-cols-1 items-center gap-4 border-b border-solid border-[var(--ds-color-divider-subtle)] border-x-0 border-t-0 px-4 py-3 last:border-b-0 min-[760px]:grid-cols-[minmax(0,1.5fr)_minmax(0,1fr)_120px_96px]',
+                props.compact && 'gap-3 px-3 py-2.5 text-[13px]',
+              )}
+              key={`${item.country}-${item.display_name}`}
+            >
               <span className="inline-flex min-w-0 items-center gap-2.5">
                 <span className="shrink-0">{countryBadge(item.country)}</span>
                 <span className="min-w-0 overflow-hidden text-ellipsis whitespace-nowrap">{item.display_name}</span>
