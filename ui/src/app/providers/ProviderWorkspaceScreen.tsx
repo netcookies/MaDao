@@ -160,7 +160,7 @@ function WorkspaceConfig(props: {
   const toggleLabel = props.isConnected ? 'Enabled' : 'Disabled';
 
   return (
-    <div className="flex flex-col gap-5">
+    <div className="flex flex-col gap-4">
       <div className="flex flex-col gap-1">
         <h1 className="text-[22px] font-bold leading-tight tracking-tight text-ds-text-primary">
           {manifest.name}
@@ -170,8 +170,8 @@ function WorkspaceConfig(props: {
         </p>
       </div>
 
-      <div className="overflow-hidden rounded-lg border border-ds-border bg-ds-surface shadow-ds backdrop-blur-ds">
-        <div className="flex flex-col gap-3 px-5 py-4">
+      <div className="overflow-hidden rounded-[10px] border border-white/50 bg-ds-surface">
+        <div className="flex flex-col gap-3 px-5 py-[14px]">
           <div className="flex items-center justify-between">
             <span className="text-[11px] font-semibold uppercase tracking-[0.08em] text-ds-text-secondary">
               {manifest.name}
@@ -206,7 +206,7 @@ function WorkspaceConfig(props: {
         </div>
       </div>
 
-      <div className="overflow-hidden rounded-lg border border-ds-border bg-ds-surface shadow-ds backdrop-blur-ds">
+      <div className="overflow-hidden rounded-[10px] border border-white/50 bg-ds-surface">
         <ConfigRow label="API Key" last>
           <input
             className="min-h-control w-full rounded-sm border border-ds-border-strong bg-ds-surface px-4 py-[11px] text-utility tracking-[var(--ds-type-utility-tracking)] text-ds-text-primary"
@@ -252,11 +252,10 @@ function WorkspaceStore(props: {
   return (
     <div className="flex flex-col gap-5">
       <SectionHeader
-        eyebrow="Store"
         title="Price Inventory"
         description="Stock by service, country and operator"
         actions={(
-          <div className="flex flex-wrap justify-end gap-3">
+          <div className="flex flex-wrap justify-end gap-2">
             <SelectTrigger
               value={formatServiceLabel(props.storeQuery.service || props.manifest.defaults.service)}
               onClick={() => props.onOpenSelector('store-service')}
@@ -273,9 +272,6 @@ function WorkspaceStore(props: {
               muted={!props.storeQuery.operator}
               onClick={() => props.onOpenSelector('store-operator')}
             />
-            <AppButton variant="primary" size="utility" onClick={props.onFetchPrices} disabled={props.busyAction.includes('prices')}>
-              Load Prices
-            </AppButton>
           </div>
         )}
       />
@@ -287,9 +283,9 @@ function WorkspaceStore(props: {
         className="w-full"
       />
 
-      <div className="overflow-hidden rounded-lg border border-solid border-ds-border-strong bg-ds-surface">
+      <div className="overflow-hidden rounded-xl border border-white/50 bg-ds-surface">
         <DataTable
-          headerClassName="grid grid-cols-1 items-center gap-4 border-b border-solid border-ds-border-strong border-x-0 border-t-0 px-5 py-[14px] text-[11px] font-semibold uppercase tracking-[0.12em] text-[#8c8c92] min-[760px]:grid-cols-[minmax(0,1.5fr)_minmax(0,1fr)_120px_96px]"
+          headerClassName="grid grid-cols-1 items-center gap-4 border-b border-solid border-black/[0.08] border-x-0 border-t-0 bg-[#e8ecf0cc] px-4 py-[10px] text-[12px] font-medium text-ds-text-primary/60 min-[760px]:grid-cols-[minmax(0,1.5fr)_minmax(0,1fr)_120px_96px]"
           header={(
             <>
               <button className="inline-flex items-center justify-start gap-1.5 bg-transparent p-0 text-left text-inherit" onClick={() => props.onSortPrices('country')}>
@@ -309,7 +305,7 @@ function WorkspaceStore(props: {
           )}
         >
         {props.prices.length > 0 ? props.prices.slice(0, 20).map((item) => (
-            <div className="grid grid-cols-1 items-center gap-4 border-b border-solid border-ds-border border-x-0 border-t-0 px-5 py-4 last:border-b-0 min-[760px]:grid-cols-[minmax(0,1.5fr)_minmax(0,1fr)_120px_96px]" key={`${item.country}-${item.display_name}`}>
+            <div className="grid grid-cols-1 items-center gap-4 border-b border-solid border-black/[0.04] border-x-0 border-t-0 px-4 py-3 last:border-b-0 min-[760px]:grid-cols-[minmax(0,1.5fr)_minmax(0,1fr)_120px_96px]" key={`${item.country}-${item.display_name}`}>
               <span className="inline-flex min-w-0 items-center gap-2.5">
                 <span className="shrink-0">{countryBadge(item.country)}</span>
                 <span className="min-w-0 overflow-hidden text-ellipsis whitespace-nowrap">{item.display_name}</span>

@@ -1009,6 +1009,15 @@ export function App() {
         >
           {busyAction.includes('save') ? 'Saving…' : 'Save'}
         </AppButton>
+      ) : activeScreen === 'providers' && providerView === 'workspace' && activeProviderSection === 'store' ? (
+        <AppButton
+          variant="primary"
+          size="utility"
+          onClick={() => void fetchPrices(selectedProvider)}
+          disabled={busyAction.includes('prices')}
+        >
+          {busyAction.includes('prices') ? 'Loading…' : 'Load Prices'}
+        </AppButton>
       ) : activeScreen === 'providers' && providerView === 'workspace' ? null : (
         <AppButton variant="primary" size="utility" onClick={openActivationModal}>
           <Plus size={14} />
