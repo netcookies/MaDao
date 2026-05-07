@@ -170,43 +170,41 @@ function WorkspaceConfig(props: {
       </div>
 
       <div className="overflow-hidden rounded-[10px] border border-white/50 bg-ds-surface">
-        <div className="flex flex-col gap-3 px-5 py-[14px]">
-          <div className="flex items-center justify-between">
-            <span className="text-[11px] font-semibold uppercase tracking-[0.08em] text-ds-text-secondary">
-              {manifest.name}
+        <div className="flex items-center justify-between px-5 py-[14px]">
+          <span className="text-[11px] font-semibold uppercase tracking-[0.08em] text-ds-text-secondary">
+            {manifest.name}
+          </span>
+          <div className="flex items-center gap-2">
+            <span className="text-[11px] font-semibold text-ds-text-primary">
+              {toggleLabel}
             </span>
-            <div className="flex items-center gap-2">
-              <span className="text-[11px] font-semibold text-ds-text-primary">
-                {toggleLabel}
-              </span>
-              <ToggleSwitch
-                checked={props.isConnected}
-                onChange={(enabled) => {
-                  if (enableLocked && enabled) return;
-                  props.onToggleEnabled(enabled);
-                }}
-                ariaLabel={`Toggle ${manifest.name}`}
-              />
-            </div>
+            <ToggleSwitch
+              checked={props.isConnected}
+              onChange={(enabled) => {
+                if (enableLocked && enabled) return;
+                props.onToggleEnabled(enabled);
+              }}
+              ariaLabel={`Toggle ${manifest.name}`}
+            />
           </div>
-
+        </div>
+        <div className="px-5 pb-[14px]">
           <span className="text-page-title text-ds-text-primary">
             {props.balanceLabel}
           </span>
-
-          <div className="flex flex-wrap items-center gap-2">
-            <StatusBadge tone={props.isConnected ? 'green' : 'gray'}>
-              {props.isConnected ? 'Connected' : 'Disabled'}
-            </StatusBadge>
-            <StatusBadge tone={cacheState === 'fresh' ? 'green' : cacheState === 'stale' ? 'orange' : 'gray'}>
-              {cacheLabel}
-            </StatusBadge>
-          </div>
+        </div>
+        <div className="flex flex-wrap items-center gap-2 border-t border-black/[0.06] px-5 py-3">
+          <StatusBadge tone={props.isConnected ? 'green' : 'gray'}>
+            {props.isConnected ? 'Connected' : 'Disabled'}
+          </StatusBadge>
+          <StatusBadge tone={cacheState === 'fresh' ? 'green' : cacheState === 'stale' ? 'orange' : 'gray'}>
+            {cacheLabel}
+          </StatusBadge>
         </div>
       </div>
 
       <div className="overflow-hidden rounded-[10px] border border-white/50 bg-ds-surface">
-        <ConfigRow label="API Key" last>
+        <ConfigRow label="API Key">
           <input
             className="min-h-control w-full rounded-sm border border-ds-border-strong bg-ds-surface px-4 py-[11px] text-utility tracking-[var(--ds-type-utility-tracking)] text-ds-text-primary"
             type="password"
