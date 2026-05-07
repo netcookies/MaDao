@@ -169,7 +169,7 @@ function WorkspaceConfig(props: {
         </p>
       </div>
 
-      <div className="overflow-hidden rounded-[10px] border border-white/50 bg-ds-surface">
+      <div className="overflow-hidden rounded-[10px] border border-white/50 bg-ds-surface shadow-ds backdrop-blur-ds">
         <div className="flex items-center justify-between px-5 py-[14px]">
           <span className="text-[11px] font-semibold uppercase tracking-[0.08em] text-ds-text-secondary">
             {manifest.name}
@@ -193,7 +193,7 @@ function WorkspaceConfig(props: {
             {props.balanceLabel}
           </span>
         </div>
-        <div className="flex flex-wrap items-center gap-2 border-t border-black/[0.06] px-5 py-3">
+        <div className="flex flex-wrap items-center gap-2 border-t border-ds-border px-5 py-3">
           <StatusBadge tone={props.isConnected ? 'green' : 'gray'}>
             {props.isConnected ? 'Connected' : 'Disabled'}
           </StatusBadge>
