@@ -50,17 +50,17 @@ export function ProvidersListScreen(props: ProvidersListScreenProps) {
 
               <div>
                 <StatusBadge tone="blue">
-                  {protocolTag}
+                  {protocolTag.toUpperCase()}
                 </StatusBadge>
               </div>
 
-              <p className="line-clamp-2 text-[12px] leading-relaxed text-ds-text-secondary opacity-55">
+              <p className="line-clamp-2 text-[12px] leading-tight text-ds-text-secondary opacity-55">
                 {endpoint}
               </p>
 
               <div className="flex items-center justify-between">
                 <span
-                  className="text-[12px] text-ds-text-secondary"
+                  className="text-[12px] leading-tight text-ds-text-secondary"
                   style={{ opacity: 0.4 }}
                   onClick={(e) => { e.stopPropagation(); props.onRefreshBalance(provider.id); }}
                 >
