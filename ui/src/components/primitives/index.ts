@@ -5,4 +5,5 @@ export * from './SegmentedControl';
 export * from './SelectTrigger';
 export * from './StatusPill';
 export * from './SurfaceCard';
+export * from './TextField';
 export * from './ToggleSwitch';

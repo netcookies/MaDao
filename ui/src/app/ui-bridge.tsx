@@ -5,6 +5,7 @@ import {
   SegmentedControl as DsSegmentedControl,
   SelectTrigger as DsSelectTrigger,
   StatusPill as DsStatusPill,
+  TextField as DsTextField,
   statusToneFromValue,
   ToggleSwitch as DsToggleSwitch,
 } from '../components/primitives';
@@ -113,6 +114,28 @@ export function SearchField(props: InputHTMLAttributes<HTMLInputElement> & {
   const { compact = false, className, ...inputProps } = props;
   return (
     <DsSearchField compact={compact} className={className} {...inputProps} />
+  );
+}
+
+export function TextField(props: InputHTMLAttributes<HTMLInputElement> & {
+  compact?: boolean;
+  className?: string;
+  inputClassName?: string;
+}) {
+  const {
+    compact = false,
+    className,
+    inputClassName,
+    ...inputProps
+  } = props;
+
+  return (
+    <DsTextField
+      compact={compact}
+      className={className}
+      inputClassName={inputClassName}
+      {...inputProps}
+    />
   );
 }
 
