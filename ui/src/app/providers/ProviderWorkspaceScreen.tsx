@@ -191,9 +191,11 @@ function WorkspaceConfig(props: {
             </div>
           </div>
 
-          <span className="text-page-title text-ds-text-primary">
-            {props.balanceLabel}
-          </span>
+          {props.balanceLabel !== '—' && (
+            <span className="text-page-title text-ds-text-primary">
+              {props.balanceLabel}
+            </span>
+          )}
 
           <div className="flex flex-wrap items-center gap-2">
             <StatusBadge tone={props.isConnected ? 'green' : 'gray'}>
