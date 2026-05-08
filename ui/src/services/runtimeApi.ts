@@ -1,6 +1,7 @@
 import type {
   MessageFilter,
   NotificationFeed,
+  OptionListResponse,
   OptionCacheOverview,
   ProviderBalance,
   ProviderDynamicOptions,
@@ -81,6 +82,32 @@ export async function reloadProviderRegistry(): Promise<void> {
 
 export async function fetchProviderOptions(providerId: string): Promise<ProviderDynamicOptions> {
   return readJson<ProviderDynamicOptions>(await fetch(`${API_BASE}/api/providers/${providerId}/options`));
+}
+
+export async function fetchProviderCountries(providerId: string): Promise<OptionListResponse> {
+  return readJson<OptionListResponse>(await fetch(`${API_BASE}/api/providers/${providerId}/countries`));
+}
+
+export async function fetchProviderServices(
+  providerId: string,
+  query?: { country?: string; operator?: string },
+): Promise<OptionListResponse> {
+  return readJson<OptionListResponse>(await fetch(`${API_BASE}/api/providers/${providerId}/services`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(query ?? {}),
+  }));
+}
+
+export async function fetchProviderOperators(
+  providerId: string,
+  query?: { country?: string },
+): Promise<OptionListResponse> {
+  return readJson<OptionListResponse>(await fetch(`${API_BASE}/api/providers/${providerId}/operators`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(query ?? {}),
+  }));
 }
 
 export async function fetchNotifications(): Promise<NotificationFeed> {

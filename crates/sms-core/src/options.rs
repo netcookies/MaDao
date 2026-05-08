@@ -83,7 +83,7 @@ pub fn normalize_provider_options(
                 let canonical = canonical_service_value(manifest, &raw_value, Some(&item.label));
                 OptionItem {
                     value: canonical.clone(),
-                    label: service_label(&canonical),
+                    label: resolved_service_label(&canonical, &item.label),
                     hint: item.hint,
                     provider_value: Some(raw_value),
                 }
@@ -98,7 +98,7 @@ pub fn normalize_provider_options(
                 let canonical = canonical_country_value(&raw_value, Some(&item.label), Some(&item.hint));
                 OptionItem {
                     value: canonical.clone(),
-                    label: country_label(&canonical),
+                    label: resolved_country_label(&canonical, &item.label, &item.hint),
                     hint: item.hint,
                     provider_value: Some(raw_value),
                 }
@@ -113,7 +113,7 @@ pub fn normalize_provider_options(
                 let canonical = canonical_operator_value(&raw_value, Some(&item.label));
                 OptionItem {
                     value: canonical.clone(),
-                    label: operator_label(&canonical),
+                    label: resolved_operator_label(&canonical, &item.label),
                     hint: item.hint,
                     provider_value: Some(raw_value),
                 }
@@ -142,7 +142,7 @@ pub fn normalize_price_items(
             } else {
                 let canonical = canonical_country_value(&raw_country, Some(&item.display_name), None);
                 item.country = canonical.clone();
-                item.display_name = country_label(&canonical);
+                item.display_name = resolved_country_label(&canonical, &item.display_name, "");
             }
 
             let raw_operator = item.operator.clone();
@@ -358,6 +358,15 @@ fn service_label(canonical: &str) -> String {
     }
 }
 
+fn resolved_service_label(canonical: &str, source_label: &str) -> String {
+  let fallback = source_label.trim();
+  match canonical {
+      "openai" | "telegram" | "whatsapp" | "paypal" | "discord" => service_label(canonical),
+      _ if !fallback.is_empty() => fallback.to_string(),
+      _ => service_label(canonical),
+  }
+}
+
 fn country_label(canonical: &str) -> String {
     match canonical {
         "any" => "All countries".to_string(),
@@ -374,12 +383,32 @@ fn country_label(canonical: &str) -> String {
     }
 }
 
+fn resolved_country_label(canonical: &str, source_label: &str, source_hint: &str) -> String {
+  let fallback_label = source_label.trim();
+  let fallback_hint = source_hint.trim();
+  match canonical {
+      "any" | "local" | "usa" | "uk" | "germany" | "japan" | "canada" | "australia" | "russia" | "argentina" => country_label(canonical),
+      _ if !fallback_label.is_empty() && fallback_label != canonical => fallback_label.to_string(),
+      _ if !fallback_hint.is_empty() && fallback_hint != canonical => fallback_hint.to_string(),
+      _ => country_label(canonical),
+  }
+}
+
 fn operator_label(canonical: &str) -> String {
     match canonical {
         "o2" => "O2".to_string(),
         "any" => "Any operator".to_string(),
         other => title_case_token(other),
     }
+}
+
+fn resolved_operator_label(canonical: &str, source_label: &str) -> String {
+  let fallback = source_label.trim();
+  match canonical {
+      "any" | "o2" => operator_label(canonical),
+      _ if !fallback.is_empty() => fallback.to_string(),
+      _ => operator_label(canonical),
+  }
 }
 
 fn normalize_token(input: &str) -> String {

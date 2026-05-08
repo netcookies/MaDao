@@ -126,6 +126,10 @@ export type ProviderDynamicOptions = {
   cache_state?: OptionCacheState;
   fetched_at?: string | null;
 };
+export type OptionListResponse = {
+  provider: string;
+  items: OptionItem[];
+};
 export type ProviderManifestSaveResponse = {
   manifest: ProviderManifest;
   option_cache_state: OptionCacheState;

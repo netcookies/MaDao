@@ -15,10 +15,11 @@ export function normalizeServiceOptions(options: OptionItem[]) {
   for (const option of options) {
     const value = option.value.trim();
     const key = value.toLowerCase();
+    const label = option.label.trim();
     if (!merged.has(key)) {
       merged.set(key, {
         value,
-        label: formatServiceLabel(value),
+        label: label || formatServiceLabel(value),
         hint: option.hint,
       });
     }
@@ -30,10 +31,11 @@ export function normalizeCountryOptions(options: OptionItem[]) {
   const merged = new Map<string, OptionItem>();
   for (const option of options) {
     const key = canonicalCountryValue(option.value || option.label);
+    const label = option.label.trim();
     if (!merged.has(key)) {
       merged.set(key, {
         value: key,
-        label: formatCountryLabel(key),
+        label: label || formatCountryLabel(key),
         hint: option.hint,
       });
     }

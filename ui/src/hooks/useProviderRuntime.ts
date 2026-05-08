@@ -16,9 +16,11 @@ import type {
 import {
   fetchOptionCacheOverview,
   fetchProviderBalance,
+  fetchProviderCountries,
   fetchProviderManifests,
-  fetchProviderOptions as fetchProviderOptionsRequest,
+  fetchProviderOperators,
   fetchProviderPrices,
+  fetchProviderServices,
   fetchRuntimeSettings,
   fetchRuntimeSnapshot,
   reloadProviderRegistry,
@@ -27,6 +29,7 @@ import {
   saveRuntimeSettings as persistRuntimeSettings,
 } from '../services/runtimeApi';
 import { refreshMenuBar } from '../services/menuBarApi';
+import { normalizeCountryOptions, normalizeServiceOptions } from '../app/utils';
 
 type DataState = {
   snapshot: Snapshot | null;
@@ -138,8 +141,43 @@ export function useProviderRuntime(
     }
   }
 
-  async function fetchProviderOptions(providerId: string): Promise<ProviderDynamicOptions> {
-    return fetchProviderOptionsRequest(providerId);
+  async function discoverProviderOptions(provider: ProviderManifest): Promise<ProviderDynamicOptions> {
+    const providerId = provider.id;
+    const countriesPayload = await fetchProviderCountries(providerId);
+    const countries = normalizeCountryOptions(countriesPayload.items);
+
+    const countrySeed = countries[0]?.value
+      || provider.defaults.country
+      || '';
+    const operatorsPayload = await fetchProviderOperators(
+      providerId,
+      countrySeed ? { country: countrySeed } : {},
+    );
+    const operators = operatorsPayload.items;
+
+    let services = [];
+    if (provider.kind === 'five_sim') {
+      const operatorSeed = operators[0]?.value || '';
+      if (countrySeed) {
+        const servicesPayload = await fetchProviderServices(providerId, {
+          country: countrySeed,
+          operator: operatorSeed || undefined,
+        });
+        services = normalizeServiceOptions(servicesPayload.items);
+      }
+    } else {
+      const servicesPayload = await fetchProviderServices(providerId);
+      services = normalizeServiceOptions(servicesPayload.items);
+    }
+
+    return {
+      provider: providerId,
+      services,
+      countries,
+      operators,
+      cache_state: 'fresh',
+      fetched_at: new Date().toISOString(),
+    };
   }
 
   async function loadManifests() {
@@ -163,10 +201,10 @@ export function useProviderRuntime(
       const optionsList = (
         await Promise.all(
           list.manifests
-            .filter((manifest) => manifest.kind !== 'mock')
+            .filter((manifest) => manifest.kind !== 'mock' && manifest.enabled)
             .map(async (manifest) => {
               try {
-                return await fetchProviderOptions(manifest.id);
+                return await discoverProviderOptions(manifest);
               } catch {
                 return null;
               }
@@ -174,13 +212,9 @@ export function useProviderRuntime(
         )
       ).filter(Boolean) as ProviderDynamicOptions[];
       const cacheOverview = await fetchOptionCacheOverview();
-      data.setProviderOptions((current) => {
-        const nextOptions = { ...current };
-        optionsList.forEach((item) => {
-          nextOptions[item.provider] = item;
-        });
-        return nextOptions;
-      });
+      data.setProviderOptions(() => Object.fromEntries(
+        optionsList.map((item) => [item.provider, item]),
+      ));
       data.setOptionCacheOverview(cacheOverview);
       const firstProvider = list.manifests
         .filter((manifest) => manifest.kind !== 'mock' && manifest.enabled)
@@ -202,12 +236,26 @@ export function useProviderRuntime(
 
   async function loadProviderOptions(providerId: string) {
     try {
-      const next = await fetchProviderOptions(providerId);
+      const manifest = data.manifests[providerId];
+      if (!manifest || !manifest.enabled) {
+        data.setProviderOptions((current) => {
+          const next = { ...current };
+          delete next[providerId];
+          return next;
+        });
+        return;
+      }
+      const next = await discoverProviderOptions(manifest);
       data.setProviderOptions((current) => ({
         ...current,
         [providerId]: next,
       }));
     } catch {
+      data.setProviderOptions((current) => {
+        const next = { ...current };
+        delete next[providerId];
+        return next;
+      });
       ui.setStatusMessage(`Failed to load options for ${providerId}.`);
     }
   }
