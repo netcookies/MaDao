@@ -929,6 +929,77 @@ impl FiveSimProvider {
         Ok(countries.into_iter().collect())
     }
 
+    async fn request_static_products_list(&self) -> Result<Vec<OptionItem>, SmsError> {
+        let response = self
+            .client
+            .get("https://5sim.net/docs")
+            .header("Accept", "text/html")
+            .send()
+            .await
+            .map_err(|err| SmsError::Upstream(err.to_string()))?;
+        let status = response.status();
+        let html = response
+            .text()
+            .await
+            .map_err(|err| SmsError::Upstream(err.to_string()))?;
+        if !status.is_success() {
+            return Err(SmsError::Upstream(format!(
+                "5SIM docs request failed: {}",
+                status
+            )));
+        }
+
+        let anchor = "id=\"products-list\"";
+        let Some(anchor_index) = html.find(anchor) else {
+            return Err(SmsError::Upstream(
+                "5SIM docs products list anchor not found".to_string(),
+            ));
+        };
+        let table_fragment = &html[anchor_index..];
+        let Some(table_start_rel) = table_fragment.find("<table") else {
+            return Err(SmsError::Upstream(
+                "5SIM docs products list table start not found".to_string(),
+            ));
+        };
+        let table_after_start = &table_fragment[table_start_rel..];
+        let Some(table_end_rel) = table_after_start.find("</table>") else {
+            return Err(SmsError::Upstream(
+                "5SIM docs products list table end not found".to_string(),
+            ));
+        };
+        let table_html = &table_after_start[..table_end_rel + "</table>".len()];
+
+        let mut items = Vec::new();
+        for row in split_html(table_html, "<tr", "</tr>") {
+            if row.contains(">Service<") && row.contains(">API 5SIM<") {
+                continue;
+            }
+            let cells = split_html(row, "<td", "</td>")
+                .into_iter()
+                .map(html_to_text)
+                .filter(|cell| !cell.is_empty())
+                .collect::<Vec<_>>();
+            if cells.len() < 2 {
+                continue;
+            }
+            let label = cells[0].clone();
+            let provider_value = cells[1].clone();
+            items.push(OptionItem {
+                value: provider_value.clone(),
+                label,
+                hint: "5SIM static products list".to_string(),
+                provider_value: Some(provider_value),
+            });
+        }
+
+        if items.is_empty() {
+            return Err(SmsError::Upstream(
+                "5SIM docs products list parsed no rows".to_string(),
+            ));
+        }
+        Ok(items)
+    }
+
     fn operator_keys_from_country_payload(payload: &Value) -> Vec<String> {
         let Some(object) = payload.as_object() else {
             return Vec::new();
@@ -1214,6 +1285,10 @@ impl SmsProvider for FiveSimProvider {
         &self,
         query: ProviderServicesQuery,
     ) -> Result<Vec<OptionItem>, SmsError> {
+        if let Ok(items) = self.request_static_products_list().await {
+            return Ok(items);
+        }
+
         let country = query
             .country
             .as_deref()
@@ -1230,6 +1305,74 @@ impl SmsProvider for FiveSimProvider {
             .unwrap_or(self.config.buy_operator.as_str());
         self.request_products(country, operator).await
     }
+}
+
+fn split_html<'a>(input: &'a str, start_tag: &str, end_tag: &str) -> Vec<&'a str> {
+    let mut result = Vec::new();
+    let mut offset = 0;
+    while let Some(start) = input[offset..].find(start_tag) {
+        let absolute_start = offset + start;
+        let after_start = &input[absolute_start..];
+        let Some(end) = after_start.find(end_tag) else {
+            break;
+        };
+        let absolute_end = absolute_start + end + end_tag.len();
+        result.push(&input[absolute_start..absolute_end]);
+        offset = absolute_end;
+    }
+    result
+}
+
+fn html_to_text(input: &str) -> String {
+    let mut text = String::with_capacity(input.len());
+    let mut in_tag = false;
+    let mut last_was_space = false;
+    let mut chars = input.chars().peekable();
+    while let Some(ch) = chars.next() {
+        match ch {
+            '<' => in_tag = true,
+            '>' => in_tag = false,
+            '&' if !in_tag => {
+                let mut entity = String::new();
+                while let Some(&next) = chars.peek() {
+                    chars.next();
+                    if next == ';' {
+                        break;
+                    }
+                    entity.push(next);
+                }
+                let replacement = match entity.as_str() {
+                    "amp" => "&",
+                    "lt" => "<",
+                    "gt" => ">",
+                    "quot" => "\"",
+                    "#39" => "'",
+                    _ => " ",
+                };
+                if replacement == " " {
+                    if !last_was_space {
+                        text.push(' ');
+                        last_was_space = true;
+                    }
+                } else {
+                    text.push_str(replacement);
+                    last_was_space = false;
+                }
+            }
+            _ if in_tag => {}
+            _ if ch.is_whitespace() => {
+                if !last_was_space {
+                    text.push(' ');
+                    last_was_space = true;
+                }
+            }
+            _ => {
+                text.push(ch);
+                last_was_space = false;
+            }
+        }
+    }
+    text.trim().to_string()
 }
 
 pub fn build_provider(manifest: ProviderManifest) -> Result<Arc<dyn SmsProvider>, SmsError> {
@@ -1463,5 +1606,48 @@ mod tests {
         assert_eq!(upstream_id.as_deref(), Some("884422"));
         assert_eq!(phone.as_deref(), Some("447700900123"));
         assert_eq!(price, Some(7.25));
+    }
+
+    #[test]
+    fn parses_static_fivesim_products_table_rows() {
+        let html = r#"
+        <h1 id="products-list">Products list</h1>
+        <h3>Activation</h3>
+        <table>
+          <thead>
+            <tr><th>Service</th><th>API 5SIM</th></tr>
+          </thead>
+          <tbody>
+            <tr><td><div>OpenAI</div></td><td>openai</td></tr>
+            <tr><td><div>Discord</div></td><td>discord</td></tr>
+          </tbody>
+        </table>
+        "#;
+
+        let anchor_index = html.find("id=\"products-list\"").unwrap();
+        let table_fragment = &html[anchor_index..];
+        let table_start_rel = table_fragment.find("<table").unwrap();
+        let table_after_start = &table_fragment[table_start_rel..];
+        let table_end_rel = table_after_start.find("</table>").unwrap();
+        let table_html = &table_after_start[..table_end_rel + "</table>".len()];
+        let rows = split_html(table_html, "<tr", "</tr>");
+        let parsed = rows
+            .into_iter()
+            .filter(|row| !row.contains(">Service<"))
+            .map(|row| {
+                split_html(row, "<td", "</td>")
+                    .into_iter()
+                    .map(html_to_text)
+                    .filter(|cell| !cell.is_empty())
+                    .collect::<Vec<_>>()
+            })
+            .filter(|cells| cells.len() >= 2)
+            .collect::<Vec<_>>();
+
+        assert_eq!(parsed[0], vec!["OpenAI".to_string(), "openai".to_string()]);
+        assert_eq!(
+            parsed[1],
+            vec!["Discord".to_string(), "discord".to_string()]
+        );
     }
 }
