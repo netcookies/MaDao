@@ -72,6 +72,22 @@ impl ProviderManifest {
             ProviderKind::Mock => None,
         }
     }
+
+    pub fn has_configured_api_key(&self) -> bool {
+        match self.kind {
+            ProviderKind::HandlerApi => self
+                .handler_api
+                .as_ref()
+                .map(|config| !config.api_key.trim().is_empty())
+                .unwrap_or(false),
+            ProviderKind::FiveSim => self
+                .five_sim
+                .as_ref()
+                .map(|config| !config.api_key.trim().is_empty())
+                .unwrap_or(false),
+            ProviderKind::Mock => true,
+        }
+    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

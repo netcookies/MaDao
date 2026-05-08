@@ -46,6 +46,11 @@ http://127.0.0.1:7822
 - `POST /api/providers/{provider}/services`
 - `POST /api/providers/{provider}/operators`
 
+说明：
+
+- 对外统一要求：`countries / services / operators` 动态发现前，provider 必须已配置有效 `api_key`
+- 未配置时返回 `invalid request: provider \`...\` requires api_key before resource discovery`
+
 ### Routing plan
 
 - `GET /api/routing-plans`
@@ -74,6 +79,7 @@ http://127.0.0.1:7822
 
 说明：
 
+- 三家现在统一要求先配置 `api_key` 才允许动态发现这些资源
 - `5SIM` 的服务发现是级联的，依赖 `country + operator`
 - `HeroSMS` / `SmsBower` 当前服务发现不依赖 `country/operator`
 

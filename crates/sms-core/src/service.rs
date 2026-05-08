@@ -605,6 +605,11 @@ impl SmsService {
             let registry = self.registry.read();
             registry.get(provider_id)?
         };
+        if !provider.manifest().has_configured_api_key() {
+            return Err(SmsError::InvalidRequest(format!(
+                "provider `{provider_id}` requires api_key before resource discovery"
+            )));
+        }
         let items = provider.list_countries().await?;
         Ok(OptionListResponse {
             provider: provider_id.to_string(),
@@ -621,6 +626,11 @@ impl SmsService {
             let registry = self.registry.read();
             registry.get(provider_id)?
         };
+        if !provider.manifest().has_configured_api_key() {
+            return Err(SmsError::InvalidRequest(format!(
+                "provider `{provider_id}` requires api_key before resource discovery"
+            )));
+        }
         let items = provider.list_services(query).await?;
         Ok(OptionListResponse {
             provider: provider_id.to_string(),
@@ -637,6 +647,11 @@ impl SmsService {
             let registry = self.registry.read();
             registry.get(provider_id)?
         };
+        if !provider.manifest().has_configured_api_key() {
+            return Err(SmsError::InvalidRequest(format!(
+                "provider `{provider_id}` requires api_key before resource discovery"
+            )));
+        }
         let items = provider.list_operators(query).await?;
         Ok(OptionListResponse {
             provider: provider_id.to_string(),

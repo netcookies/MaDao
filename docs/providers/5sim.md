@@ -271,6 +271,7 @@ GET /v1/guest/countries
 
 ### 对本项目的意义
 
+- 对外 daemon 行为上，当前统一要求先配置有效 `api_key` 才允许资源发现。
 - 这是 5SIM 构建 `country` 选项的更合适数据源。
 - 同一响应里已经包含每个国家支持的 operator 集合。
 - 因此 5SIM 更适合 `country -> operator -> product` 的逐级加载，而不是先用某个默认 `service` 反推国家列表。
@@ -338,6 +339,10 @@ GET /v1/guest/products/{country}/{operator}
 
 - 先用 `GET /v1/guest/countries`
 - 再从目标国家节点内提取 operator key
+
+同时，为了和其他 provider 统一对外行为，daemon 侧当前要求：
+
+- 在查询 `countries / services / operators` 之前，必须先为 `fivesim` 配置有效 `api_key`
 
 而不是依赖一个未公开的 guest `operators` 列表。
 
