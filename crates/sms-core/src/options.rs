@@ -196,6 +196,7 @@ pub fn normalize_price_items(
         .into_iter()
         .map(|mut item| {
             let raw_country = item.country.clone();
+            item.provider_country = Some(raw_country.clone());
             if let Some(mapped) = country_map.get(&normalize_token(&raw_country)) {
                 item.country = mapped.value.clone();
                 item.display_name = mapped.label.clone();
@@ -207,10 +208,14 @@ pub fn normalize_price_items(
             }
 
             let raw_operator = item.operator.clone();
+            item.provider_operator = Some(raw_operator.clone());
             if let Some(mapped) = operator_map.get(&normalize_token(&raw_operator)) {
                 item.operator = mapped.value.clone();
+                item.operator_label = Some(mapped.label.clone());
             } else {
-                item.operator = canonical_operator_value(&raw_operator, None);
+                let canonical = canonical_operator_value(&raw_operator, None);
+                item.operator = canonical.clone();
+                item.operator_label = Some(resolved_operator_label(&canonical, &raw_operator));
             }
             item
         })

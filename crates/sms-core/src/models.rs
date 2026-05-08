@@ -126,6 +126,12 @@ pub struct ProviderPriceItem {
     pub country: String,
     pub display_name: String,
     pub operator: String,
+    #[serde(default)]
+    pub operator_label: Option<String>,
+    #[serde(default)]
+    pub provider_country: Option<String>,
+    #[serde(default)]
+    pub provider_operator: Option<String>,
     pub price: f64,
     pub stock: u64,
 }

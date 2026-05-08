@@ -135,6 +135,9 @@ impl SmsProvider for MockProvider {
             country: self.manifest.defaults.country.clone(),
             display_name: "Mock Country".to_string(),
             operator: "mock".to_string(),
+            operator_label: Some("Mock".to_string()),
+            provider_country: Some(self.manifest.defaults.country.clone()),
+            provider_operator: Some("mock".to_string()),
             price: 0.0,
             stock: 99,
         }])
@@ -484,6 +487,9 @@ impl SharedHandlerApiProvider {
                 country: country.clone(),
                 display_name: country.clone(),
                 operator,
+                operator_label: None,
+                provider_country: Some(country.clone()),
+                provider_operator: None,
                 price,
                 stock,
             });
@@ -1210,6 +1216,9 @@ impl SmsProvider for FiveSimProvider {
                         country: country.clone(),
                         display_name: country.clone(),
                         operator: operator_name.clone(),
+                        operator_label: None,
+                        provider_country: Some(country.clone()),
+                        provider_operator: Some(operator_name.clone()),
                         price,
                         stock,
                     });
