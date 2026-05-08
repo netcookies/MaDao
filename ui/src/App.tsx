@@ -11,7 +11,7 @@ import {
   AppSidebar,
   AppToolbar,
 } from './components/composites';
-import { NotificationPopover } from './components/overlays';
+import { NotificationPopover, Snackbar, type SnackbarTone } from './components/overlays';
 import { IconButton } from './components/primitives';
 import {
   AppButton,
@@ -19,7 +19,6 @@ import {
   DataTable,
   DetailRow,
   SearchField,
-  StatusBadge,
 } from './app/ui-bridge';
 import { MessagesScreen } from './app/messages/MessagesScreen';
 import { NewActivationModal } from './app/overlays/NewActivationModal';
@@ -34,10 +33,8 @@ import type {
   ActivationFormState,
   AppearanceTheme,
   LanguageCode,
-  LogEntry,
   LogFilter,
   MessageFilter,
-  NotificationFeed,
   OptionItem,
   PriceSortKey,
   ProviderManifest,
@@ -132,8 +129,60 @@ const ANY_ROUTE_OPERATOR_OPTION: OptionItem = {
   hint: 'Allow any operator for this provider',
 };
 
+const SUCCESS_STATUS_KEYWORDS = [
+  'saved',
+  'created',
+  'copied',
+  'moved',
+  'deleted',
+  'loaded',
+  'enabled',
+  'disabled',
+  'refreshed',
+  'reloaded',
+];
+
+const STATUS_NOTIFICATION_LIMIT = 200;
+
+function getStatusLevel(message: string): 'info' | 'warn' | 'error' {
+  const normalized = message.toLowerCase();
+  if (normalized.includes('failed') || normalized.includes('error') || normalized.includes('cannot')) {
+    return 'error';
+  }
+  if (
+    normalized.includes('warning')
+    || normalized.includes('denied')
+    || normalized.includes('required')
+    || normalized.includes('invalid')
+  ) {
+    return 'warn';
+  }
+  return 'info';
+}
+
+function getSnackbarTone(message: string): SnackbarTone {
+  const normalized = message.toLowerCase();
+  if (normalized.includes('failed') || normalized.includes('error') || normalized.includes('cannot')) {
+    return 'danger';
+  }
+  if (
+    normalized.includes('warning')
+    || normalized.includes('denied')
+    || normalized.includes('required')
+    || normalized.includes('invalid')
+  ) {
+    return 'warning';
+  }
+  if (SUCCESS_STATUS_KEYWORDS.some((keyword) => normalized.includes(keyword))) {
+    return 'success';
+  }
+  return 'info';
+}
+
 export function App() {
   const [configDirectory, setConfigDirectory] = useState('Loading…');
+  const [snackbarOpen, setSnackbarOpen] = useState(false);
+  const [statusSequence, setStatusSequence] = useState(0);
   const {
     snapshot,
     setSnapshot,
@@ -166,7 +215,7 @@ export function App() {
     selectedProvider,
     setSelectedProvider,
     statusMessage,
-    setStatusMessage,
+    setStatusMessage: setStatusMessageState,
     busyAction,
     setBusyAction,
     activeScreen,
@@ -212,6 +261,28 @@ export function App() {
     language,
     setLanguage,
   } = useConsoleUiState();
+
+  function pushStatusMessage(message: string) {
+    setStatusMessageState(message);
+    setStatusSequence((current) => current + 1);
+    setNotifications((current) => {
+      const droppedCount = Math.max(0, current.length + 1 - STATUS_NOTIFICATION_LIMIT);
+      if (droppedCount > 0) {
+        setNotificationCursor((cursor) => Math.max(0, cursor - droppedCount));
+      }
+      return [
+        ...current.slice(-(STATUS_NOTIFICATION_LIMIT - 1)),
+        {
+          timestamp: new Date().toISOString(),
+          scope: 'status',
+          level: getStatusLevel(message),
+          message,
+        },
+      ];
+    });
+  }
+
+  const snackbarTone = useMemo(() => getSnackbarTone(statusMessage), [statusMessage]);
   const {
     visibleProviders,
     manageableProviders,
@@ -224,7 +295,6 @@ export function App() {
     loadSnapshot,
     loadManifests,
     loadProviderOptions,
-    loadNotifications,
     loadRuntimeSettings,
     updateManifestField,
     toggleProviderEnabled,
@@ -269,7 +339,7 @@ export function App() {
       selectedProvider,
       setSelectedProvider,
       setActivationForm,
-      setStatusMessage,
+      setStatusMessage: pushStatusMessage,
       setBusyAction,
       setShowManifestModal,
     },
@@ -295,12 +365,11 @@ export function App() {
       setShowActivationModal,
       busyAction,
       setBusyAction,
-      setStatusMessage,
+      setStatusMessage: pushStatusMessage,
       setMessageFilter,
     },
     {
       loadSnapshot,
-      loadNotifications,
     },
   );
 
@@ -326,7 +395,7 @@ export function App() {
   );
 
   useEffect(() => {
-    void Promise.all([loadSnapshot(), loadManifests(), loadNotifications(), loadRuntimeSettings(), loadRoutingPlans()]);
+    void Promise.all([loadSnapshot(), loadManifests(), loadRuntimeSettings(), loadRoutingPlans()]);
   }, []);
 
   useEffect(() => {
@@ -339,7 +408,6 @@ export function App() {
     if (!autoRefresh) return;
     const timer = window.setInterval(() => {
       void loadSnapshot();
-      void loadNotifications();
     }, 4000);
     return () => window.clearInterval(timer);
   }, [autoRefresh]);
@@ -398,6 +466,19 @@ export function App() {
   }, [orderedProviders, selectedProvider]);
 
   useEffect(() => {
+    if (!statusMessage || statusMessage === 'Ready.') {
+      setSnackbarOpen(false);
+      return undefined;
+    }
+    setSnackbarOpen(true);
+    const timeoutMs = snackbarTone === 'danger' ? 5600 : snackbarTone === 'warning' ? 4600 : 3200;
+    const timer = window.setTimeout(() => {
+      setSnackbarOpen(false);
+    }, timeoutMs);
+    return () => window.clearTimeout(timer);
+  }, [snackbarTone, statusMessage, statusSequence]);
+
+  useEffect(() => {
     if (!activationForm.provider) return;
     if (visibleProviders.some((provider) => provider.id === activationForm.provider)) return;
     setActivationForm((current) => ({
@@ -413,14 +494,14 @@ export function App() {
   }, [snapshot, messageFilter]);
 
   const filteredLogs = useMemo(() => {
-    const logs = snapshot?.logs ?? [];
+    const logs = [...(snapshot?.logs ?? []), ...notifications];
     return logs.filter((entry) => {
       if (logsFilter !== 'all' && entry.level.toLowerCase() !== logsFilter) return false;
       if (!logsSearch.trim()) return true;
       const term = logsSearch.trim().toLowerCase();
       return [entry.scope, entry.level, entry.message].some((value) => value.toLowerCase().includes(term));
     });
-  }, [logsFilter, logsSearch, snapshot]);
+  }, [logsFilter, logsSearch, notifications, snapshot]);
 
   useEffect(() => {
     const waitingTicket = filteredMessages.find((ticket) => getTicketPhase(ticket.status) === 'waiting');
@@ -490,7 +571,7 @@ export function App() {
         ? current
         : payload.plans[0]?.id || '');
     } catch (error) {
-      setStatusMessage(`Failed to load routing plans: ${String(error)}`);
+      pushStatusMessage(`Failed to load routing plans: ${String(error)}`);
     }
   }
 
@@ -519,19 +600,19 @@ export function App() {
 
   async function persistRoutingPlan(plan: RoutingPlan) {
     if (!plan.name.trim()) {
-      setStatusMessage('Routing plan name is required.');
+      pushStatusMessage('Routing plan name is required.');
       return;
     }
     if (!plan.service.trim()) {
-      setStatusMessage('Routing plan service is required.');
+      pushStatusMessage('Routing plan service is required.');
       return;
     }
     if (plan.items.length === 0) {
-      setStatusMessage('Routing plan must contain at least one item.');
+      pushStatusMessage('Routing plan must contain at least one item.');
       return;
     }
     if (plan.enabled && !plan.items.some((item) => item.enabled)) {
-      setStatusMessage('Enabled routing plan must contain at least one enabled item.');
+      pushStatusMessage('Enabled routing plan must contain at least one enabled item.');
       return;
     }
     try {
@@ -553,9 +634,9 @@ export function App() {
       setRoutingItemEditor(null);
       setRoutingItemPriceOptions([]);
       setRoutingItemPriceLoading(false);
-      setStatusMessage(`Saved routing plan ${saved.name}.`);
+      pushStatusMessage(`Saved routing plan ${saved.name}.`);
     } catch (error) {
-      setStatusMessage(`Failed to save routing plan: ${String(error)}`);
+      pushStatusMessage(`Failed to save routing plan: ${String(error)}`);
     } finally {
       setBusyAction('');
     }
@@ -570,9 +651,9 @@ export function App() {
       setSelectedRoutingPlanId(payload.plans[0]?.id ?? '');
       setRoutingView('matrix');
       setRoutingItemEditor(null);
-      setStatusMessage(`Deleted routing plan ${planId}.`);
+      pushStatusMessage(`Deleted routing plan ${planId}.`);
     } catch (error) {
-      setStatusMessage(`Failed to delete routing plan: ${String(error)}`);
+      pushStatusMessage(`Failed to delete routing plan: ${String(error)}`);
     } finally {
       setBusyAction('');
     }
@@ -707,18 +788,18 @@ export function App() {
   function applyRoutingItemEditor() {
     if (!routingItemEditor) return;
     if (!routingItemEditor.providerId.trim()) {
-      setStatusMessage('Provider is required for each route candidate.');
+      pushStatusMessage('Provider is required for each route candidate.');
       return;
     }
 
     const minPrice = routingItemEditor.minPrice.trim() === '' ? null : Number(routingItemEditor.minPrice);
     const maxPrice = routingItemEditor.maxPrice.trim() === '' ? null : Number(routingItemEditor.maxPrice);
     if ((minPrice != null && Number.isNaN(minPrice)) || (maxPrice != null && Number.isNaN(maxPrice))) {
-      setStatusMessage('Price must be a valid number.');
+      pushStatusMessage('Price must be a valid number.');
       return;
     }
     if (minPrice != null && maxPrice != null && minPrice > maxPrice) {
-      setStatusMessage('Min price cannot be greater than max price.');
+      pushStatusMessage('Min price cannot be greater than max price.');
       return;
     }
 
@@ -748,16 +829,16 @@ export function App() {
     const plan = routingPlans.find((item) => selectedRoutingPlanMatcher(item));
     const service = plan?.service || visibleProviders.find((provider) => provider.id === routingItemEditor.providerId)?.defaults.service;
     if (!service) {
-      setStatusMessage('Select a service for this plan before loading prices.');
+      pushStatusMessage('Select a service for this plan before loading prices.');
       return;
     }
     try {
       setRoutingItemPriceLoading(true);
       const prices = await fetchProviderPrices(routingItemEditor.providerId, service);
       setRoutingItemPriceOptions(prices.items);
-      setStatusMessage(`Loaded prices for ${routingItemEditor.providerId}.`);
+      pushStatusMessage(`Loaded prices for ${routingItemEditor.providerId}.`);
     } catch (error) {
-      setStatusMessage(`Failed to load prices for ${routingItemEditor.providerId}: ${String(error)}`);
+      pushStatusMessage(`Failed to load prices for ${routingItemEditor.providerId}: ${String(error)}`);
     } finally {
       setRoutingItemPriceLoading(false);
     }
@@ -969,14 +1050,13 @@ export function App() {
 
   function markNotificationsRead() {
     setNotificationCursor(notifications.length);
-    setStatusMessage('Notifications marked as read.');
   }
 
   async function handleWindowAction(action: 'minimize' | 'maximize_toggle' | 'close') {
     try {
       await windowAction(action);
     } catch (error) {
-      setStatusMessage(`Window action failed: ${String(error)}`);
+      pushStatusMessage(`Window action failed: ${String(error)}`);
     }
   }
 
@@ -989,16 +1069,20 @@ export function App() {
     : NAV_ITEMS.find((item) => item.id === activeScreen)?.label ?? '';
 
   const notificationItems = useMemo(() => (
-    notifications.map((entry, index) => ({
-      id: `${entry.timestamp}-${index}`,
-      title: entry.message,
-      meta: `${formatProviderLabel(entry.scope)} · ${index < notificationCursor ? 'read' : formatRelativeTime(entry.timestamp)}`,
-      level: entry.level.toLowerCase() === 'error'
-        ? 'danger'
-        : entry.level.toLowerCase() === 'warn'
-          ? 'warning'
-          : 'info',
-    }))
+    notifications
+      .map((entry, index) => ({ entry, index }))
+      .slice()
+      .reverse()
+      .map(({ entry, index }) => ({
+        id: `${entry.timestamp}-${index}`,
+        title: entry.message,
+        meta: `${formatProviderLabel(entry.scope)} · ${index < notificationCursor ? 'read' : formatRelativeTime(entry.timestamp)}`,
+        level: entry.level.toLowerCase() === 'error'
+          ? 'danger'
+          : entry.level.toLowerCase() === 'warn'
+            ? 'warning'
+            : 'info',
+      }))
   ), [notificationCursor, notifications]);
 
   const sidebar = (
@@ -1153,7 +1237,7 @@ export function App() {
         <AppButton
           variant="primary"
           size="utility"
-          onClick={() => void Promise.all([loadSnapshot(), loadNotifications()])}
+          onClick={() => void loadSnapshot()}
         >
           Refresh
         </AppButton>
@@ -1182,12 +1266,6 @@ export function App() {
         noPadding={activeScreen === 'providers' && providerView === 'workspace'}
         contentClassName="max-[760px]:pt-5"
       >
-            <div className="mb-4 flex items-center justify-between gap-3 rounded-[12px] border border-ds-border bg-ds-surface px-4 py-3 shadow-ds">
-              <span className="min-w-0 text-[13px] text-ds-text-primary">{statusMessage}</span>
-              <StatusBadge tone={busyAction ? 'orange' : 'green'}>
-                {busyAction ? 'Working' : 'Ready'}
-              </StatusBadge>
-            </div>
             {activeScreen === 'overview' && (
               <OverviewScreen
                 stats={overviewStats}
@@ -1422,6 +1500,12 @@ export function App() {
           }}
         />
       )}
+
+      <Snackbar
+        open={snackbarOpen}
+        message={statusMessage}
+        tone={snackbarTone}
+      />
 
     </>
   );

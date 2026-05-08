@@ -80,10 +80,10 @@ export function SettingsScreen(props: SettingsScreenProps) {
                   variant="outline"
                   size="utility"
                   aria-label="Decrease polling interval"
-                  className="w-9 min-w-9 px-0"
+                  className="w-10 min-w-10 px-0"
                   onClick={() => handlePollIntervalStep(props.optionCachePollIntervalMinutes - 1)}
                 >
-                  <Minus size={14} />
+                  <Minus size={18} strokeWidth={2.4} />
                 </AppButton>
                 <TextField
                   type="number"
@@ -100,10 +100,10 @@ export function SettingsScreen(props: SettingsScreenProps) {
                   variant="outline"
                   size="utility"
                   aria-label="Increase polling interval"
-                  className="w-9 min-w-9 px-0"
+                  className="w-10 min-w-10 px-0"
                   onClick={() => handlePollIntervalStep(props.optionCachePollIntervalMinutes + 1)}
                 >
-                  <Plus size={14} />
+                  <Plus size={18} strokeWidth={2.4} />
                 </AppButton>
               </div>
             )}

@@ -14,7 +14,7 @@ export function AppToolbar(props: AppToolbarProps) {
   return (
     <header
       className={cx(
-        'sticky top-0 z-10 flex h-toolbar items-center justify-between border-b border-[var(--ds-color-toolbar-border)] bg-[var(--ds-color-toolbar-surface)] px-5 shadow-ds backdrop-blur-ds [box-shadow:inset_0_0_0_1px_var(--ds-color-toolbar-border),var(--ds-effect-shadow-default)] max-[760px]:h-auto max-[760px]:flex-col max-[760px]:items-start max-[760px]:gap-3 max-[760px]:px-5 max-[760px]:py-4',
+        'sticky top-0 z-10 flex h-toolbar items-center justify-between bg-ds-sidebar px-5 backdrop-blur-ds max-[760px]:h-auto max-[760px]:flex-col max-[760px]:items-start max-[760px]:gap-3 max-[760px]:px-5 max-[760px]:py-4',
         className,
       )}
     >

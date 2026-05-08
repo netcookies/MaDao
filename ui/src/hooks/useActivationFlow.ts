@@ -23,7 +23,6 @@ type ActivationUiState = {
 
 type ActivationRuntimeActions = {
   loadSnapshot: () => Promise<void>;
-  loadNotifications: () => Promise<void>;
 };
 
 export function useActivationFlow(
@@ -35,7 +34,7 @@ export function useActivationFlow(
       ui.setBusyAction(`poll-${ticketId}`);
       await pollActivationTicket(ticketId);
       ui.setStatusMessage(`Ticket ${ticketId} refreshed.`);
-      await Promise.all([runtime.loadSnapshot(), runtime.loadNotifications()]);
+      await runtime.loadSnapshot();
     } catch (error) {
       ui.setStatusMessage(`Failed to refresh ticket: ${String(error)}`);
     } finally {
@@ -54,14 +53,14 @@ export function useActivationFlow(
         await releaseActivationTicket(ticket.id, action);
         ui.setStatusMessage(`Ticket ${ticket.id} ${action} complete.`);
       }
-      await Promise.all([runtime.loadSnapshot(), runtime.loadNotifications()]);
+      await runtime.loadSnapshot();
     } catch (error) {
       ui.setStatusMessage(
         action === 'retry'
           ? `Failed to move ticket ${ticket.id} to the next route: ${String(error)}`
           : `Failed to update ticket: ${String(error)}`,
       );
-      await Promise.allSettled([runtime.loadSnapshot(), runtime.loadNotifications()]);
+      await Promise.allSettled([runtime.loadSnapshot()]);
     } finally {
       ui.setBusyAction('');
     }
@@ -101,7 +100,7 @@ export function useActivationFlow(
       }
       ui.setShowActivationModal(false);
       ui.setStatusMessage('Activation created, waiting for SMS code.');
-      await Promise.all([runtime.loadSnapshot(), runtime.loadNotifications()]);
+      await runtime.loadSnapshot();
     } catch (error) {
       ui.setActivationError(String(error));
     } finally {

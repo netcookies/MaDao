@@ -14,7 +14,6 @@ import type {
   StoreQueryState,
 } from '../app/types';
 import {
-  fetchNotifications,
   fetchOptionCacheOverview,
   fetchProviderBalance,
   fetchProviderManifests,
@@ -213,15 +212,6 @@ export function useProviderRuntime(
     }
   }
 
-  async function loadNotifications() {
-    try {
-      const feed = await fetchNotifications();
-      data.setNotifications(feed.items);
-    } catch {
-      data.setNotifications([]);
-    }
-  }
-
   async function loadRuntimeSettings() {
     try {
       const settings = await fetchRuntimeSettings();
@@ -281,7 +271,7 @@ export function useProviderRuntime(
       } else {
         ui.setStatusMessage(successMessage);
       }
-      await Promise.all([loadManifests(), loadSnapshot(), loadNotifications()]);
+      await Promise.all([loadManifests(), loadSnapshot()]);
     } catch (error) {
       throw error;
     } finally {
@@ -350,7 +340,7 @@ export function useProviderRuntime(
       ui.setBusyAction('reload');
       await reloadProviderRegistry();
       ui.setStatusMessage('Providers reloaded.');
-      await Promise.all([loadManifests(), loadSnapshot(), loadNotifications()]);
+      await Promise.all([loadManifests(), loadSnapshot()]);
     } catch (error) {
       ui.setStatusMessage(`Reload failed: ${String(error)}`);
     } finally {
@@ -365,7 +355,6 @@ export function useProviderRuntime(
       data.setRuntimeSettings(dataNext);
       data.setOptionCacheOverview(await fetchOptionCacheOverview());
       ui.setStatusMessage('Runtime settings saved.');
-      await loadNotifications();
     } catch (error) {
       ui.setStatusMessage(`Failed to save runtime settings: ${String(error)}`);
     } finally {
@@ -393,7 +382,7 @@ export function useProviderRuntime(
     try {
       ui.setBusyAction(`refresh-${providerId}`);
       await Promise.all([loadProviderOptions(providerId), fetchBalance(providerId)]);
-      await Promise.all([loadManifests(), loadSnapshot(), loadNotifications()]);
+      await Promise.all([loadManifests(), loadSnapshot()]);
       ui.setStatusMessage(`Refreshed cache and balance for ${providerId}.`);
     } catch (error) {
       ui.setStatusMessage(`Failed to refresh ${providerId}: ${String(error)}`);
@@ -439,7 +428,7 @@ export function useProviderRuntime(
     try {
       await reorderProviderManifests(order);
       ui.setStatusMessage('Priority order saved.');
-      await Promise.all([loadManifests(), loadNotifications()]);
+      await loadManifests();
     } catch (error) {
       ui.setStatusMessage(`Failed to save order: ${String(error)}`);
     }
@@ -469,7 +458,6 @@ export function useProviderRuntime(
     loadSnapshot,
     loadManifests,
     loadProviderOptions,
-    loadNotifications,
     loadRuntimeSettings,
     updateManifestField,
     toggleProviderEnabled,

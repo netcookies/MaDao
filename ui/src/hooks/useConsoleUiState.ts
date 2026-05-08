@@ -12,7 +12,7 @@ import type {
 
 export function useConsoleUiState() {
   const [selectedProvider, setSelectedProvider] = useState<string>('');
-  const [statusMessage, setStatusMessage] = useState<string>('Console ready.');
+  const [statusMessage, setStatusMessage] = useState<string>('');
   const [busyAction, setBusyAction] = useState<string>('');
   const [activeScreen, setActiveScreen] = useState<ScreenId>('overview');
   const [providerView, setProviderView] = useState<'list' | 'workspace'>('list');
