@@ -1,7 +1,8 @@
 import { X } from 'lucide-react';
 import { AppButton, ModalField, SelectTrigger } from '../ui-bridge';
-import type { ActivationFormState, ProviderManifest, RoutingPlan, SelectorKind } from '../types';
+import { ANY_PROVIDER_VALUE, type ActivationFormState, type ProviderManifest, type RoutingPlan, type SelectorKind } from '../types';
 import { countryBadge, formatCountryLabel, formatServiceLabel, serviceBadge } from '../../lib/formatters';
+import { formatOperatorLabel } from '../utils';
 
 export type NewActivationModalProps = {
   providers: ProviderManifest[];
@@ -21,7 +22,9 @@ export type NewActivationModalProps = {
 export function NewActivationModal(props: NewActivationModalProps) {
   const usesRoutingPlan = Boolean(props.form.routing_plan_id);
   const routingPlanLabel = props.routingPlans.find((plan) => plan.id === props.form.routing_plan_id)?.name ?? '';
-  const providerLabel = props.providers.find((provider) => provider.id === props.form.provider)?.name ?? props.form.provider;
+  const providerLabel = props.form.provider === ANY_PROVIDER_VALUE
+    ? 'Any provider'
+    : props.providers.find((provider) => provider.id === props.form.provider)?.name ?? props.form.provider;
 
   const card = (
     <div
@@ -64,6 +67,15 @@ export function NewActivationModal(props: NewActivationModalProps) {
             )}
           </div>
         </ModalField>
+        <ModalField label="PROVIDER">
+          <SelectTrigger
+            compact
+            value={providerLabel}
+            placeholder={usesRoutingPlan ? 'controlled by routing plan' : 'select provider'}
+            onClick={() => props.onOpenSelector('activation-provider')}
+            disabled={usesRoutingPlan}
+          />
+        </ModalField>
         <ModalField label="SERVICE">
           <SelectTrigger
             compact
@@ -74,10 +86,23 @@ export function NewActivationModal(props: NewActivationModalProps) {
           />
         </ModalField>
         <ModalField label="COUNTRY">
-          <SelectTrigger compact value={props.form.country ? `${countryBadge(props.form.country)} ${formatCountryLabel(props.form.country)}` : ''} placeholder={usesRoutingPlan ? 'controlled by routing plan' : 'any — auto select'} onClick={() => props.onOpenSelector('activation-country')} disabled={usesRoutingPlan} />
+          <SelectTrigger
+            compact
+            value={props.form.country ? `${countryBadge(props.form.country)} ${formatCountryLabel(props.form.country)}` : ''}
+            placeholder={usesRoutingPlan ? 'controlled by routing plan' : 'any — auto select'}
+            onClick={() => props.onOpenSelector('activation-country')}
+            disabled={usesRoutingPlan}
+          />
         </ModalField>
-        <ModalField label="PROVIDER">
-          <SelectTrigger compact value={providerLabel} placeholder={usesRoutingPlan ? 'controlled by routing plan' : 'select provider'} onClick={() => props.onOpenSelector('provider')} disabled={usesRoutingPlan} />
+        <ModalField label="OPERATOR" hint={usesRoutingPlan ? 'Controlled by routing plan items' : props.operatorHint ?? (providerLabel ? `${providerLabel} scope` : undefined)}>
+          <SelectTrigger
+            compact
+            value={props.form.operator ? formatOperatorLabel(props.form.operator) : ''}
+            placeholder={usesRoutingPlan ? 'controlled by routing plan' : 'any'}
+            onClick={() => props.onOpenSelector('activation-operator')}
+            className="is-disabled-look"
+            disabled={usesRoutingPlan}
+          />
         </ModalField>
         <ModalField label="PRICE RANGE">
           <div className="grid grid-cols-[1fr_16px_1fr] items-center gap-2">
@@ -89,9 +114,6 @@ export function NewActivationModal(props: NewActivationModalProps) {
               {usesRoutingPlan ? 'Plan controlled' : props.form.max_price || 'Max $'}
             </div>
           </div>
-        </ModalField>
-        <ModalField label="OPERATOR" hint={usesRoutingPlan ? 'Controlled by routing plan items' : props.operatorHint ?? (props.form.provider !== 'auto' ? `${providerLabel} only` : undefined)}>
-          <SelectTrigger compact value={props.form.operator} placeholder={usesRoutingPlan ? 'controlled by routing plan' : 'any'} onClick={() => props.onOpenSelector('activation-operator')} className="is-disabled-look" disabled={usesRoutingPlan} />
         </ModalField>
       </div>
       {props.error && (

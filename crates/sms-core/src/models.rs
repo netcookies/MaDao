@@ -149,6 +149,12 @@ pub struct OptionItem {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ProviderDynamicOptions {
     pub provider: String,
+    #[serde(default)]
+    pub raw_services: Vec<OptionItem>,
+    #[serde(default)]
+    pub raw_countries: Vec<OptionItem>,
+    #[serde(default)]
+    pub raw_operators: Vec<OptionItem>,
     pub services: Vec<OptionItem>,
     pub countries: Vec<OptionItem>,
     pub operators: Vec<OptionItem>,

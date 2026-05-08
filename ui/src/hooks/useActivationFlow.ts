@@ -1,8 +1,9 @@
-import type {
-  ActivationFormState,
-  MessageFilter,
-  TicketRecord,
-  SelectorKind,
+import {
+  ANY_PROVIDER_VALUE,
+  type ActivationFormState,
+  type MessageFilter,
+  type TicketRecord,
+  type SelectorKind,
 } from '../app/types';
 import { acquireActivation, failoverRoutingTicket, pollActivationTicket, releaseActivationTicket } from '../services/runtimeApi';
 
@@ -89,7 +90,7 @@ export function useActivationFlow(
           throw new Error('Provider is required when no routing plan is selected.');
         }
         const body: Record<string, unknown> = {
-          provider: ui.activationForm.provider,
+          provider: ui.activationForm.provider === ANY_PROVIDER_VALUE ? 'auto' : ui.activationForm.provider,
           service: ui.activationForm.service || undefined,
           country: ui.activationForm.country || undefined,
         };

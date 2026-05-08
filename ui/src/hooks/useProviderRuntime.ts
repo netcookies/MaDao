@@ -29,7 +29,12 @@ import {
   saveRuntimeSettings as persistRuntimeSettings,
 } from '../services/runtimeApi';
 import { refreshMenuBar } from '../services/menuBarApi';
-import { mergeOptionItems, normalizeCountryOptions, normalizeServiceOptions } from '../app/utils';
+import {
+  mergeOptionItems,
+  normalizeCountryOptions,
+  normalizeOperatorOptions,
+  normalizeServiceOptions,
+} from '../app/utils';
 
 function optionRequestValue(option?: { value?: string; provider_value?: string | null }) {
   return option?.provider_value?.trim() || option?.value?.trim() || '';
@@ -148,7 +153,8 @@ export function useProviderRuntime(
   async function discoverProviderOptions(provider: ProviderManifest): Promise<ProviderDynamicOptions> {
     const providerId = provider.id;
     const countriesPayload = await fetchProviderCountries(providerId);
-    const countries = normalizeCountryOptions(countriesPayload.items);
+    const rawCountries = countriesPayload.items;
+    const countries = normalizeCountryOptions(rawCountries);
 
     const countrySeed = optionRequestValue(countries[0])
       || provider.defaults.country
@@ -157,8 +163,10 @@ export function useProviderRuntime(
       providerId,
       countrySeed ? { country: countrySeed } : {},
     );
-    const operators = operatorsPayload.items;
+    const rawOperators = operatorsPayload.items;
+    const operators = normalizeOperatorOptions(rawOperators);
 
+    let rawServices = [];
     let services = [];
     if (provider.kind === 'five_sim') {
       if (countrySeed) {
@@ -176,15 +184,20 @@ export function useProviderRuntime(
             }
           }),
         );
-        services = normalizeServiceOptions(mergeOptionItems(serviceGroups));
+        rawServices = mergeOptionItems(serviceGroups);
+        services = normalizeServiceOptions(rawServices);
       }
     } else {
       const servicesPayload = await fetchProviderServices(providerId);
-      services = normalizeServiceOptions(servicesPayload.items);
+      rawServices = servicesPayload.items;
+      services = normalizeServiceOptions(rawServices);
     }
 
     return {
       provider: providerId,
+      raw_services: rawServices,
+      raw_countries: rawCountries,
+      raw_operators: rawOperators,
       services,
       countries,
       operators,

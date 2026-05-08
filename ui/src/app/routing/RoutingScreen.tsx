@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react';
 import { ChevronRight, GripVertical, Plus } from 'lucide-react';
 import { Modal } from '../../components/overlays';
 import { countryBadge, formatCountryLabel, formatProviderLabel, formatServiceLabel, serviceBadge } from '../../lib/formatters';
+import { formatOperatorLabel } from '../utils';
 import { cx } from '../../lib/cx';
 import {
   AppButton,
@@ -13,7 +14,6 @@ import {
   ToggleSwitch,
 } from '../ui-bridge';
 import type {
-  ProviderDynamicOptions,
   ProviderManifest,
   ProviderPriceItem,
   RoutingExecutionMode,
@@ -35,7 +35,6 @@ export type RoutingScreenProps = {
   view: 'matrix' | 'detail';
   plans: RoutingPlan[];
   providers: ProviderManifest[];
-  providerOptions: Record<string, ProviderDynamicOptions>;
   serviceOptions: Array<{ id: string; label: string }>;
   selectedPlanId: string;
   routingFilter: RoutingPlanFilter;
@@ -127,7 +126,6 @@ export function RoutingScreen(props: RoutingScreenProps) {
       <RoutingPlanDetailScreen
         plan={plan}
         providers={props.providers}
-        providerOptions={props.providerOptions}
         serviceOptions={props.serviceOptions}
         busyAction={props.busyAction}
         onBackToList={props.onBackToList}
@@ -145,7 +143,6 @@ export function RoutingScreen(props: RoutingScreenProps) {
         editor={props.itemEditor}
         providers={props.providers}
         provider={props.providers.find((item) => item.id === props.itemEditor?.providerId)}
-        providerOptions={props.itemEditor ? props.providerOptions[props.itemEditor.providerId] : undefined}
         priceItems={props.itemPriceOptions}
         loading={props.itemEditorLoading}
         onClose={props.onCloseItemEditor}
@@ -268,7 +265,6 @@ function RoutingPlanMatrixScreen(props: {
 function RoutingPlanDetailScreen(props: {
   plan: RoutingPlan;
   providers: ProviderManifest[];
-  providerOptions: Record<string, ProviderDynamicOptions>;
   serviceOptions: Array<{ id: string; label: string }>;
   busyAction: string;
   onBackToList: () => void;
@@ -427,7 +423,12 @@ function RoutingPlanDetailScreen(props: {
 
           {props.plan.items.length > 0 ? props.plan.items.map((item, index) => {
             const provider = props.providers.find((entry) => entry.id === item.provider);
-            const countryOperator = `${item.country ? formatCountryLabel(item.country) : 'Any country'} · ${item.operator || 'Any operator'}`;
+            const providerLabel = item.provider === 'any'
+              ? 'Any provider'
+              : provider
+                ? formatProviderLabel(provider.name)
+                : 'Choose provider';
+            const countryOperator = `${item.country ? formatCountryLabel(item.country) : 'Any country'} · ${formatOperatorLabel(item.operator || 'any')}`;
 
             return (
               <div
@@ -485,7 +486,7 @@ function RoutingPlanDetailScreen(props: {
                     onClick={() => props.onOpenProviderPicker(item.id)}
                     className="w-full truncate bg-transparent p-0 text-left text-[13px] font-medium text-ds-text-primary transition-colors duration-fast ease-[var(--ds-motion-transition-fast)] hover:text-ds-accent-blue"
                   >
-                    {provider ? formatProviderLabel(provider.name) : 'Choose provider'}
+                    {providerLabel}
                   </button>
                   <div className="mt-1 flex flex-wrap gap-3 text-[12px] text-ds-text-secondary min-[900px]:hidden">
                     <span>#{index + 1}</span>
@@ -602,7 +603,6 @@ function RoutingItemEditorModal(props: {
   editor: RoutingItemEditorState | null;
   providers: ProviderManifest[];
   provider?: ProviderManifest;
-  providerOptions?: ProviderDynamicOptions;
   priceItems: ProviderPriceItem[];
   loading: boolean;
   onClose: () => void;
@@ -636,7 +636,9 @@ function RoutingItemEditorModal(props: {
     return true;
   });
 
-  const providerLabel = props.providers.find((provider) => provider.id === editor.providerId)?.name ?? editor.providerId;
+  const providerLabel = editor.providerId === 'any'
+    ? 'Any provider'
+    : props.providers.find((provider) => provider.id === editor.providerId)?.name ?? editor.providerId;
   const isRangeMode = priceMode === 'range';
   const priceInputClass = `min-h-[34px] w-full rounded-[10px] border px-3 py-2 text-[13px] leading-none transition-[background-color,color,border-color,opacity] duration-fast ease-[var(--ds-motion-transition-fast)] ${
     isRangeMode
@@ -680,7 +682,7 @@ function RoutingItemEditorModal(props: {
           <ModalField label="CARRIER">
             <SelectTrigger
               compact
-              value={editor.operator}
+              value={editor.operator ? formatOperatorLabel(editor.operator) : ''}
               placeholder="Any carrier"
               onClick={() => props.onOpenSelector('operator')}
               className="w-full"

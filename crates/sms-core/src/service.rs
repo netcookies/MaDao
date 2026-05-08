@@ -28,6 +28,7 @@ use std::sync::Arc;
 use uuid::Uuid;
 
 const ROUTING_PLANS_FILE_NAME: &str = "routing-plans.json";
+const ROUTING_ANY_PROVIDER: &str = "any";
 
 pub struct SmsService {
     registry: Arc<RwLock<ProviderRegistry>>,
@@ -169,10 +170,15 @@ impl SmsService {
             return self.acquire_code_by_routing_plan(request).await;
         }
         if request.provider == "auto" {
-            return Err(SmsError::InvalidRequest(
-                "routing_plan_id is required when provider is auto".to_string(),
-            ));
+            return self.acquire_code_by_auto_provider(request).await;
         }
+        self.acquire_code_for_provider(request).await
+    }
+
+    async fn acquire_code_for_provider(
+        &self,
+        request: AcquireCodeRequest,
+    ) -> Result<AcquireCodeResponse, SmsError> {
         let cached_options = self
             .provider_option_cache
             .read()
@@ -240,6 +246,49 @@ impl SmsService {
         Ok(response)
     }
 
+    async fn acquire_code_by_auto_provider(
+        &self,
+        request: AcquireCodeRequest,
+    ) -> Result<AcquireCodeResponse, SmsError> {
+        let providers = {
+            let registry = self.registry.read();
+            let mut providers = registry
+                .list_manifests_by_priority()
+                .into_iter()
+                .filter(|manifest| {
+                    manifest.enabled && manifest.kind != plugin_sdk::ProviderKind::Mock
+                })
+                .map(|manifest| manifest.id)
+                .collect::<Vec<_>>();
+            if providers.is_empty() {
+                providers = registry
+                    .list_manifests_by_priority()
+                    .into_iter()
+                    .filter(|manifest| manifest.enabled)
+                    .map(|manifest| manifest.id)
+                    .collect();
+            }
+            providers
+        };
+
+        if providers.is_empty() {
+            return Err(SmsError::InvalidRequest(
+                "no enabled providers available for auto acquisition".to_string(),
+            ));
+        }
+
+        let mut last_error = SmsError::InvalidRequest("no auto providers tried".to_string());
+        for provider_id in providers {
+            let mut routed = request.clone();
+            routed.provider = provider_id;
+            match self.acquire_code_for_provider(routed).await {
+                Ok(response) => return Ok(response),
+                Err(error) => last_error = error,
+            }
+        }
+        Err(last_error)
+    }
+
     async fn acquire_code_by_routing_plan(
         &self,
         request: AcquireCodeRequest,
@@ -291,105 +340,119 @@ impl SmsService {
         attempt_index: usize,
         candidate_item_ids: &[String],
     ) -> Result<AcquireCodeResponse, SmsError> {
-        let cached_options = self
-            .provider_option_cache
-            .read()
-            .entries
-            .get(&item.provider)
-            .cloned();
-        let provider = {
-            let registry = self.registry.read();
-            registry.get(&item.provider)?
-        };
-        if !provider.manifest().enabled {
-            return Err(SmsError::ProviderDisabled(item.provider.clone()));
+        let provider_ids = self.expand_routing_item_providers(item)?;
+        let mut last_error = None;
+
+        for provider_id in provider_ids {
+            let cached_options = self
+                .provider_option_cache
+                .read()
+                .entries
+                .get(&provider_id)
+                .cloned();
+            let provider = {
+                let registry = self.registry.read();
+                registry.get(&provider_id)?
+            };
+            if !provider.manifest().enabled {
+                last_error = Some(SmsError::ProviderDisabled(provider_id.clone()));
+                continue;
+            }
+
+            let mut routed = request.clone();
+            routed.provider = provider_id.clone();
+            routed.service = Some(plan.service.clone());
+            routed.country = if item.country.is_empty() {
+                request.country.clone()
+            } else {
+                Some(item.country.clone())
+            };
+            routed.metadata = request.metadata.clone();
+            if !item.operator.is_empty() {
+                routed
+                    .metadata
+                    .insert("operator".to_string(), item.operator.clone());
+            }
+            match item.price_mode {
+                crate::models::RoutingPriceMode::Any => {
+                    routed.min_price = None;
+                    routed.max_price = None;
+                }
+                crate::models::RoutingPriceMode::Range => {
+                    routed.min_price = item.min_price;
+                    routed.max_price = item.max_price;
+                }
+                crate::models::RoutingPriceMode::Fixed => {
+                    routed.min_price = item.fixed_price;
+                    routed.max_price = item.fixed_price;
+                }
+            }
+
+            let translated = self.translate_acquire_request(
+                &routed,
+                cached_options.as_ref().map(|entry| &entry.options),
+            );
+            self.log_upstream_request(
+                &provider_id,
+                "acquire",
+                format!(
+                    "service={} country={}",
+                    translated.service.clone().unwrap_or_default(),
+                    translated.country.clone().unwrap_or_default()
+                ),
+            );
+            let mut ticket = match provider.acquire(&translated).await {
+                Ok(ticket) => {
+                    self.log_upstream_response(&provider_id, "acquire", "200", "ticket acquired");
+                    ticket
+                }
+                Err(error) => {
+                    self.log_upstream_response(&provider_id, "acquire", "error", error.to_string());
+                    last_error = Some(error);
+                    continue;
+                }
+            };
+            ticket.routing_plan_id = Some(plan.id.clone());
+            ticket.routing_plan_name = Some(plan.name.clone());
+            ticket.routing_item_id = Some(item.id.clone());
+            ticket.routing_item_index = Some(attempt_index);
+            ticket.routing_execution_mode = Some(plan.execution_mode);
+            ticket.routing_candidate_item_ids = candidate_item_ids.to_vec();
+            ticket.routing_attempt_count = (attempt_index + 1) as u32;
+
+            let response = AcquireCodeResponse {
+                ticket_id: ticket.id.clone(),
+                provider: ticket.provider.clone(),
+                service: ticket.service.clone(),
+                country: ticket.country.clone(),
+                phone_number: ticket.phone_number.clone(),
+                upstream_id: ticket.upstream_id.clone(),
+                price: ticket.price,
+                status: ticket.status.clone(),
+                created_at: ticket.created_at,
+                routing_plan_id: ticket.routing_plan_id.clone(),
+                routing_plan_name: ticket.routing_plan_name.clone(),
+                routing_item_id: ticket.routing_item_id.clone(),
+                routing_item_index: ticket.routing_item_index,
+            };
+            self.log(
+                "router",
+                "info",
+                format!(
+                    "routing plan {} matched item {} -> {}",
+                    plan.id, item.id, ticket.provider
+                ),
+            );
+            self.tickets.write().insert(ticket.id.clone(), ticket);
+            return Ok(response);
         }
 
-        let mut routed = request.clone();
-        routed.provider = item.provider.clone();
-        routed.service = Some(plan.service.clone());
-        routed.country = if item.country.is_empty() {
-            request.country.clone()
-        } else {
-            Some(item.country.clone())
-        };
-        routed.metadata = request.metadata.clone();
-        if !item.operator.is_empty() {
-            routed
-                .metadata
-                .insert("operator".to_string(), item.operator.clone());
-        }
-        match item.price_mode {
-            crate::models::RoutingPriceMode::Any => {
-                routed.min_price = None;
-                routed.max_price = None;
-            }
-            crate::models::RoutingPriceMode::Range => {
-                routed.min_price = item.min_price;
-                routed.max_price = item.max_price;
-            }
-            crate::models::RoutingPriceMode::Fixed => {
-                routed.min_price = item.fixed_price;
-                routed.max_price = item.fixed_price;
-            }
-        }
-
-        let translated = self.translate_acquire_request(
-            &routed,
-            cached_options.as_ref().map(|entry| &entry.options),
-        );
-        self.log_upstream_request(
-            &item.provider,
-            "acquire",
-            format!(
-                "service={} country={}",
-                translated.service.clone().unwrap_or_default(),
-                translated.country.clone().unwrap_or_default()
-            ),
-        );
-        let mut ticket = match provider.acquire(&translated).await {
-            Ok(ticket) => {
-                self.log_upstream_response(&item.provider, "acquire", "200", "ticket acquired");
-                ticket
-            }
-            Err(error) => {
-                self.log_upstream_response(&item.provider, "acquire", "error", error.to_string());
-                return Err(error);
-            }
-        };
-        ticket.routing_plan_id = Some(plan.id.clone());
-        ticket.routing_plan_name = Some(plan.name.clone());
-        ticket.routing_item_id = Some(item.id.clone());
-        ticket.routing_item_index = Some(attempt_index);
-        ticket.routing_execution_mode = Some(plan.execution_mode);
-        ticket.routing_candidate_item_ids = candidate_item_ids.to_vec();
-        ticket.routing_attempt_count = (attempt_index + 1) as u32;
-
-        let response = AcquireCodeResponse {
-            ticket_id: ticket.id.clone(),
-            provider: ticket.provider.clone(),
-            service: ticket.service.clone(),
-            country: ticket.country.clone(),
-            phone_number: ticket.phone_number.clone(),
-            upstream_id: ticket.upstream_id.clone(),
-            price: ticket.price,
-            status: ticket.status.clone(),
-            created_at: ticket.created_at,
-            routing_plan_id: ticket.routing_plan_id.clone(),
-            routing_plan_name: ticket.routing_plan_name.clone(),
-            routing_item_id: ticket.routing_item_id.clone(),
-            routing_item_index: ticket.routing_item_index,
-        };
-        self.log(
-            "router",
-            "info",
-            format!(
-                "routing plan {} matched item {} -> {}",
-                plan.id, item.id, ticket.provider
-            ),
-        );
-        self.tickets.write().insert(ticket.id.clone(), ticket);
-        Ok(response)
+        Err(last_error.unwrap_or_else(|| {
+            SmsError::InvalidRequest(format!(
+                "routing item `{}` has no available providers",
+                item.id
+            ))
+        }))
     }
 
     pub async fn poll_code(&self, request: PollCodeRequest) -> Result<PollCodeResponse, SmsError> {
@@ -557,8 +620,13 @@ impl SmsService {
             plan.name
         ));
         for (attempt_index, item) in candidates.iter().enumerate().skip(start_index) {
+            let provider = if item.provider.is_empty() {
+                String::new()
+            } else {
+                item.provider.clone()
+            };
             let mut acquire_request = AcquireCodeRequest {
-                provider: item.provider.clone(),
+                provider,
                 service: Some(plan.service.clone()),
                 country: None,
                 max_price: None,
@@ -1061,6 +1129,9 @@ impl SmsService {
 
         Ok(ProviderDynamicOptions {
             provider: provider_id.to_string(),
+            raw_services: Vec::new(),
+            raw_countries: Vec::new(),
+            raw_operators: Vec::new(),
             services: if services.is_empty() {
                 vec![default_service_option(&manifest)]
             } else {
@@ -1414,6 +1485,43 @@ impl SmsService {
         items
     }
 
+    fn expand_routing_item_providers(
+        &self,
+        item: &RoutingPlanItem,
+    ) -> Result<Vec<String>, SmsError> {
+        if item.provider.trim().is_empty() {
+            return Err(SmsError::InvalidRequest(format!(
+                "routing item `{}` provider is required",
+                item.id
+            )));
+        }
+        if item.provider != ROUTING_ANY_PROVIDER {
+            return Ok(vec![item.provider.clone()]);
+        }
+
+        let registry = self.registry.read();
+        let mut providers = registry
+            .list_manifests_by_priority()
+            .into_iter()
+            .filter(|manifest| manifest.enabled && manifest.kind != plugin_sdk::ProviderKind::Mock)
+            .map(|manifest| manifest.id)
+            .collect::<Vec<_>>();
+        if providers.is_empty() {
+            providers = registry
+                .list_manifests_by_priority()
+                .into_iter()
+                .filter(|manifest| manifest.enabled)
+                .map(|manifest| manifest.id)
+                .collect();
+        }
+        if providers.is_empty() {
+            return Err(SmsError::InvalidRequest(
+                "no enabled providers available for routing item".to_string(),
+            ));
+        }
+        Ok(providers)
+    }
+
     fn routing_item_order_for_ticket<'a>(
         &self,
         plan: &'a RoutingPlan,
@@ -1680,6 +1788,28 @@ mod tests {
         }
     }
 
+    fn any_provider_routing_plan() -> RoutingPlan {
+        RoutingPlan {
+            id: "any-provider-plan".to_string(),
+            name: "Any Provider Plan".to_string(),
+            service: "openai".to_string(),
+            description: Some("test any provider routing plan".to_string()),
+            enabled: true,
+            execution_mode: RoutingExecutionMode::Sequential,
+            items: vec![RoutingPlanItem {
+                id: "any-provider-item".to_string(),
+                provider: ROUTING_ANY_PROVIDER.to_string(),
+                country: String::new(),
+                operator: String::new(),
+                enabled: true,
+                price_mode: RoutingPriceMode::Any,
+                min_price: None,
+                max_price: None,
+                fixed_price: None,
+            }],
+        }
+    }
+
     #[tokio::test]
     async fn mock_provider_can_acquire_and_poll() {
         let service = make_service();
@@ -1798,10 +1928,42 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn auto_provider_without_routing_plan_is_rejected() {
+    async fn any_provider_routing_item_expands_to_enabled_provider() {
+        let service = make_service();
+        service
+            .save_routing_plan(any_provider_routing_plan())
+            .unwrap();
+
+        let acquire = service
+            .acquire_code(AcquireCodeRequest {
+                provider: "auto".to_string(),
+                service: None,
+                country: None,
+                max_price: None,
+                min_price: None,
+                auto_pick_country: None,
+                reuse_phone: None,
+                reuse_key: None,
+                metadata: BTreeMap::new(),
+                routing_plan_id: Some("any-provider-plan".to_string()),
+                routing_plan_name: None,
+            })
+            .await
+            .unwrap();
+
+        assert_ne!(acquire.provider, ROUTING_ANY_PROVIDER);
+        assert!(["herosms", "smsbower", "mock"].contains(&acquire.provider.as_str()));
+        assert_eq!(
+            acquire.routing_item_id.as_deref(),
+            Some("any-provider-item")
+        );
+    }
+
+    #[tokio::test]
+    async fn auto_provider_without_routing_plan_uses_enabled_provider() {
         let service = make_service();
 
-        let error = service
+        let acquire = service
             .acquire_code(AcquireCodeRequest {
                 provider: "auto".to_string(),
                 service: Some("openai".to_string()),
@@ -1816,9 +1978,9 @@ mod tests {
                 routing_plan_name: None,
             })
             .await
-            .unwrap_err();
+            .unwrap();
 
-        assert!(error.to_string().contains("routing_plan_id is required"));
+        assert!(["herosms", "smsbower", "mock"].contains(&acquire.provider.as_str()));
     }
 
     #[tokio::test]

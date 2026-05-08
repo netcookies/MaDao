@@ -28,6 +28,7 @@ import {
   formatServiceLabel,
   serviceBadge,
 } from '../../lib/formatters';
+import { formatOperatorLabel } from '../utils';
 import { cx } from '../../lib/cx';
 
 const WORKSPACE_SECTIONS: Array<{
@@ -289,7 +290,7 @@ function WorkspaceStore(props: {
           />
           <SelectTrigger
             compact={props.compact}
-            value={props.storeQuery.operator}
+            value={props.storeQuery.operator ? formatOperatorLabel(props.storeQuery.operator) : ''}
             placeholder="All operators"
             muted={!props.storeQuery.operator}
             onClick={() => props.onOpenSelector('store-operator')}
@@ -341,7 +342,7 @@ function WorkspaceStore(props: {
                 <span className="shrink-0">{countryBadge(item.country)}</span>
                 <span className="min-w-0 overflow-hidden text-ellipsis whitespace-nowrap">{item.display_name}</span>
               </span>
-              <span className="text-[13px] text-ds-text-secondary">{item.operator || 'any'}</span>
+              <span className="text-[13px] text-ds-text-secondary">{formatOperatorLabel(item.operator || 'any')}</span>
               <span className="text-left font-medium tabular-nums min-[760px]:text-right">${item.price.toFixed(3)}</span>
               <span className="text-left tabular-nums min-[760px]:text-right">{item.stock.toLocaleString()}</span>
             </div>

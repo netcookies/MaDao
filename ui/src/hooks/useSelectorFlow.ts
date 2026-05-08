@@ -1,15 +1,19 @@
-import type {
-  ActivationFormState,
-  OptionItem,
-  ProviderDynamicOptions,
-  ProviderManifest,
-  SelectorKind,
-  SelectorState,
+import {
+  ANY_PROVIDER_VALUE,
+  type ActivationFormState,
+  type OptionCatalog,
+  type OptionItem,
+  type ProviderDynamicOptions,
+  type ProviderManifest,
+  type SelectorKind,
+  type SelectorState,
 } from '../app/types';
+import { filterCatalogItems } from '../app/utils';
 
 const ALL_COUNTRIES_OPTION: OptionItem = { value: '', label: 'All countries', hint: 'Clear country filter' };
 const ALL_OPERATORS_OPTION: OptionItem = { value: '', label: 'All operators', hint: 'Clear operator filter' };
 const AUTO_COUNTRY_OPTION: OptionItem = { value: '', label: 'Any country', hint: 'Auto select country' };
+const ANY_PROVIDER_OPTION: OptionItem = { value: ANY_PROVIDER_VALUE, label: 'Any provider', hint: 'Try enabled providers automatically' };
 
 type SelectorUiState = {
   selectorState: SelectorState | null;
@@ -24,6 +28,7 @@ type SelectorRuntimeState = {
   selectedOptions?: ProviderDynamicOptions;
   visibleProviders: ProviderManifest[];
   providerOptions: Record<string, ProviderDynamicOptions>;
+  optionCatalog: OptionCatalog;
   updateManifestField: (
     providerId: string,
     section: 'root' | 'defaults' | 'handler_api' | 'five_sim' | 'mock',
@@ -53,23 +58,60 @@ export function useSelectorFlow(
         hint: provider.kind,
       }));
       title = 'Select Provider';
+    } else if (kind === 'activation-provider') {
+      options = [
+        ANY_PROVIDER_OPTION,
+        ...runtime.visibleProviders.map((provider) => ({
+          value: provider.id,
+          label: provider.name,
+          hint: provider.kind,
+        })),
+      ];
+      title = 'Select Activation Provider';
     } else if (kind === 'store-service') {
-      options = runtime.selectedOptions?.services ?? [];
+      options = filterCatalogItems(runtime.optionCatalog.services, ui.selectedProvider).map((item) => ({
+        value: item.value,
+        label: item.label,
+        hint: item.hint,
+      }));
       title = 'Select Store Service';
     } else if (kind === 'store-country') {
-      options = [ALL_COUNTRIES_OPTION, ...(runtime.selectedOptions?.countries ?? [])];
+      options = [ALL_COUNTRIES_OPTION, ...filterCatalogItems(runtime.optionCatalog.countries, ui.selectedProvider).map((item) => ({
+        value: item.value,
+        label: item.label,
+        hint: item.hint,
+      }))];
       title = 'Select Store Country';
     } else if (kind === 'store-operator') {
-      options = [ALL_OPERATORS_OPTION, ...(runtime.selectedOptions?.operators ?? [])];
+      options = [ALL_OPERATORS_OPTION, ...filterCatalogItems(runtime.optionCatalog.operators, ui.selectedProvider).map((item) => ({
+        value: item.value,
+        label: item.label,
+        hint: item.hint,
+      }))];
       title = 'Select Store Operator';
     } else if (kind === 'activation-service') {
-      options = runtime.providerOptions[ui.activationForm.provider]?.services ?? [];
+      options = filterCatalogItems(runtime.optionCatalog.services, ui.activationForm.provider).map((item) => ({
+        value: item.value,
+        label: item.label,
+        hint: item.hint,
+      }));
       title = 'Select Activation Service';
     } else if (kind === 'activation-country') {
-      options = [AUTO_COUNTRY_OPTION, ...(runtime.providerOptions[ui.activationForm.provider]?.countries ?? [])];
+      options = [
+        AUTO_COUNTRY_OPTION,
+        ...filterCatalogItems(runtime.optionCatalog.countries, ui.activationForm.provider).map((item) => ({
+          value: item.value,
+          label: item.label,
+          hint: item.hint,
+        })),
+      ];
       title = 'Select Activation Country';
     } else if (kind === 'activation-operator') {
-      options = runtime.providerOptions[ui.activationForm.provider]?.operators ?? [];
+      options = filterCatalogItems(runtime.optionCatalog.operators, ui.activationForm.provider).map((item) => ({
+        value: item.value,
+        label: item.label,
+        hint: item.hint,
+      }));
       title = 'Select Activation Operator';
     }
     ui.setSelectorSearch('');
@@ -95,6 +137,14 @@ export function useSelectorFlow(
         service: options?.services[0]?.value ?? current.service,
         country: options?.countries[0]?.value ?? current.country,
         operator: options?.operators[0]?.value ?? current.operator,
+      }));
+    } else if (ui.selectorState.kind === 'activation-provider') {
+      ui.setActivationForm((current) => ({
+        ...current,
+        provider: option.value,
+        service: current.service,
+        country: '',
+        operator: '',
       }));
     } else if (ui.selectorState.kind === 'activation-service') {
       ui.setActivationForm((current) => ({ ...current, service: option.value }));

@@ -1,7 +1,7 @@
 use crate::error::SmsError;
 use crate::models::{
-    OptionCacheOverview, OptionCacheState, OptionItem, ProviderDynamicOptions, ProviderOptionCacheEntry,
-    ProviderPriceItem, RuntimeSettings,
+    OptionCacheOverview, OptionCacheState, OptionItem, ProviderDynamicOptions,
+    ProviderOptionCacheEntry, ProviderPriceItem, RuntimeSettings,
 };
 use chrono::{DateTime, Duration, Utc};
 use plugin_sdk::ProviderManifest;
@@ -25,18 +25,25 @@ pub fn load_option_cache_store(path: &Path) -> Result<ProviderOptionCacheStore, 
         .map_err(|err| SmsError::Config(format!("parse provider option cache failed: {err}")))
 }
 
-pub fn save_option_cache_store(path: &Path, store: &ProviderOptionCacheStore) -> Result<(), SmsError> {
+pub fn save_option_cache_store(
+    path: &Path,
+    store: &ProviderOptionCacheStore,
+) -> Result<(), SmsError> {
     if let Some(parent) = path.parent() {
         fs::create_dir_all(parent)
             .map_err(|err| SmsError::Io(format!("create option cache dir failed: {err}")))?;
     }
-    let content = serde_json::to_string_pretty(store)
-        .map_err(|err| SmsError::Config(format!("serialize provider option cache failed: {err}")))?;
+    let content = serde_json::to_string_pretty(store).map_err(|err| {
+        SmsError::Config(format!("serialize provider option cache failed: {err}"))
+    })?;
     fs::write(path, content)
         .map_err(|err| SmsError::Io(format!("write provider option cache failed: {err}")))
 }
 
-pub fn cache_state(fetched_at: Option<DateTime<Utc>>, settings: &RuntimeSettings) -> OptionCacheState {
+pub fn cache_state(
+    fetched_at: Option<DateTime<Utc>>,
+    settings: &RuntimeSettings,
+) -> OptionCacheState {
     let Some(fetched_at) = fetched_at else {
         return OptionCacheState::Missing;
     };
@@ -75,11 +82,19 @@ pub fn normalize_provider_options(
     mut raw: ProviderDynamicOptions,
     fetched_at: DateTime<Utc>,
 ) -> ProviderDynamicOptions {
+    let raw_services = raw.services.clone();
+    let raw_countries = raw.countries.clone();
+    let raw_operators = raw.operators.clone();
     raw.services = dedup_options(
-        raw.services
+        raw_services
+            .iter()
+            .cloned()
             .into_iter()
             .map(|item| {
-                let raw_value = item.provider_value.clone().unwrap_or_else(|| item.value.clone());
+                let raw_value = item
+                    .provider_value
+                    .clone()
+                    .unwrap_or_else(|| item.value.clone());
                 let canonical = canonical_service_value(manifest, &raw_value, Some(&item.label));
                 OptionItem {
                     value: canonical.clone(),
@@ -91,11 +106,17 @@ pub fn normalize_provider_options(
             .collect(),
     );
     raw.countries = dedup_options(
-        raw.countries
+        raw_countries
+            .iter()
+            .cloned()
             .into_iter()
             .map(|item| {
-                let raw_value = item.provider_value.clone().unwrap_or_else(|| item.value.clone());
-                let canonical = canonical_country_value(&raw_value, Some(&item.label), Some(&item.hint));
+                let raw_value = item
+                    .provider_value
+                    .clone()
+                    .unwrap_or_else(|| item.value.clone());
+                let canonical =
+                    canonical_country_value(&raw_value, Some(&item.label), Some(&item.hint));
                 OptionItem {
                     value: canonical.clone(),
                     label: resolved_country_label(&canonical, &item.label, &item.hint),
@@ -106,10 +127,15 @@ pub fn normalize_provider_options(
             .collect(),
     );
     raw.operators = dedup_options(
-        raw.operators
+        raw_operators
+            .iter()
+            .cloned()
             .into_iter()
             .map(|item| {
-                let raw_value = item.provider_value.clone().unwrap_or_else(|| item.value.clone());
+                let raw_value = item
+                    .provider_value
+                    .clone()
+                    .unwrap_or_else(|| item.value.clone());
                 let canonical = canonical_operator_value(&raw_value, Some(&item.label));
                 OptionItem {
                     value: canonical.clone(),
@@ -120,6 +146,9 @@ pub fn normalize_provider_options(
             })
             .collect(),
     );
+    raw.raw_services = raw_services;
+    raw.raw_countries = raw_countries;
+    raw.raw_operators = raw_operators;
     raw.fetched_at = Some(fetched_at);
     raw.cache_state = OptionCacheState::Fresh;
     raw.provider = manifest.id.clone();
@@ -133,14 +162,16 @@ pub fn normalize_price_items(
     let country_map = options.map(build_country_reverse_map).unwrap_or_default();
     let operator_map = options.map(build_operator_reverse_map).unwrap_or_default();
 
-    items.into_iter()
+    items
+        .into_iter()
         .map(|mut item| {
             let raw_country = item.country.clone();
             if let Some(mapped) = country_map.get(&normalize_token(&raw_country)) {
                 item.country = mapped.value.clone();
                 item.display_name = mapped.label.clone();
             } else {
-                let canonical = canonical_country_value(&raw_country, Some(&item.display_name), None);
+                let canonical =
+                    canonical_country_value(&raw_country, Some(&item.display_name), None);
                 item.country = canonical.clone();
                 item.display_name = resolved_country_label(&canonical, &item.display_name, "");
             }
@@ -208,9 +239,15 @@ pub fn build_cache_overview(
             OptionCacheState::Stale => stale_providers += 1,
             OptionCacheState::Missing => missing_providers += 1,
         }
-        let fetched_at = store.entries.get(&manifest.id).map(|entry| entry.fetched_at);
+        let fetched_at = store
+            .entries
+            .get(&manifest.id)
+            .map(|entry| entry.fetched_at);
         if let Some(timestamp) = fetched_at {
-            if last_refresh_at.map(|current| timestamp > current).unwrap_or(true) {
+            if last_refresh_at
+                .map(|current| timestamp > current)
+                .unwrap_or(true)
+            {
                 last_refresh_at = Some(timestamp);
             }
         }
@@ -306,13 +343,20 @@ fn canonical_country_value(raw: &str, label: Option<&str>, hint: Option<&str>) -
     let raw_normalized = normalize_token(raw);
     let label_normalized = normalize_token(label.unwrap_or(""));
     let hint_normalized = normalize_token(hint.unwrap_or(""));
-    let signals = [raw_normalized.as_str(), label_normalized.as_str(), hint_normalized.as_str()];
+    let signals = [
+        raw_normalized.as_str(),
+        label_normalized.as_str(),
+        hint_normalized.as_str(),
+    ];
 
     for (candidate, aliases) in [
         ("any", &["any", "all countries", "auto select"][..]),
         ("local", &["local"][..]),
         ("usa", &["usa", "united states", "50", "america"][..]),
-        ("uk", &["england", "uk", "united kingdom", "44", "britain"][..]),
+        (
+            "uk",
+            &["england", "uk", "united kingdom", "44", "britain"][..],
+        ),
         ("germany", &["germany", "deutschland"][..]),
         ("japan", &["japan"][..]),
         ("canada", &["canada"][..]),
@@ -359,12 +403,12 @@ fn service_label(canonical: &str) -> String {
 }
 
 fn resolved_service_label(canonical: &str, source_label: &str) -> String {
-  let fallback = source_label.trim();
-  match canonical {
-      "openai" | "telegram" | "whatsapp" | "paypal" | "discord" => service_label(canonical),
-      _ if !fallback.is_empty() => fallback.to_string(),
-      _ => service_label(canonical),
-  }
+    let fallback = source_label.trim();
+    match canonical {
+        "openai" | "telegram" | "whatsapp" | "paypal" | "discord" => service_label(canonical),
+        _ if !fallback.is_empty() => fallback.to_string(),
+        _ => service_label(canonical),
+    }
 }
 
 fn country_label(canonical: &str) -> String {
@@ -384,14 +428,17 @@ fn country_label(canonical: &str) -> String {
 }
 
 fn resolved_country_label(canonical: &str, source_label: &str, source_hint: &str) -> String {
-  let fallback_label = source_label.trim();
-  let fallback_hint = source_hint.trim();
-  match canonical {
-      "any" | "local" | "usa" | "uk" | "germany" | "japan" | "canada" | "australia" | "russia" | "argentina" => country_label(canonical),
-      _ if !fallback_label.is_empty() && fallback_label != canonical => fallback_label.to_string(),
-      _ if !fallback_hint.is_empty() && fallback_hint != canonical => fallback_hint.to_string(),
-      _ => country_label(canonical),
-  }
+    let fallback_label = source_label.trim();
+    let fallback_hint = source_hint.trim();
+    match canonical {
+        "any" | "local" | "usa" | "uk" | "germany" | "japan" | "canada" | "australia"
+        | "russia" | "argentina" => country_label(canonical),
+        _ if !fallback_label.is_empty() && fallback_label != canonical => {
+            fallback_label.to_string()
+        }
+        _ if !fallback_hint.is_empty() && fallback_hint != canonical => fallback_hint.to_string(),
+        _ => country_label(canonical),
+    }
 }
 
 fn operator_label(canonical: &str) -> String {
@@ -403,12 +450,12 @@ fn operator_label(canonical: &str) -> String {
 }
 
 fn resolved_operator_label(canonical: &str, source_label: &str) -> String {
-  let fallback = source_label.trim();
-  match canonical {
-      "any" | "o2" => operator_label(canonical),
-      _ if !fallback.is_empty() => fallback.to_string(),
-      _ => operator_label(canonical),
-  }
+    let fallback = source_label.trim();
+    match canonical {
+        "any" | "o2" => operator_label(canonical),
+        _ if !fallback.is_empty() => fallback.to_string(),
+        _ => operator_label(canonical),
+    }
 }
 
 fn normalize_token(input: &str) -> String {
@@ -435,7 +482,9 @@ fn title_case_token(input: &str) -> String {
             } else {
                 let mut chars = part.chars();
                 match chars.next() {
-                    Some(first) => format!("{}{}", first.to_uppercase(), chars.as_str().to_lowercase()),
+                    Some(first) => {
+                        format!("{}{}", first.to_uppercase(), chars.as_str().to_lowercase())
+                    }
                     None => String::new(),
                 }
             }
@@ -450,9 +499,21 @@ mod tests {
 
     #[test]
     fn canonical_country_value_keeps_russia_distinct_from_usa() {
-        assert_eq!(canonical_country_value("0", Some("Russia"), Some("Russia")), "russia");
-        assert_eq!(canonical_country_value("50", Some("Austria"), Some("Austria")), "usa");
-        assert_eq!(canonical_country_value("31", Some("South Africa"), Some("South Africa")), "31");
-        assert_eq!(canonical_country_value("us", Some("United States"), Some("United States")), "usa");
+        assert_eq!(
+            canonical_country_value("0", Some("Russia"), Some("Russia")),
+            "russia"
+        );
+        assert_eq!(
+            canonical_country_value("50", Some("Austria"), Some("Austria")),
+            "usa"
+        );
+        assert_eq!(
+            canonical_country_value("31", Some("South Africa"), Some("South Africa")),
+            "31"
+        );
+        assert_eq!(
+            canonical_country_value("us", Some("United States"), Some("United States")),
+            "usa"
+        );
     }
 }

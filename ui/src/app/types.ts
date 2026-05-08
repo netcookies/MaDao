@@ -6,6 +6,7 @@ export type SelectorKind =
   | 'service'
   | 'country'
   | 'provider'
+  | 'activation-provider'
   | 'store-service'
   | 'store-country'
   | 'store-operator'
@@ -104,6 +105,13 @@ export type ProviderPriceItem = { country: string; display_name: string; operato
 export type ProviderPriceResponse = { provider: string; service: string; items: ProviderPriceItem[] };
 export type OptionCacheState = 'missing' | 'fresh' | 'stale';
 export type OptionItem = { value: string; label: string; hint: string; provider_value?: string | null };
+export type OptionCatalogItem = {
+  value: string;
+  label: string;
+  hint: string;
+  providers: string[];
+  provider_values: Record<string, string>;
+};
 export type SelectorState = { kind: SelectorKind; title: string; options: OptionItem[] };
 export type NotificationFeed = { items: LogEntry[] };
 export type RuntimeSettings = {
@@ -120,11 +128,19 @@ export type RuntimeSettingsUpdate = {
 };
 export type ProviderDynamicOptions = {
   provider: string;
+  raw_services?: OptionItem[];
+  raw_countries?: OptionItem[];
+  raw_operators?: OptionItem[];
   services: OptionItem[];
   countries: OptionItem[];
   operators: OptionItem[];
   cache_state?: OptionCacheState;
   fetched_at?: string | null;
+};
+export type OptionCatalog = {
+  services: OptionCatalogItem[];
+  countries: OptionCatalogItem[];
+  operators: OptionCatalogItem[];
 };
 export type OptionListResponse = {
   provider: string;
@@ -158,6 +174,8 @@ export type RoutingPlanItem = {
   max_price?: number | null;
   fixed_price?: number | null;
 };
+
+export const ANY_PROVIDER_VALUE = 'any';
 
 export type RoutingPlan = {
   id: string;
