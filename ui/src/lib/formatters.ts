@@ -1,14 +1,28 @@
+import type { LanguageCode } from '../app/types';
+
 export type TicketPhase = 'received' | 'waiting' | 'failed';
 
-const SERVICE_LABELS: Record<string, string> = {
-  openai: 'OpenAI (GPT)',
-  dr: 'OpenAI (GPT)',
-  telegram: 'Telegram',
-  tg: 'Telegram',
-  whatsapp: 'WhatsApp',
-  wa: 'WhatsApp',
-  paypal: 'PayPal',
-  discord: 'Discord',
+const SERVICE_LABELS: Record<LanguageCode, Record<string, string>> = {
+  en: {
+    openai: 'OpenAI (GPT)',
+    dr: 'OpenAI (GPT)',
+    telegram: 'Telegram',
+    tg: 'Telegram',
+    whatsapp: 'WhatsApp',
+    wa: 'WhatsApp',
+    paypal: 'PayPal',
+    discord: 'Discord',
+  },
+  zh: {
+    openai: 'OpenAI（GPT）',
+    dr: 'OpenAI（GPT）',
+    telegram: 'Telegram',
+    tg: 'Telegram',
+    whatsapp: 'WhatsApp',
+    wa: 'WhatsApp',
+    paypal: 'PayPal',
+    discord: 'Discord',
+  },
 };
 
 const SERVICE_EMOJIS: Record<string, string> = {
@@ -22,25 +36,90 @@ const SERVICE_EMOJIS: Record<string, string> = {
   discord: '🎮',
 };
 
-const COUNTRY_LABELS: Record<string, string> = {
-  any: 'All countries',
-  local: 'Local',
-  usa: 'United States',
-  us: 'United States',
-  '50': 'United States',
-  england: 'United Kingdom',
-  uk: 'United Kingdom',
-  '44': 'United Kingdom',
-  germany: 'Germany',
-  japan: 'Japan',
-  canada: 'Canada',
-  australia: 'Australia',
-  '61': 'Australia',
-  russia: 'Russia',
-  '0': 'Russia',
-  argentina: 'Argentina',
-  ar: 'Argentina',
+const COUNTRY_LABELS: Record<LanguageCode, Record<string, string>> = {
+  en: {
+    any: 'All countries',
+    local: 'Local',
+    usa: 'United States',
+    us: 'United States',
+    '50': 'United States',
+    england: 'United Kingdom',
+    uk: 'United Kingdom',
+    '44': 'United Kingdom',
+    germany: 'Germany',
+    japan: 'Japan',
+    canada: 'Canada',
+    australia: 'Australia',
+    '61': 'Australia',
+    russia: 'Russia',
+    '0': 'Russia',
+    argentina: 'Argentina',
+    ar: 'Argentina',
+    vietnam: 'Vietnam',
+  },
+  zh: {
+    any: '全部国家',
+    local: '本地',
+    usa: '美国',
+    us: '美国',
+    '50': '美国',
+    england: '英国',
+    uk: '英国',
+    '44': '英国',
+    germany: '德国',
+    japan: '日本',
+    canada: '加拿大',
+    australia: '澳大利亚',
+    '61': '澳大利亚',
+    russia: '俄罗斯',
+    '0': '俄罗斯',
+    argentina: '阿根廷',
+    ar: '阿根廷',
+    vietnam: '越南',
+  },
 };
+
+const PROVIDER_LABELS: Record<LanguageCode, Record<string, string>> = {
+  en: {
+    fivesim: 'FiveSim',
+    herosms: 'HeroSMS',
+    smsbower: 'SMSBower',
+    status: 'Status',
+    ui: 'UI',
+  },
+  zh: {
+    fivesim: 'FiveSim',
+    herosms: 'HeroSMS',
+    smsbower: 'SMSBower',
+    status: '状态',
+    ui: '界面',
+  },
+};
+
+const PROVIDER_PROTOCOL_LABELS: Record<LanguageCode, Record<string, string>> = {
+  en: {
+    five_sim: 'FiveSim',
+    '5sim rest': 'FiveSim',
+    fivesim: 'FiveSim',
+    herosms: 'HeroSMS',
+    smsbower: 'SMSBower',
+    handler_api: 'Handler API',
+    mock: 'Mock',
+  },
+  zh: {
+    five_sim: 'FiveSim',
+    '5sim rest': 'FiveSim',
+    fivesim: 'FiveSim',
+    herosms: 'HeroSMS',
+    smsbower: 'SMSBower',
+    handler_api: 'Handler API',
+    mock: '模拟',
+  },
+};
+
+function pickLanguage(language: LanguageCode | undefined) {
+  return language ?? 'en';
+}
 
 export function normalizeTicketStatus(status: string) {
   return status
@@ -56,10 +135,18 @@ export function getTicketPhase(status: string): TicketPhase {
   return 'failed';
 }
 
-export function formatRelativeTime(input: string) {
+export function formatRelativeTime(input: string, language?: LanguageCode) {
   const timestamp = new Date(input).getTime();
   const diff = Math.max(0, Date.now() - timestamp);
   const minutes = Math.floor(diff / 60000);
+  const currentLanguage = pickLanguage(language);
+  if (currentLanguage === 'zh') {
+    if (minutes < 1) return '刚刚';
+    if (minutes === 1) return '1 分钟前';
+    if (minutes < 60) return `${minutes} 分钟前`;
+    const hours = Math.floor(minutes / 60);
+    return `${hours} 小时前`;
+  }
   if (minutes < 1) return 'just now';
   if (minutes === 1) return '1 min ago';
   if (minutes < 60) return `${minutes} min ago`;
@@ -101,9 +188,10 @@ export function countryBadge(country: string) {
   return map[normalized] ?? '🌐';
 }
 
-export function formatServiceLabel(service: string) {
+export function formatServiceLabel(service: string, language?: LanguageCode) {
   const normalized = service.toLowerCase();
-  return SERVICE_LABELS[normalized] ?? titleCaseToken(service);
+  const currentLanguage = pickLanguage(language);
+  return SERVICE_LABELS[currentLanguage][normalized] ?? titleCaseToken(service);
 }
 
 export function serviceBadge(service: string) {
@@ -111,35 +199,22 @@ export function serviceBadge(service: string) {
   return SERVICE_EMOJIS[normalized] ?? '🧩';
 }
 
-export function formatProviderLabel(provider: string) {
+export function formatProviderLabel(provider: string, language?: LanguageCode) {
   const normalized = provider.toLowerCase();
-  const labels: Record<string, string> = {
-    fivesim: 'FiveSim',
-    herosms: 'HeroSMS',
-    smsbower: 'SMSBower',
-    status: 'Status',
-    ui: 'UI',
-  };
-  return labels[normalized] ?? provider;
+  const currentLanguage = pickLanguage(language);
+  return PROVIDER_LABELS[currentLanguage][normalized] ?? provider;
 }
 
-export function formatProviderProtocolLabel(protocol: string) {
+export function formatProviderProtocolLabel(protocol: string, language?: LanguageCode) {
   const normalized = protocol.toLowerCase();
-  const labels: Record<string, string> = {
-    five_sim: 'FiveSim',
-    '5sim rest': 'FiveSim',
-    fivesim: 'FiveSim',
-    herosms: 'HeroSMS',
-    smsbower: 'SMSBower',
-    handler_api: 'Handler API',
-    mock: 'Mock',
-  };
-  return labels[normalized] ?? titleCaseToken(protocol);
+  const currentLanguage = pickLanguage(language);
+  return PROVIDER_PROTOCOL_LABELS[currentLanguage][normalized] ?? titleCaseToken(protocol);
 }
 
-export function formatCountryLabel(country: string) {
+export function formatCountryLabel(country: string, language?: LanguageCode) {
   const normalized = country.toLowerCase();
-  return COUNTRY_LABELS[normalized] ?? titleCaseToken(country);
+  const currentLanguage = pickLanguage(language);
+  return COUNTRY_LABELS[currentLanguage][normalized] ?? titleCaseToken(country);
 }
 
 export function canonicalCountryValue(country: string) {

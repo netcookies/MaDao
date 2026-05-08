@@ -21,6 +21,7 @@ import {
   SearchField,
 } from './app/ui-bridge';
 import { MessagesScreen } from './app/messages/MessagesScreen';
+import { LanguageProvider } from './app/language';
 import { NewActivationModal } from './app/overlays/NewActivationModal';
 import { ManifestModal } from './app/overlays/ManifestModal';
 import { SearchSelectorModal } from './app/overlays/SearchSelectorModal';
@@ -141,6 +142,19 @@ const ANY_PROVIDER_OPTION: OptionItem = {
   label: 'Any provider',
   hint: 'Expand this candidate across all enabled providers',
 };
+
+function tNav(language: LanguageCode, id: ScreenId) {
+  const zh: Record<ScreenId, string> = {
+    overview: '总览',
+    providers: '服务商',
+    routing: '路由',
+    messages: '消息',
+    settings: '设置',
+    logs: '日志',
+  };
+  if (language === 'zh') return zh[id];
+  return NAV_ITEMS.find((item) => item.id === id)?.label ?? id;
+}
 
 const SUCCESS_STATUS_KEYWORDS = [
   'saved',
@@ -355,6 +369,7 @@ export function App() {
       setStatusMessage: pushStatusMessage,
       setBusyAction,
       setShowManifestModal,
+      language,
     },
   );
 
@@ -380,6 +395,7 @@ export function App() {
       setBusyAction,
       setStatusMessage: pushStatusMessage,
       setMessageFilter,
+      language,
     },
     {
       loadSnapshot,
@@ -399,6 +415,7 @@ export function App() {
       activationForm,
       setActivationForm,
       selectedProvider,
+      language,
     },
     {
       selectedOptions,
@@ -432,6 +449,8 @@ export function App() {
     const root = document.documentElement;
     root.dataset.theme = appearanceTheme;
     root.dataset.language = language;
+    window.localStorage.setItem('madao-theme', appearanceTheme);
+    window.localStorage.setItem('madao-language', language);
   }, [appearanceTheme, language]);
 
   useEffect(() => {
@@ -588,7 +607,7 @@ export function App() {
         ? current
         : payload.plans[0]?.id || '');
     } catch (error) {
-      pushStatusMessage(`Failed to load routing plans: ${String(error)}`);
+      pushStatusMessage(t(language, 'failed_load_routing_plans', { error: String(error) }));
     }
   }
 
@@ -617,19 +636,19 @@ export function App() {
 
   async function persistRoutingPlan(plan: RoutingPlan) {
     if (!plan.name.trim()) {
-      pushStatusMessage('Routing plan name is required.');
+      pushStatusMessage(t(language, 'routing_plan_name_required'));
       return;
     }
     if (!plan.service.trim()) {
-      pushStatusMessage('Routing plan service is required.');
+      pushStatusMessage(t(language, 'routing_plan_service_required'));
       return;
     }
     if (plan.items.length === 0) {
-      pushStatusMessage('Routing plan must contain at least one item.');
+      pushStatusMessage(t(language, 'routing_plan_items_required'));
       return;
     }
     if (plan.enabled && !plan.items.some((item) => item.enabled)) {
-      pushStatusMessage('Enabled routing plan must contain at least one enabled item.');
+      pushStatusMessage(t(language, 'routing_plan_enabled_items_required'));
       return;
     }
     try {
@@ -651,9 +670,9 @@ export function App() {
       setRoutingItemEditor(null);
       setRoutingItemPriceOptions([]);
       setRoutingItemPriceLoading(false);
-      pushStatusMessage(`Saved routing plan ${saved.name}.`);
+      pushStatusMessage(t(language, 'saved_routing_plan', { name: saved.name }));
     } catch (error) {
-      pushStatusMessage(`Failed to save routing plan: ${String(error)}`);
+      pushStatusMessage(t(language, 'failed_save_routing_plan', { error: String(error) }));
     } finally {
       setBusyAction('');
     }
@@ -668,9 +687,9 @@ export function App() {
       setSelectedRoutingPlanId(payload.plans[0]?.id ?? '');
       setRoutingView('matrix');
       setRoutingItemEditor(null);
-      pushStatusMessage(`Deleted routing plan ${planId}.`);
+      pushStatusMessage(t(language, 'deleted_routing_plan', { plan: planId }));
     } catch (error) {
-      pushStatusMessage(`Failed to delete routing plan: ${String(error)}`);
+      pushStatusMessage(t(language, 'failed_delete_routing_plan', { error: String(error) }));
     } finally {
       setBusyAction('');
     }
@@ -805,18 +824,18 @@ export function App() {
   function applyRoutingItemEditor() {
     if (!routingItemEditor) return;
     if (!routingItemEditor.providerId.trim()) {
-      pushStatusMessage('Provider is required for each route candidate.');
+      pushStatusMessage(t(language, 'provider_required_each_route_candidate'));
       return;
     }
 
     const minPrice = routingItemEditor.minPrice.trim() === '' ? null : Number(routingItemEditor.minPrice);
     const maxPrice = routingItemEditor.maxPrice.trim() === '' ? null : Number(routingItemEditor.maxPrice);
     if ((minPrice != null && Number.isNaN(minPrice)) || (maxPrice != null && Number.isNaN(maxPrice))) {
-      pushStatusMessage('Price must be a valid number.');
+      pushStatusMessage(t(language, 'price_must_valid'));
       return;
     }
     if (minPrice != null && maxPrice != null && minPrice > maxPrice) {
-      pushStatusMessage('Min price cannot be greater than max price.');
+      pushStatusMessage(t(language, 'min_price_cannot_gt_max'));
       return;
     }
 
@@ -844,22 +863,22 @@ export function App() {
   async function loadRoutingItemPriceOptions() {
     if (!routingItemEditor) return;
     if (routingItemEditor.providerId === ANY_PROVIDER_VALUE) {
-      pushStatusMessage('Choose a specific provider before loading candidate prices.');
+      pushStatusMessage(t(language, 'choose_specific_provider_before_loading_candidate_prices'));
       return;
     }
     const plan = routingPlans.find((item) => selectedRoutingPlanMatcher(item));
     const service = plan?.service || visibleProviders.find((provider) => provider.id === routingItemEditor.providerId)?.defaults.service;
     if (!service) {
-      pushStatusMessage('Select a service for this plan before loading prices.');
+      pushStatusMessage(t(language, 'select_service_before_loading_prices'));
       return;
     }
     try {
       setRoutingItemPriceLoading(true);
       const prices = await fetchProviderPrices(routingItemEditor.providerId, service);
       setRoutingItemPriceOptions(prices.items);
-      pushStatusMessage(`Loaded prices for ${routingItemEditor.providerId}.`);
+      pushStatusMessage(t(language, 'loaded_prices_for_provider', { provider: routingItemEditor.providerId }));
     } catch (error) {
-      pushStatusMessage(`Failed to load prices for ${routingItemEditor.providerId}: ${String(error)}`);
+      pushStatusMessage(t(language, 'failed_load_prices_for_provider', { provider: routingItemEditor.providerId, error: String(error) }));
     } finally {
       setRoutingItemPriceLoading(false);
     }
@@ -890,7 +909,7 @@ export function App() {
     if (field === 'provider') {
       setSelectorState({
         kind: 'routing-item-provider',
-        title: 'Select Candidate Provider',
+        title: language === 'zh' ? '选择候选 Provider' : 'Select Candidate Provider',
         options: [
           ANY_PROVIDER_OPTION,
           ...visibleProviders.map((provider) => ({
@@ -906,7 +925,7 @@ export function App() {
     if (field === 'country') {
       setSelectorState({
         kind: 'routing-item-country',
-        title: 'Select Candidate Country',
+        title: language === 'zh' ? '选择候选国家' : 'Select Candidate Country',
         options: [
           ANY_ROUTE_COUNTRY_OPTION,
           ...filterCatalogItems(optionCatalog.countries, providerId).map((option) => ({
@@ -921,7 +940,7 @@ export function App() {
 
     setSelectorState({
       kind: 'routing-item-operator',
-      title: 'Select Candidate Carrier',
+      title: language === 'zh' ? '选择候选运营商' : 'Select Candidate Carrier',
       options: [
         ANY_ROUTE_OPERATOR_OPTION,
         ...filterCatalogItems(optionCatalog.operators, providerId).map((option) => ({
@@ -937,7 +956,7 @@ export function App() {
     setSelectorSearch('');
     setSelectorState({
       kind: 'routing-service',
-      title: 'Select Routing Service',
+      title: language === 'zh' ? '选择路由服务' : 'Select Routing Service',
       options: optionCatalog.services.map((service) => ({
         value: service.value,
         label: service.label,
@@ -1046,7 +1065,7 @@ export function App() {
     }
     setActivationError(
       visibleProviders.length === 0
-        ? 'No enabled providers available. Save an enabled provider first.'
+        ? t(language, 'no_enabled_providers_available')
         : '',
     );
     setShowActivationModal(true);
@@ -1057,17 +1076,17 @@ export function App() {
     setActivationRoutingPlanPickerOpen(true);
     setSelectorState({
       kind: 'activation-routing-plan',
-      title: 'Select Routing Plan',
+      title: language === 'zh' ? '选择路由方案' : 'Select Routing Plan',
       options: [
         {
           value: '',
-          label: 'No routing plan',
-          hint: 'Use manual provider, service, and country controls',
+          label: language === 'zh' ? '不使用路由方案' : 'No routing plan',
+          hint: language === 'zh' ? '手动选择 Provider、服务和国家' : 'Use manual provider, service, and country controls',
         },
         ...routingPlans.filter((plan) => plan.enabled).map((plan) => ({
           value: plan.id,
           label: plan.name,
-          hint: `${formatServiceLabel(plan.service)} · ${plan.execution_mode === 'random' ? 'Random' : 'Sequential'}`,
+          hint: `${formatServiceLabel(plan.service, language)} · ${plan.execution_mode === 'random' ? (language === 'zh' ? '随机' : 'Random') : (language === 'zh' ? '顺序' : 'Sequential')}`,
         })),
       ],
     });
@@ -1075,7 +1094,7 @@ export function App() {
 
   function handleSubmitActivation() {
     if (visibleProviders.length === 0) {
-      setActivationError('No enabled providers available. Save an enabled provider first.');
+      setActivationError(t(language, 'no_enabled_providers_available'));
       return;
     }
     if (
@@ -1087,7 +1106,7 @@ export function App() {
         ...current,
         provider: '',
       }));
-      setActivationError(`Provider ${activationForm.provider} is no longer enabled. Pick another provider or use a routing plan.`);
+      setActivationError(t(language, 'provider_no_longer_enabled_pick_another', { provider: activationForm.provider }));
       return;
     }
     void submitActivation();
@@ -1101,17 +1120,33 @@ export function App() {
     try {
       await windowAction(action);
     } catch (error) {
-      pushStatusMessage(`Window action failed: ${String(error)}`);
+      pushStatusMessage(t(language, 'window_action_failed', { error: String(error) }));
     }
   }
 
   const selectedRoutingPlan = routingPlans.find((item) => selectedRoutingPlanMatcher(item));
+  const messageFilters = language === 'zh'
+    ? [
+      { id: 'all' as const, label: '全部' },
+      { id: 'received' as const, label: '已收到' },
+      { id: 'waiting' as const, label: '等待中' },
+      { id: 'failed' as const, label: '失败' },
+    ]
+    : MESSAGE_FILTERS;
+  const logFilters = language === 'zh'
+    ? [
+      { id: 'all' as const, label: '全部' },
+      { id: 'info' as const, label: '信息' },
+      { id: 'warn' as const, label: '警告' },
+      { id: 'error' as const, label: '错误' },
+    ]
+    : LOG_FILTERS;
 
   const toolbarTitle = activeScreen === 'providers' && providerView === 'workspace'
-    ? `Providers › ${manifests[selectedProvider]?.name ?? selectedProvider}`
+    ? `${language === 'zh' ? '服务商' : 'Providers'} › ${manifests[selectedProvider]?.name ?? selectedProvider}`
     : activeScreen === 'routing' && routingView === 'detail'
-      ? `Routing Plans › ${selectedRoutingPlan?.name || 'Untitled Plan'}`
-    : NAV_ITEMS.find((item) => item.id === activeScreen)?.label ?? '';
+      ? `${language === 'zh' ? '路由方案' : 'Routing Plans'} › ${selectedRoutingPlan?.name || (language === 'zh' ? '未命名方案' : 'Untitled Plan')}`
+    : tNav(language, activeScreen);
 
   const notificationItems = useMemo(() => (
     notifications
@@ -1121,18 +1156,18 @@ export function App() {
       .map(({ entry, index }) => ({
         id: `${entry.timestamp}-${index}`,
         title: entry.message,
-        meta: `${formatProviderLabel(entry.scope)} · ${index < notificationCursor ? 'read' : formatRelativeTime(entry.timestamp)}`,
+        meta: `${formatProviderLabel(entry.scope, language)} · ${index < notificationCursor ? (language === 'zh' ? '已读' : 'read') : formatRelativeTime(entry.timestamp, language)}`,
         level: entry.level.toLowerCase() === 'error'
           ? 'danger'
           : entry.level.toLowerCase() === 'warn'
             ? 'warning'
             : 'info',
       }))
-  ), [notificationCursor, notifications]);
+  ), [language, notificationCursor, notifications]);
 
   const sidebar = (
     <AppSidebar
-      items={NAV_ITEMS.map(({ id, label, Icon }) => ({ id, label, icon: Icon }))}
+      items={NAV_ITEMS.map(({ id, Icon }) => ({ id, label: tNav(language, id), icon: Icon }))}
       activeId={activeScreen}
       collapsed={sidebarCollapsed}
       onToggleCollapsed={() => setSidebarCollapsed((current) => !current)}
@@ -1175,7 +1210,7 @@ export function App() {
           className="w-full min-[760px]:w-48"
           value={routingSearch}
           onChange={(event) => setRoutingSearch(event.target.value)}
-          placeholder="Search plans..."
+          placeholder={language === 'zh' ? '搜索方案…' : 'Search plans...'}
         />
       ) : activeScreen === 'logs' ? (
         <SearchField
@@ -1183,7 +1218,7 @@ export function App() {
           className="w-full min-[760px]:w-[200px]"
           value={logsSearch}
           onChange={(event) => setLogsSearch(event.target.value)}
-          placeholder="Search logs..."
+          placeholder={language === 'zh' ? '搜索日志…' : 'Search logs...'}
         />
       ) : null}
       <div className="relative">
@@ -1210,7 +1245,7 @@ export function App() {
                   className="font-text text-[13px] font-medium text-ds-accent-focus transition-opacity duration-fast ease-[var(--ds-motion-transition-fast)] hover:opacity-80 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ds-accent-focus"
                   onClick={markNotificationsRead}
                 >
-                  Mark all read
+                  {language === 'zh' ? '全部标为已读' : 'Mark all read'}
                 </button>
               )}
               items={notificationItems}
@@ -1223,7 +1258,7 @@ export function App() {
                     setShowNotifications(false);
                   }}
                 >
-                  View all in Logs →
+                  {language === 'zh' ? '在日志中查看全部 →' : 'View all in Logs →'}
                 </AppButton>
               )}
             />
@@ -1233,7 +1268,7 @@ export function App() {
       {activeScreen === 'routing' && routingView === 'matrix' ? (
         <AppButton variant="primary" size="utility" onClick={createRoutingPlan}>
           <Plus size={14} />
-          <span>New Plan</span>
+          <span>{language === 'zh' ? '新建方案' : 'New Plan'}</span>
         </AppButton>
       ) : activeScreen === 'routing' && routingView === 'detail' ? (
         <AppButton
@@ -1245,7 +1280,7 @@ export function App() {
           }}
           disabled={busyAction === 'save-routing-plan'}
         >
-          {busyAction === 'save-routing-plan' ? 'Saving...' : 'Save Changes'}
+          {busyAction === 'save-routing-plan' ? (language === 'zh' ? '保存中…' : 'Saving...') : (language === 'zh' ? '保存修改' : 'Save Changes')}
         </AppButton>
       ) : activeScreen === 'providers' && providerView === 'workspace' && activeProviderSection === 'config' ? (
         <AppButton
@@ -1254,7 +1289,7 @@ export function App() {
           onClick={() => void saveProvider(selectedProvider)}
           disabled={busyAction.includes('save')}
         >
-          {busyAction.includes('save') ? 'Saving…' : 'Save'}
+          {busyAction.includes('save') ? (language === 'zh' ? '保存中…' : 'Saving…') : (language === 'zh' ? '保存' : 'Save')}
         </AppButton>
       ) : activeScreen === 'providers' && providerView === 'workspace' && activeProviderSection === 'store' ? (
         <AppButton
@@ -1263,7 +1298,7 @@ export function App() {
           onClick={() => void fetchPrices(selectedProvider)}
           disabled={busyAction.includes('prices')}
         >
-          {busyAction.includes('prices') ? 'Loading…' : 'Load Prices'}
+          {busyAction.includes('prices') ? (language === 'zh' ? '加载中…' : 'Loading…') : (language === 'zh' ? '加载价格' : 'Load Prices')}
         </AppButton>
       ) : activeScreen === 'providers' && providerView === 'list' ? (
         <AppButton
@@ -1272,11 +1307,11 @@ export function App() {
           onClick={() => void reloadProviders()}
           disabled={busyAction === 'reload'}
         >
-          {busyAction === 'reload' ? 'Reloading…' : 'Reload Providers'}
+          {busyAction === 'reload' ? (language === 'zh' ? '重载中…' : 'Reloading…') : (language === 'zh' ? '重载 Providers' : 'Reload Providers')}
         </AppButton>
       ) : activeScreen === 'settings' ? (
         <AppButton variant="primary" size="utility" onClick={() => void openAppConfigDirectory()}>
-          Open Folder
+          {language === 'zh' ? '打开目录' : 'Open Folder'}
         </AppButton>
       ) : activeScreen === 'logs' ? (
         <AppButton
@@ -1284,18 +1319,19 @@ export function App() {
           size="utility"
           onClick={() => void loadSnapshot()}
         >
-          Refresh
+          {language === 'zh' ? '刷新' : 'Refresh'}
         </AppButton>
       ) : activeScreen === 'providers' && providerView === 'workspace' ? null : (
         <AppButton variant="primary" size="utility" onClick={openActivationModal}>
           <Plus size={14} />
-          <span>New Activation</span>
+          <span>{language === 'zh' ? '新建激活' : 'New Activation'}</span>
         </AppButton>
       )}
     </>
   );
 
   return (
+    <LanguageProvider language={language}>
     <>
       <AppShell
         sidebar={sidebar}
@@ -1418,14 +1454,14 @@ export function App() {
             )}
 
             {activeScreen === 'messages' && (
-              <MessagesScreen
-                tickets={filteredMessages}
-                filter={messageFilter}
-                setFilter={setMessageFilter}
-                filters={MESSAGE_FILTERS}
-                busyAction={busyAction}
-                onCopy={copyToClipboard}
-                onRelease={(ticket, action) => void releaseTicket(ticket, action)}
+                <MessagesScreen
+                  tickets={filteredMessages}
+                  filter={messageFilter}
+                  setFilter={setMessageFilter}
+                  filters={messageFilters}
+                  busyAction={busyAction}
+                  onCopy={copyToClipboard}
+                  onRelease={(ticket, action) => void releaseTicket(ticket, action)}
                 onBuyAnother={(ticket) => {
                   primeActivationFromTicket(ticket);
                 }}
@@ -1472,7 +1508,7 @@ export function App() {
                   logs={filteredLogs}
                   filter={logsFilter}
                   setFilter={setLogsFilter}
-                  filters={LOG_FILTERS}
+                  filters={logFilters}
                   search={logsSearch}
                   onSearch={setLogsSearch}
                 />
@@ -1552,5 +1588,6 @@ export function App() {
       />
 
     </>
+    </LanguageProvider>
   );
 }

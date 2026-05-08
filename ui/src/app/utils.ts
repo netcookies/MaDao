@@ -1,4 +1,4 @@
-import type { OptionCatalog, OptionCatalogItem, OptionItem, ProviderDynamicOptions } from './types';
+import type { LanguageCode, OptionCatalog, OptionCatalogItem, OptionItem, ProviderDynamicOptions } from './types';
 import { canonicalCountryValue, formatCountryLabel, formatServiceLabel } from '../lib/formatters';
 
 export function mergeOptionItems(optionGroups: OptionItem[][]) {
@@ -62,10 +62,10 @@ export function normalizeOperatorOptions(options: OptionItem[]) {
   return [...merged.values()];
 }
 
-export function formatOperatorLabel(operator: string) {
+export function formatOperatorLabel(operator: string, language: LanguageCode = 'en') {
   const normalized = operator.trim().toLowerCase();
   if (!normalized) return '';
-  if (normalized === 'any') return 'Any operator';
+  if (normalized === 'any') return language === 'zh' ? '任意运营商' : 'Any operator';
   if (normalized === 'o2') return 'O2';
   return normalized
     .split(/\s+/)

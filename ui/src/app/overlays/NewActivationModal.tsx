@@ -3,6 +3,7 @@ import { AppButton, ModalField, SelectTrigger } from '../ui-bridge';
 import { ANY_PROVIDER_VALUE, type ActivationFormState, type ProviderManifest, type RoutingPlan, type SelectorKind } from '../types';
 import { countryBadge, formatCountryLabel, formatServiceLabel, serviceBadge } from '../../lib/formatters';
 import { formatOperatorLabel } from '../utils';
+import { useLanguage } from '../language';
 
 export type NewActivationModalProps = {
   providers: ProviderManifest[];
@@ -20,10 +21,11 @@ export type NewActivationModalProps = {
 };
 
 export function NewActivationModal(props: NewActivationModalProps) {
+  const language = useLanguage();
   const usesRoutingPlan = Boolean(props.form.routing_plan_id);
   const routingPlanLabel = props.routingPlans.find((plan) => plan.id === props.form.routing_plan_id)?.name ?? '';
   const providerLabel = props.form.provider === ANY_PROVIDER_VALUE
-    ? 'Any provider'
+    ? (language === 'zh' ? '任意 Provider' : 'Any provider')
     : props.providers.find((provider) => provider.id === props.form.provider)?.name ?? props.form.provider;
 
   const card = (
@@ -34,24 +36,24 @@ export function NewActivationModal(props: NewActivationModalProps) {
       onClick={(event) => event.stopPropagation()}
     >
       <div className="flex items-center justify-between gap-5">
-        <h2 className="m-0 font-text text-[18px] font-semibold leading-[1.2]">New Activation</h2>
+        <h2 className="m-0 font-text text-[18px] font-semibold leading-[1.2]">{language === 'zh' ? '新建激活' : 'New Activation'}</h2>
         <button
           type="button"
           className="inline-flex h-5 w-5 items-center justify-center rounded-pill bg-transparent text-ds-text-secondary"
           onClick={props.onClose}
-          aria-label="Close"
+          aria-label={language === 'zh' ? '关闭' : 'Close'}
         >
           <X size={20} style={{ opacity: 0.4 }} />
         </button>
       </div>
       <div className="h-px w-full bg-ds-border" />
       <div className="flex flex-col gap-[14px] overflow-y-auto">
-        <ModalField label="ROUTING PLAN">
+        <ModalField label={language === 'zh' ? '路由方案' : 'ROUTING PLAN'}>
           <div className="flex items-center gap-2">
             <SelectTrigger
               compact
               value={routingPlanLabel}
-              placeholder="select a routing plan"
+              placeholder={language === 'zh' ? '选择一个路由方案' : 'select a routing plan'}
               onClick={props.onOpenRoutingPlanSelector}
               className="flex-1"
             />
@@ -62,56 +64,56 @@ export function NewActivationModal(props: NewActivationModalProps) {
                 className="shrink-0"
                 onClick={() => props.onChange('routing_plan_id', '')}
               >
-                Clear
+                {language === 'zh' ? '清除' : 'Clear'}
               </AppButton>
             )}
           </div>
         </ModalField>
-        <ModalField label="PROVIDER">
+        <ModalField label={language === 'zh' ? '服务商' : 'PROVIDER'}>
           <SelectTrigger
             compact
             value={providerLabel}
-            placeholder={usesRoutingPlan ? 'controlled by routing plan' : 'select provider'}
+            placeholder={usesRoutingPlan ? (language === 'zh' ? '由路由方案控制' : 'controlled by routing plan') : (language === 'zh' ? '选择 Provider' : 'select provider')}
             onClick={() => props.onOpenSelector('activation-provider')}
             disabled={usesRoutingPlan}
           />
         </ModalField>
-        <ModalField label="SERVICE">
+        <ModalField label={language === 'zh' ? '服务' : 'SERVICE'}>
           <SelectTrigger
             compact
-            value={props.form.service ? `${serviceBadge(props.form.service)} ${formatServiceLabel(props.form.service)}` : ''}
-            placeholder={usesRoutingPlan ? 'controlled by routing plan' : 'e.g. telegram, openai, whatsapp'}
+            value={props.form.service ? `${serviceBadge(props.form.service)} ${formatServiceLabel(props.form.service, language)}` : ''}
+            placeholder={usesRoutingPlan ? (language === 'zh' ? '由路由方案控制' : 'controlled by routing plan') : (language === 'zh' ? '例如 telegram、openai、whatsapp' : 'e.g. telegram, openai, whatsapp')}
             onClick={() => props.onOpenSelector('activation-service')}
             disabled={usesRoutingPlan}
           />
         </ModalField>
-        <ModalField label="COUNTRY">
+        <ModalField label={language === 'zh' ? '国家' : 'COUNTRY'}>
           <SelectTrigger
             compact
-            value={props.form.country ? `${countryBadge(props.form.country)} ${formatCountryLabel(props.form.country)}` : ''}
-            placeholder={usesRoutingPlan ? 'controlled by routing plan' : 'any — auto select'}
+            value={props.form.country ? `${countryBadge(props.form.country)} ${formatCountryLabel(props.form.country, language)}` : ''}
+            placeholder={usesRoutingPlan ? (language === 'zh' ? '由路由方案控制' : 'controlled by routing plan') : (language === 'zh' ? '任意 — 自动选择' : 'any — auto select')}
             onClick={() => props.onOpenSelector('activation-country')}
             disabled={usesRoutingPlan}
           />
         </ModalField>
-        <ModalField label="OPERATOR" hint={usesRoutingPlan ? 'Controlled by routing plan items' : props.operatorHint ?? (providerLabel ? `${providerLabel} scope` : undefined)}>
+        <ModalField label={language === 'zh' ? '运营商' : 'OPERATOR'} hint={usesRoutingPlan ? (language === 'zh' ? '由路由项控制' : 'Controlled by routing plan items') : props.operatorHint ?? (providerLabel ? `${providerLabel} scope` : undefined)}>
           <SelectTrigger
             compact
-            value={props.form.operator ? formatOperatorLabel(props.form.operator) : ''}
-            placeholder={usesRoutingPlan ? 'controlled by routing plan' : 'any'}
+            value={props.form.operator ? formatOperatorLabel(props.form.operator, language) : ''}
+            placeholder={usesRoutingPlan ? (language === 'zh' ? '由路由方案控制' : 'controlled by routing plan') : (language === 'zh' ? '任意' : 'any')}
             onClick={() => props.onOpenSelector('activation-operator')}
             className="is-disabled-look"
             disabled={usesRoutingPlan}
           />
         </ModalField>
-        <ModalField label="PRICE RANGE">
+        <ModalField label={language === 'zh' ? '价格区间' : 'PRICE RANGE'}>
           <div className="grid grid-cols-[1fr_16px_1fr] items-center gap-2">
             <div className="inline-flex min-h-control-compact items-center rounded-[10px] border border-ds-border bg-ds-surface px-3 py-2 text-utility tracking-[var(--ds-type-utility-tracking)] text-ds-text-secondary shadow-[inset_0_0_0_1px_var(--ds-color-border-default)]">
-              {usesRoutingPlan ? 'Plan controlled' : props.form.min_price || 'Min $'}
+              {usesRoutingPlan ? (language === 'zh' ? '由方案控制' : 'Plan controlled') : props.form.min_price || (language === 'zh' ? '最低价 $' : 'Min $')}
             </div>
             <span className="text-center opacity-40">–</span>
             <div className="inline-flex min-h-control-compact items-center rounded-[10px] border border-ds-border bg-ds-surface px-3 py-2 text-utility tracking-[var(--ds-type-utility-tracking)] text-ds-text-secondary shadow-[inset_0_0_0_1px_var(--ds-color-border-default)]">
-              {usesRoutingPlan ? 'Plan controlled' : props.form.max_price || 'Max $'}
+              {usesRoutingPlan ? (language === 'zh' ? '由方案控制' : 'Plan controlled') : props.form.max_price || (language === 'zh' ? '最高价 $' : 'Max $')}
             </div>
           </div>
         </ModalField>
@@ -122,9 +124,9 @@ export function NewActivationModal(props: NewActivationModalProps) {
         </div>
       )}
       <div className="flex w-full items-center justify-between gap-3 pt-1">
-        <AppButton variant="text" size="utility" className="min-h-0 px-0 py-0 text-[13px] opacity-60" onClick={props.onClose} disabled={props.busy}>Cancel</AppButton>
+        <AppButton variant="text" size="utility" className="min-h-0 px-0 py-0 text-[13px] opacity-60" onClick={props.onClose} disabled={props.busy}>{language === 'zh' ? '取消' : 'Cancel'}</AppButton>
         <AppButton variant="primary" size="utility" className="min-h-[32px] rounded-pill px-4 py-2 text-[13px]" onClick={props.onSubmit} disabled={props.busy}>
-          {props.busy ? 'Starting…' : 'Start Activation'}
+          {props.busy ? (language === 'zh' ? '启动中…' : 'Starting…') : (language === 'zh' ? '开始激活' : 'Start Activation')}
         </AppButton>
       </div>
     </div>

@@ -1,11 +1,13 @@
 import {
   ANY_PROVIDER_VALUE,
   type ActivationFormState,
+  type LanguageCode,
   type MessageFilter,
   type TicketRecord,
   type SelectorKind,
 } from '../app/types';
 import { acquireActivation, failoverRoutingTicket, pollActivationTicket, releaseActivationTicket } from '../services/runtimeApi';
+import { t } from '../app/i18n';
 
 type ActivationUiState = {
   activationForm: ActivationFormState;
@@ -20,6 +22,7 @@ type ActivationUiState = {
   setBusyAction: (value: string) => void;
   setStatusMessage: (value: string) => void;
   setMessageFilter: (value: MessageFilter) => void;
+  language: LanguageCode;
 };
 
 type ActivationRuntimeActions = {
@@ -34,10 +37,10 @@ export function useActivationFlow(
     try {
       ui.setBusyAction(`poll-${ticketId}`);
       await pollActivationTicket(ticketId);
-      ui.setStatusMessage(`Ticket ${ticketId} refreshed.`);
+      ui.setStatusMessage(t(ui.language, 'ticket_refreshed', { ticket: ticketId }));
       await runtime.loadSnapshot();
     } catch (error) {
-      ui.setStatusMessage(`Failed to refresh ticket: ${String(error)}`);
+      ui.setStatusMessage(t(ui.language, 'failed_refresh_ticket', { error: String(error) }));
     } finally {
       ui.setBusyAction('');
     }
@@ -49,17 +52,21 @@ export function useActivationFlow(
       if (action === 'retry' && ticket.routing_plan_id) {
         const nextTicket = await failoverRoutingTicket(ticket.id, ticket.routing_item_id ?? undefined, 'ui retry requested');
         ui.setMessageFilter('all');
-        ui.setStatusMessage(`Ticket ${ticket.id} moved to ${nextTicket.provider} candidate #${(nextTicket.routing_item_index ?? 0) + 1}.`);
+        ui.setStatusMessage(t(ui.language, 'ticket_moved_to_candidate', {
+          ticket: ticket.id,
+          provider: nextTicket.provider,
+          index: (nextTicket.routing_item_index ?? 0) + 1,
+        }));
       } else {
         await releaseActivationTicket(ticket.id, action);
-        ui.setStatusMessage(`Ticket ${ticket.id} ${action} complete.`);
+        ui.setStatusMessage(t(ui.language, 'ticket_action_complete', { ticket: ticket.id, action }));
       }
       await runtime.loadSnapshot();
     } catch (error) {
       ui.setStatusMessage(
         action === 'retry'
-          ? `Failed to move ticket ${ticket.id} to the next route: ${String(error)}`
-          : `Failed to update ticket: ${String(error)}`,
+          ? t(ui.language, 'failed_move_ticket_to_next_route', { ticket: ticket.id, error: String(error) })
+          : t(ui.language, 'failed_update_ticket', { error: String(error) }),
       );
       await Promise.allSettled([runtime.loadSnapshot()]);
     } finally {
@@ -70,9 +77,9 @@ export function useActivationFlow(
   async function copyToClipboard(value: string, label: string) {
     try {
       await navigator.clipboard.writeText(value);
-      ui.setStatusMessage(`${label} copied.`);
+      ui.setStatusMessage(t(ui.language, 'copied', { label }));
     } catch (error) {
-      ui.setStatusMessage(`Copy failed: ${String(error)}`);
+      ui.setStatusMessage(t(ui.language, 'copy_failed', { error: String(error) }));
     }
   }
 
@@ -87,7 +94,7 @@ export function useActivationFlow(
         });
       } else {
         if (!ui.activationForm.provider) {
-          throw new Error('Provider is required when no routing plan is selected.');
+          throw new Error(t(ui.language, 'provider_required_when_no_routing_plan'));
         }
         const body: Record<string, unknown> = {
           provider: ui.activationForm.provider === ANY_PROVIDER_VALUE ? 'auto' : ui.activationForm.provider,
@@ -100,7 +107,7 @@ export function useActivationFlow(
         await acquireActivation(body);
       }
       ui.setShowActivationModal(false);
-      ui.setStatusMessage('Activation created, waiting for SMS code.');
+      ui.setStatusMessage(t(ui.language, 'activation_created_waiting_sms'));
       await runtime.loadSnapshot();
     } catch (error) {
       ui.setActivationError(String(error));

@@ -9,6 +9,7 @@ import {
   getHeroCancelRemainingMs,
   getTicketPhase,
 } from '../../lib/formatters';
+import { useLanguage } from '../language';
 
 export type MessagesScreenProps = {
   tickets: TicketRecord[];
@@ -29,6 +30,7 @@ function serviceIcon(service: string) {
 }
 
 export function MessagesScreen(props: MessagesScreenProps) {
+  const language = useLanguage();
   const [now, setNow] = useState(() => Date.now());
   const visibleTickets = [...props.tickets]
     .sort((left, right) => {
@@ -54,7 +56,7 @@ export function MessagesScreen(props: MessagesScreenProps) {
   return (
     <div className="flex flex-col gap-6">
       <PageHeader
-        title="Activations"
+        title={language === 'zh' ? '激活记录' : 'Activations'}
         align="center"
         actions={<SegmentedControl items={props.filters} value={props.filter} onChange={props.setFilter} appearance="rail" className="min-h-0" />}
       />
@@ -77,7 +79,7 @@ export function MessagesScreen(props: MessagesScreenProps) {
                 <div className="flex items-center gap-3">
                   {serviceIcon(ticket.service)}
                   <strong className="text-body-strong tracking-[var(--ds-type-body-strong-tracking)] text-ds-text-primary">
-                    {formatServiceLabel(ticket.service)}
+                    {formatServiceLabel(ticket.service, language)}
                   </strong>
                 </div>
                 <div className="flex flex-wrap items-center justify-start gap-3 min-[760px]:justify-end">
@@ -96,7 +98,7 @@ export function MessagesScreen(props: MessagesScreenProps) {
                     </span>
                   )}
                   {!isReceived && !isWaiting && (
-                    <span className="text-[15px] font-semibold tracking-[0] text-ds-state-danger">Refunded</span>
+                    <span className="text-[15px] font-semibold tracking-[0] text-ds-state-danger">{language === 'zh' ? '已退款' : 'Refunded'}</span>
                   )}
                 </div>
               </div>
@@ -109,39 +111,39 @@ export function MessagesScreen(props: MessagesScreenProps) {
                       <Copy size={20} className="text-ds-accent-blue" />
                     </button>
                   </div>
-                  <span className="text-[14px] font-medium tracking-[0] text-ds-state-success">SMS received successfully</span>
+                  <span className="text-[14px] font-medium tracking-[0] text-ds-state-success">{language === 'zh' ? '短信已成功收到' : 'SMS received successfully'}</span>
                 </div>
               )}
               {isWaiting && (
                 <div className="flex w-full flex-col items-center justify-center gap-3 rounded-[12px] border-2 border-dashed border-ds-state-warning bg-ds-state-warning/10 px-5 py-8">
                   <Loader2 size={32} className="animate-[d-spin_0.9s_linear_infinite] text-ds-state-warning" />
-                  <span className="text-[15px] font-semibold tracking-[0] text-ds-state-warning">Waiting for SMS...</span>
+                  <span className="text-[15px] font-semibold tracking-[0] text-ds-state-warning">{language === 'zh' ? '等待短信中…' : 'Waiting for SMS...'}</span>
                   <span className="text-center text-[13px] tracking-[0.08em] text-ds-text-secondary">
                     {ticket.message ?? 'Check provider dashboard'}
                   </span>
                   {heroCancelLocked && (
                     <span className="text-center text-[12px] font-medium tracking-[0.04em] text-ds-state-warning">
-                      HeroSMS cancel unlocks in {formatDurationMmSs(heroCancelRemainingMs)}
+                      {language === 'zh' ? 'HeroSMS 取消倒计时：' : 'HeroSMS cancel unlocks in '}{formatDurationMmSs(heroCancelRemainingMs)}
                     </span>
                   )}
                 </div>
               )}
               {!isReceived && !isWaiting && (
                 <div className="flex w-full flex-col gap-2 rounded-[12px] bg-ds-surface-subtle px-6 py-4 opacity-80">
-                  <strong className="text-[15px] font-semibold tracking-[0] text-ds-text-primary">Activation canceled or expired</strong>
+                  <strong className="text-[15px] font-semibold tracking-[0] text-ds-text-primary">{language === 'zh' ? '激活已取消或已过期' : 'Activation canceled or expired'}</strong>
                   <p className="m-0 text-[14px] text-ds-text-secondary">
-                    {ticket.message ?? 'You were not charged for this request.'}
+                    {ticket.message ?? (language === 'zh' ? '本次请求未扣费。' : 'You were not charged for this request.')}
                   </p>
                 </div>
               )}
 
               <div className="flex flex-col gap-3 pt-1 min-[760px]:flex-row min-[760px]:items-center min-[760px]:justify-between">
                 <div className="flex flex-col gap-1">
-                  <span className="text-[13px] leading-[1.43] text-ds-text-secondary">Provider: {formatProviderLabel(ticket.provider)}</span>
+                  <span className="text-[13px] leading-[1.43] text-ds-text-secondary">{language === 'zh' ? 'Provider：' : 'Provider: '}{formatProviderLabel(ticket.provider, language)}</span>
                   {usesRoutingPlan && (
                     <span className="text-[12px] leading-[1.4] text-ds-text-secondary">
-                      Routing: {ticket.routing_plan_name ?? ticket.routing_plan_id}
-                      {ticket.routing_item_index != null ? ` · Item ${ticket.routing_item_index + 1}` : ''}
+                      {language === 'zh' ? '路由：' : 'Routing: '}{ticket.routing_plan_name ?? ticket.routing_plan_id}
+                      {ticket.routing_item_index != null ? (language === 'zh' ? ` · 项 ${ticket.routing_item_index + 1}` : ` · Item ${ticket.routing_item_index + 1}`) : ''}
                     </span>
                   )}
                 </div>
@@ -153,7 +155,7 @@ export function MessagesScreen(props: MessagesScreenProps) {
                       onClick={() => props.onRelease(ticket, 'finish')}
                       disabled={props.busyAction === `finish-${ticket.id}`}
                     >
-                      Finish Activation
+                      {language === 'zh' ? '完成激活' : 'Finish Activation'}
                     </AppButton>
                   )}
                   {isWaiting && (
@@ -165,17 +167,19 @@ export function MessagesScreen(props: MessagesScreenProps) {
                         disabled={props.busyAction === `cancel-${ticket.id}` || heroCancelLocked}
                       >
                         {heroCancelLocked
-                          ? `Cancel in ${formatDurationMmSs(heroCancelRemainingMs)}`
-                          : 'Cancel & Refund'}
+                          ? (language === 'zh' ? `${formatDurationMmSs(heroCancelRemainingMs)} 后可取消` : `Cancel in ${formatDurationMmSs(heroCancelRemainingMs)}`)
+                          : (language === 'zh' ? '取消并退款' : 'Cancel & Refund')}
                       </AppButton>
                       <AppButton variant="success" size="utility" onClick={() => props.onBuyAnother(ticket)}>
-                        Buy Another
+                        {language === 'zh' ? '再买一个' : 'Buy Another'}
                       </AppButton>
                     </>
                   )}
                   {!isReceived && !isWaiting && (
                     <AppButton variant="outline" size="utility" onClick={() => props.onRelease(ticket, 'retry')} disabled={props.busyAction === `retry-${ticket.id}`}>
-                      {usesRoutingPlan ? 'Try Next Route' : 'Try Again'}
+                      {usesRoutingPlan
+                        ? (language === 'zh' ? '尝试下一条路由' : 'Try Next Route')
+                        : (language === 'zh' ? '重试' : 'Try Again')}
                     </AppButton>
                   )}
                 </div>
@@ -184,7 +188,7 @@ export function MessagesScreen(props: MessagesScreenProps) {
           );
         }) : (
           <div className="rounded-lg border border-ds-border bg-ds-surface px-5 py-7 text-center text-utility tracking-[var(--ds-type-utility-tracking)] text-ds-text-secondary shadow-ds backdrop-blur-ds">
-            No activations.
+            {language === 'zh' ? '暂无激活记录。' : 'No activations.'}
           </div>
         )}
       </div>

@@ -11,6 +11,12 @@ import type {
 } from '../app/types';
 
 export function useConsoleUiState() {
+  const preferredLanguage = typeof window !== 'undefined'
+    ? (window.localStorage.getItem('madao-language') as LanguageCode | null)
+    : null;
+  const preferredTheme = typeof window !== 'undefined'
+    ? (window.localStorage.getItem('madao-theme') as AppearanceTheme | null)
+    : null;
   const [selectedProvider, setSelectedProvider] = useState<string>('');
   const [statusMessage, setStatusMessage] = useState<string>('');
   const [busyAction, setBusyAction] = useState<string>('');
@@ -41,8 +47,8 @@ export function useConsoleUiState() {
   const [activationError, setActivationError] = useState('');
   const [showNotifications, setShowNotifications] = useState(false);
   const [notificationCursor, setNotificationCursor] = useState(0);
-  const [appearanceTheme, setAppearanceTheme] = useState<AppearanceTheme>('light');
-  const [language, setLanguage] = useState<LanguageCode>('en');
+  const [appearanceTheme, setAppearanceTheme] = useState<AppearanceTheme>(preferredTheme ?? 'light');
+  const [language, setLanguage] = useState<LanguageCode>(preferredLanguage ?? 'en');
 
   return {
     selectedProvider,

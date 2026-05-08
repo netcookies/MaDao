@@ -2,6 +2,7 @@ import { ChevronRight, Server } from 'lucide-react';
 import { PageHeader, StatusBadge } from '../ui-bridge';
 import type { ProviderManifest, ProviderSummary } from '../types';
 import { formatProviderLabel, formatProviderProtocolLabel } from '../../lib/formatters';
+import { useLanguage } from '../language';
 
 export type ProvidersListScreenProps = {
   providers: ProviderManifest[];
@@ -14,11 +15,12 @@ export type ProvidersListScreenProps = {
 };
 
 export function ProvidersListScreen(props: ProvidersListScreenProps) {
+  const language = useLanguage();
   return (
     <div className="flex flex-col gap-8">
       <PageHeader
-        title="Providers"
-        subtitle="Configure provider credentials and health. Routing priority is managed in the Routing workspace."
+        title={language === 'zh' ? '服务商' : 'Providers'}
+        subtitle={language === 'zh' ? '在这里配置 Provider 凭证与健康状态。路由优先级由 Routing 工作区管理。' : 'Configure provider credentials and health. Routing priority is managed in the Routing workspace.'}
       />
 
       <div className="grid grid-cols-1 gap-4 min-[760px]:grid-cols-2">
@@ -41,17 +43,17 @@ export function ProvidersListScreen(props: ProvidersListScreenProps) {
                 <div className="flex items-center gap-2">
                   <Server size={16} className="text-ds-accent-blue" />
                   <span className="text-[14px] font-semibold text-ds-text-primary">
-                    {formatProviderLabel(provider.name)}
+                    {formatProviderLabel(provider.name, language)}
                   </span>
                 </div>
                 <StatusBadge tone={provider.enabled ? 'green' : 'gray'}>
-                  {provider.enabled ? 'Connected' : 'Standby'}
+                  {provider.enabled ? (language === 'zh' ? '已连接' : 'Connected') : (language === 'zh' ? '待命' : 'Standby')}
                 </StatusBadge>
               </div>
 
               <div>
                 <StatusBadge tone="blue">
-                  {formatProviderProtocolLabel(protocolTag)}
+                  {formatProviderProtocolLabel(protocolTag, language)}
                 </StatusBadge>
               </div>
 
@@ -68,7 +70,7 @@ export function ProvidersListScreen(props: ProvidersListScreenProps) {
                   {balanceLabel}
                 </span>
                 <div className="flex items-center gap-1 text-ds-accent-blue">
-                  <span className="text-[12px] font-medium">Configure</span>
+                  <span className="text-[12px] font-medium">{language === 'zh' ? '配置' : 'Configure'}</span>
                   <ChevronRight size={12} />
                 </div>
               </div>

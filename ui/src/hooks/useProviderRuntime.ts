@@ -1,6 +1,7 @@
 import { startTransition, useMemo } from 'react';
 import type {
   ActivationFormState,
+  LanguageCode,
   PriceSortKey,
   ProviderDynamicOptions,
   ProviderManifest,
@@ -29,6 +30,7 @@ import {
   saveRuntimeSettings as persistRuntimeSettings,
 } from '../services/runtimeApi';
 import { refreshMenuBar } from '../services/menuBarApi';
+import { t } from '../app/i18n';
 import {
   mergeOptionItems,
   normalizeCountryOptions,
@@ -78,6 +80,7 @@ type UiState = {
   setStatusMessage: (value: string) => void;
   setBusyAction: (value: string) => void;
   setShowManifestModal: (value: boolean) => void;
+  language: LanguageCode;
 };
 
 export function useProviderRuntime(
@@ -146,7 +149,7 @@ export function useProviderRuntime(
       const runtime = await fetchRuntimeSnapshot();
       startTransition(() => data.setSnapshot(runtime));
     } catch {
-      ui.setStatusMessage('Cannot connect to runtime snapshot.');
+      ui.setStatusMessage(t(ui.language, 'cannot_connect_runtime_snapshot'));
     }
   }
 
@@ -256,7 +259,7 @@ export function useProviderRuntime(
       }
       void refreshMenuBar().catch(() => {});
     } catch {
-      ui.setStatusMessage('Failed to load provider manifests.');
+      ui.setStatusMessage(t(ui.language, 'failed_load_provider_manifests'));
     }
   }
 
@@ -282,7 +285,7 @@ export function useProviderRuntime(
         delete next[providerId];
         return next;
       });
-      ui.setStatusMessage(`Failed to load options for ${providerId}.`);
+      ui.setStatusMessage(t(ui.language, 'failed_load_options_for_provider', { provider: providerId }));
     }
   }
 
@@ -293,7 +296,7 @@ export function useProviderRuntime(
       const cacheOverview = await fetchOptionCacheOverview();
       data.setOptionCacheOverview(cacheOverview);
     } catch {
-      ui.setStatusMessage('Failed to load runtime settings.');
+      ui.setStatusMessage(t(ui.language, 'failed_load_runtime_settings'));
     }
   }
 
@@ -341,7 +344,7 @@ export function useProviderRuntime(
         };
       });
       if (result.cache_refresh_error) {
-        ui.setStatusMessage(`${successMessage} Cache refresh failed: ${result.cache_refresh_error}`);
+        ui.setStatusMessage(t(ui.language, 'cache_refresh_failed', { message: successMessage, error: result.cache_refresh_error }));
       } else {
         ui.setStatusMessage(successMessage);
       }
@@ -356,10 +359,10 @@ export function useProviderRuntime(
   async function saveProvider(providerId: string) {
     try {
       const manifest = JSON.parse(data.rawEditors[providerId] ?? '{}') as ProviderManifest;
-      await persistProvider(providerId, manifest, `Saved ${providerId}, hot-reloaded, and refreshed provider cache.`);
+      await persistProvider(providerId, manifest, t(ui.language, 'saved_provider_reloaded_refreshed', { provider: providerId }));
       ui.setShowManifestModal(false);
     } catch (error) {
-      ui.setStatusMessage(`Save failed: ${String(error)}`);
+      ui.setStatusMessage(t(ui.language, 'save_failed', { error: String(error) }));
     }
   }
 
@@ -393,8 +396,8 @@ export function useProviderRuntime(
         providerId,
         nextManifest,
         enabled
-          ? `Enabled ${providerId}, hot-reloaded, and refreshed provider cache.`
-          : `Disabled ${providerId}.`,
+          ? t(ui.language, 'saved_provider_reloaded_refreshed', { provider: providerId })
+          : (ui.language === 'zh' ? `已禁用 ${providerId}。` : `Disabled ${providerId}.`),
       );
     } catch (error) {
       data.setManifests((current) => ({
@@ -405,7 +408,7 @@ export function useProviderRuntime(
         ...current,
         [providerId]: previousRaw,
       }));
-      ui.setStatusMessage(`Failed to update ${providerId}: ${String(error)}`);
+      ui.setStatusMessage(t(ui.language, 'failed_update_provider', { provider: providerId, error: String(error) }));
     }
   }
 
@@ -413,10 +416,10 @@ export function useProviderRuntime(
     try {
       ui.setBusyAction('reload');
       await reloadProviderRegistry();
-      ui.setStatusMessage('Providers reloaded.');
+      ui.setStatusMessage(t(ui.language, 'providers_reloaded'));
       await Promise.all([loadManifests(), loadSnapshot()]);
     } catch (error) {
-      ui.setStatusMessage(`Reload failed: ${String(error)}`);
+      ui.setStatusMessage(t(ui.language, 'reload_failed', { error: String(error) }));
     } finally {
       ui.setBusyAction('');
     }
@@ -428,9 +431,9 @@ export function useProviderRuntime(
       const dataNext = await persistRuntimeSettings(next);
       data.setRuntimeSettings(dataNext);
       data.setOptionCacheOverview(await fetchOptionCacheOverview());
-      ui.setStatusMessage('Runtime settings saved.');
+      ui.setStatusMessage(t(ui.language, 'runtime_settings_saved'));
     } catch (error) {
-      ui.setStatusMessage(`Failed to save runtime settings: ${String(error)}`);
+      ui.setStatusMessage(t(ui.language, 'failed_save_runtime_settings', { error: String(error) }));
     } finally {
       ui.setBusyAction('');
     }
@@ -444,9 +447,9 @@ export function useProviderRuntime(
         ...current,
         [providerId]: `${payload.amount.toFixed(2)} ${payload.currency}`,
       }));
-      ui.setStatusMessage(`Balance fetched for ${providerId}.`);
+      ui.setStatusMessage(t(ui.language, 'balance_fetched_for_provider', { provider: providerId }));
     } catch (error) {
-      ui.setStatusMessage(`Failed to fetch balance: ${String(error)}`);
+      ui.setStatusMessage(t(ui.language, 'failed_fetch_balance', { error: String(error) }));
     } finally {
       ui.setBusyAction('');
     }
@@ -457,9 +460,9 @@ export function useProviderRuntime(
       ui.setBusyAction(`refresh-${providerId}`);
       await Promise.all([loadProviderOptions(providerId), fetchBalance(providerId)]);
       await Promise.all([loadManifests(), loadSnapshot()]);
-      ui.setStatusMessage(`Refreshed cache and balance for ${providerId}.`);
+      ui.setStatusMessage(t(ui.language, 'refreshed_cache_and_balance_for_provider', { provider: providerId }));
     } catch (error) {
-      ui.setStatusMessage(`Failed to refresh ${providerId}: ${String(error)}`);
+      ui.setStatusMessage(t(ui.language, 'failed_refresh_provider', { provider: providerId, error: String(error) }));
     } finally {
       ui.setBusyAction('');
     }
@@ -476,9 +479,9 @@ export function useProviderRuntime(
         ...current,
         [providerId]: payload,
       }));
-      ui.setStatusMessage(`Prices loaded for ${providerId}.`);
+      ui.setStatusMessage(t(ui.language, 'prices_loaded_for_provider', { provider: providerId }));
     } catch (error) {
-      ui.setStatusMessage(`Failed to fetch prices: ${String(error)}`);
+      ui.setStatusMessage(t(ui.language, 'failed_fetch_prices', { error: String(error) }));
     } finally {
       ui.setBusyAction('');
     }
@@ -501,10 +504,10 @@ export function useProviderRuntime(
     const order = ids.map((id, index) => ({ id, priority: (index + 1) * 10 }));
     try {
       await reorderProviderManifests(order);
-      ui.setStatusMessage('Priority order saved.');
+      ui.setStatusMessage(t(ui.language, 'priority_order_saved'));
       await loadManifests();
     } catch (error) {
-      ui.setStatusMessage(`Failed to save order: ${String(error)}`);
+      ui.setStatusMessage(t(ui.language, 'failed_save_order', { error: String(error) }));
     }
   }
 

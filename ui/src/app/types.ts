@@ -101,7 +101,16 @@ export type ProviderManifest = {
 
 export type ProviderManifestList = { manifests: ProviderManifest[] };
 export type ProviderBalance = { provider: string; amount: number; currency: string };
-export type ProviderPriceItem = { country: string; display_name: string; operator: string; price: number; stock: number };
+export type ProviderPriceItem = {
+  country: string;
+  display_name: string;
+  operator: string;
+  operator_label?: string | null;
+  provider_country?: string | null;
+  provider_operator?: string | null;
+  price: number;
+  stock: number;
+};
 export type ProviderPriceResponse = { provider: string; service: string; items: ProviderPriceItem[] };
 export type OptionCacheState = 'missing' | 'fresh' | 'stale';
 export type OptionItem = { value: string; label: string; hint: string; provider_value?: string | null };

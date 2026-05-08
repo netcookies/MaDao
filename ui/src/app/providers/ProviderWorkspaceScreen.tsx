@@ -30,6 +30,7 @@ import {
 } from '../../lib/formatters';
 import { formatOperatorLabel } from '../utils';
 import { cx } from '../../lib/cx';
+import { useLanguage } from '../language';
 
 const WORKSPACE_SECTIONS: Array<{
   id: ProviderSectionId;
@@ -71,6 +72,7 @@ export type ProviderWorkspaceScreenProps = {
 };
 
 export function ProviderWorkspaceScreen(props: ProviderWorkspaceScreenProps) {
+  const language = useLanguage();
   const { manifest, section } = props;
   const isConnected = manifest.enabled;
   const compact = props.compact ?? false;
@@ -95,7 +97,7 @@ export function ProviderWorkspaceScreen(props: ProviderWorkspaceScreenProps) {
             onClick={() => props.onSelectSection(id)}
           >
             <Icon size={15} className={section === id ? 'opacity-100' : 'opacity-40'} />
-            <span>{label}</span>
+            <span>{label === 'Configuration' ? (language === 'zh' ? '配置' : 'Configuration') : (language === 'zh' ? '库存与价格' : 'Store & Inventory')}</span>
           </button>
         ))}
       </div>
@@ -160,15 +162,16 @@ function WorkspaceConfig(props: {
   onOpenRawJson: () => void;
   onOpenSelector: (kind: SelectorKind) => void;
 }) {
+  const language = useLanguage();
   const { manifest } = props;
   const enableLocked = !props.isConnected && props.summary?.can_enable === false;
   const cacheState = props.summary?.option_cache_state ?? 'missing';
   const cacheLabel = cacheState === 'fresh'
-    ? 'Fresh Cache'
+    ? (language === 'zh' ? '缓存新鲜' : 'Fresh Cache')
     : cacheState === 'stale'
-      ? 'Stale Cache'
-      : 'No Cache';
-  const toggleLabel = props.isConnected ? 'Enabled' : 'Disabled';
+      ? (language === 'zh' ? '缓存过期' : 'Stale Cache')
+      : (language === 'zh' ? '无缓存' : 'No Cache');
+  const toggleLabel = props.isConnected ? (language === 'zh' ? '已启用' : 'Enabled') : (language === 'zh' ? '已禁用' : 'Disabled');
 
   return (
     <div className={cx('flex flex-col gap-5', props.compact && 'gap-4')}>
@@ -177,7 +180,7 @@ function WorkspaceConfig(props: {
           {manifest.name}
         </h1>
         <p className="m-0 text-[13px] leading-none text-ds-text-secondary opacity-50">
-          Manage API credentials and connection settings
+          {language === 'zh' ? '管理 API 凭证与连接设置' : 'Manage API credentials and connection settings'}
         </p>
       </div>
 
@@ -208,7 +211,7 @@ function WorkspaceConfig(props: {
         <div className="h-px bg-ds-border" />
         <div className={cx('flex flex-wrap items-center gap-2 px-5 py-3', props.compact && 'px-4 py-2.5')}>
           <StatusBadge tone={props.isConnected ? 'green' : 'gray'}>
-            {props.isConnected ? 'Connected' : 'Disabled'}
+            {props.isConnected ? (language === 'zh' ? '已连接' : 'Connected') : (language === 'zh' ? '已禁用' : 'Disabled')}
           </StatusBadge>
           <StatusBadge tone={cacheState === 'fresh' ? 'green' : cacheState === 'stale' ? 'orange' : 'gray'}>
             {cacheLabel}
@@ -226,7 +229,7 @@ function WorkspaceConfig(props: {
             type="password"
             value={props.apiKeyValue}
             onChange={(e) => props.onApiKeyChange(e.target.value)}
-            placeholder="Paste provider API key"
+            placeholder={language === 'zh' ? '粘贴 Provider API key' : 'Paste provider API key'}
           />
         </ConfigRow>
         <div className="h-px bg-ds-border" />
@@ -240,10 +243,10 @@ function WorkspaceConfig(props: {
           </div>
           <div className="flex items-center gap-2">
             <AppButton variant="ghost" size="utility" className="min-h-0 px-0 py-0 text-ds-accent-blue" onClick={props.onRefresh} disabled={props.busyAction.includes('refresh') || props.busyAction.includes('save')}>
-              {props.busyAction.includes('refresh') ? 'Refreshing…' : 'Refresh'}
+              {props.busyAction.includes('refresh') ? (language === 'zh' ? '刷新中…' : 'Refreshing…') : (language === 'zh' ? '刷新' : 'Refresh')}
             </AppButton>
             <AppButton variant="primary" size="utility" onClick={props.onSave} disabled={props.busyAction.includes('save')}>
-              {props.busyAction.includes('save') ? 'Saving…' : 'Save'}
+              {props.busyAction.includes('save') ? (language === 'zh' ? '保存中…' : 'Saving…') : (language === 'zh' ? '保存' : 'Save')}
             </AppButton>
           </div>
         </div>
@@ -264,34 +267,35 @@ function WorkspaceStore(props: {
   onSortPrices: (key: PriceSortKey) => void;
   priceSort: { key: PriceSortKey; dir: 'asc' | 'desc' };
 }) {
+  const language = useLanguage();
   return (
     <div className={cx('flex flex-col gap-5', props.compact && 'gap-4')}>
       <div className={cx('flex items-start justify-between gap-6', props.compact && 'gap-4')}>
         <div className="flex flex-col gap-[3px]">
           <h2 className="m-0 text-[20px] font-semibold leading-none tracking-[-0.3px] text-ds-text-primary">
-            Price Inventory
+            {language === 'zh' ? '价格库存' : 'Price Inventory'}
           </h2>
           <p className="m-0 text-[13px] leading-none text-ds-text-secondary opacity-50">
-            Stock by service, country and operator
+            {language === 'zh' ? '按服务、国家和运营商查看库存' : 'Stock by service, country and operator'}
           </p>
         </div>
         <div className="flex shrink-0 items-center gap-2">
           <SelectTrigger
             compact={props.compact}
-            value={`${serviceBadge(props.storeQuery.service || props.manifest.defaults.service)} ${formatServiceLabel(props.storeQuery.service || props.manifest.defaults.service)}`}
+            value={`${serviceBadge(props.storeQuery.service || props.manifest.defaults.service)} ${formatServiceLabel(props.storeQuery.service || props.manifest.defaults.service, language)}`}
             onClick={() => props.onOpenSelector('store-service')}
           />
           <SelectTrigger
             compact={props.compact}
-            value={props.storeQuery.country ? `${countryBadge(props.storeQuery.country)} ${formatCountryLabel(props.storeQuery.country)}` : ''}
-            placeholder="All countries"
+            value={props.storeQuery.country ? `${countryBadge(props.storeQuery.country)} ${formatCountryLabel(props.storeQuery.country, language)}` : ''}
+            placeholder={language === 'zh' ? '全部国家' : 'All countries'}
             muted={!props.storeQuery.country}
             onClick={() => props.onOpenSelector('store-country')}
           />
           <SelectTrigger
             compact={props.compact}
-            value={props.storeQuery.operator ? formatOperatorLabel(props.storeQuery.operator) : ''}
-            placeholder="All operators"
+            value={props.storeQuery.operator ? formatOperatorLabel(props.storeQuery.operator, language) : ''}
+            placeholder={language === 'zh' ? '全部运营商' : 'All operators'}
             muted={!props.storeQuery.operator}
             onClick={() => props.onOpenSelector('store-operator')}
           />
@@ -302,7 +306,7 @@ function WorkspaceStore(props: {
         compact={props.compact}
         value={props.storeQuery.search}
         onChange={(event) => props.onStoreQueryChange({ search: event.target.value })}
-        placeholder="Filter by country or operator..."
+        placeholder={language === 'zh' ? '按国家或运营商筛选…' : 'Filter by country or operator...'}
         className="w-full"
       />
 
@@ -315,16 +319,16 @@ function WorkspaceStore(props: {
           header={(
             <>
               <button className="inline-flex items-center justify-start gap-1.5 bg-transparent p-0 text-left text-inherit" onClick={() => props.onSortPrices('country')}>
-                <span>Country</span>
+                <span>{language === 'zh' ? '国家' : 'Country'}</span>
                 <ChevronsUpDown size={12} />
               </button>
-              <span>Operator</span>
+              <span>{language === 'zh' ? '运营商' : 'Operator'}</span>
               <button className="inline-flex items-center justify-start gap-1.5 bg-transparent p-0 text-left text-inherit min-[760px]:justify-self-end" onClick={() => props.onSortPrices('price')}>
-                <span>Price</span>
+                <span>{language === 'zh' ? '价格' : 'Price'}</span>
                 <ChevronsUpDown size={12} />
               </button>
               <button className="inline-flex items-center justify-start gap-1.5 bg-transparent p-0 text-left text-inherit min-[760px]:justify-self-end" onClick={() => props.onSortPrices('stock')}>
-                <span>Stock</span>
+                <span>{language === 'zh' ? '库存' : 'Stock'}</span>
                 <ChevronsUpDown size={12} />
               </button>
             </>
@@ -340,15 +344,15 @@ function WorkspaceStore(props: {
             >
               <span className="inline-flex min-w-0 items-center gap-2.5">
                 <span className="shrink-0">{countryBadge(item.country)}</span>
-                <span className="min-w-0 overflow-hidden text-ellipsis whitespace-nowrap">{item.display_name}</span>
+                <span className="min-w-0 overflow-hidden text-ellipsis whitespace-nowrap">{formatCountryLabel(item.country, language)}</span>
               </span>
-              <span className="text-[13px] text-ds-text-secondary">{formatOperatorLabel(item.operator || 'any')}</span>
+              <span className="text-[13px] text-ds-text-secondary">{item.operator_label || formatOperatorLabel(item.operator || 'any', language)}</span>
               <span className="text-left font-medium tabular-nums min-[760px]:text-right">${item.price.toFixed(3)}</span>
               <span className="text-left tabular-nums min-[760px]:text-right">{item.stock.toLocaleString()}</span>
             </div>
           )) : (
             <div className="px-5 py-7 text-center text-utility tracking-[var(--ds-type-utility-tracking)] text-ds-text-secondary">
-              Click Load Prices to fetch inventory.
+              {language === 'zh' ? '点击加载价格以获取库存。' : 'Click Load Prices to fetch inventory.'}
             </div>
           )}
         </DataTable>
