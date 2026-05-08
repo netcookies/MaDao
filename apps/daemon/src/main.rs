@@ -1,5 +1,6 @@
 use anyhow::Context;
 use plugin_sdk::ProviderManifest;
+use serde::Deserialize;
 use sms_core::config::ServerConfig;
 use sms_core::models::{
     AcquireCodeRequest, PollCodeRequest, ProviderPriceQuery, ReleaseCodeRequest,
@@ -8,7 +9,6 @@ use sms_core::models::{
 use sms_core::registry::ProviderRegistry;
 use sms_core::service::SmsService;
 use sms_server::spawn_http_server;
-use serde::Deserialize;
 use std::path::PathBuf;
 use std::sync::Arc;
 use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
@@ -23,10 +23,10 @@ async fn main() -> anyhow::Result<()> {
         .unwrap_or_else(|| cwd.join("config/server.toml"));
     let mut config = ServerConfig::load_from_file(&config_path)?;
     if !config.provider_dir.exists() {
-      let fallback_provider_dir = cwd.join("plugins/providers");
-      if fallback_provider_dir.exists() {
-          config.provider_dir = fallback_provider_dir;
-      }
+        let fallback_provider_dir = cwd.join("plugins/providers");
+        if fallback_provider_dir.exists() {
+            config.provider_dir = fallback_provider_dir;
+        }
     }
     let registry = ProviderRegistry::load_from_dir(cwd.join(&config.provider_dir))?;
     let config_dir = config_path
@@ -74,7 +74,9 @@ async fn main() -> anyhow::Result<()> {
     println!("http listening on {}", http_addr);
     println!("socket listening on {}", socket_path.display());
 
-    tokio::signal::ctrl_c().await.context("wait for shutdown signal failed")
+    tokio::signal::ctrl_c()
+        .await
+        .context("wait for shutdown signal failed")
 }
 
 async fn handle_socket_command(service: &SmsService, line: &str) -> String {
@@ -83,18 +85,28 @@ async fn handle_socket_command(service: &SmsService, line: &str) -> String {
             SocketCommand::Ping => serde_json::json!({ "status": "pong" }).to_string(),
             SocketCommand::Snapshot => serde_json::to_string(&service.runtime_snapshot())
                 .unwrap_or_else(|_| "{}".to_string()),
-            SocketCommand::Acquire { request } => wrap_socket_result(service.acquire_code(request).await),
+            SocketCommand::Acquire { request } => {
+                wrap_socket_result(service.acquire_code(request).await)
+            }
             SocketCommand::Poll { request } => wrap_socket_result(service.poll_code(request).await),
-            SocketCommand::Release { request } => wrap_socket_result(service.release_code(request).await),
+            SocketCommand::Release { request } => {
+                wrap_socket_result(service.release_code(request).await)
+            }
             SocketCommand::RoutingFailover { request } => {
                 wrap_socket_result(service.failover_routing_attempt(request).await)
             }
-            SocketCommand::Balance { provider } => wrap_socket_result(service.get_balance(&provider).await),
-            SocketCommand::Prices { request } => wrap_socket_result(service.get_prices(request).await),
+            SocketCommand::Balance { provider } => {
+                wrap_socket_result(service.get_balance(&provider).await)
+            }
+            SocketCommand::Prices { request } => {
+                wrap_socket_result(service.get_prices(request).await)
+            }
             SocketCommand::ProviderManifests => {
                 wrap_socket_plain_result(Ok(service.list_provider_manifests()))
             }
-            SocketCommand::RoutingPlans => wrap_socket_plain_result(Ok(service.list_routing_plans())),
+            SocketCommand::RoutingPlans => {
+                wrap_socket_plain_result(Ok(service.list_routing_plans()))
+            }
             SocketCommand::RoutingPlan { plan_id } => {
                 wrap_socket_plain_result(service.routing_plan(&plan_id))
             }
@@ -110,7 +122,9 @@ async fn handle_socket_command(service: &SmsService, line: &str) -> String {
             SocketCommand::SaveProviderManifest { provider, manifest } => {
                 wrap_socket_plain_result(service.save_provider_manifest(&provider, manifest).await)
             }
-            SocketCommand::ReloadProviders => wrap_socket_plain_result(service.reload_provider_registry()),
+            SocketCommand::ReloadProviders => {
+                wrap_socket_plain_result(service.reload_provider_registry())
+            }
         };
     }
     let snapshot = service.runtime_snapshot();
@@ -138,19 +152,42 @@ fn normalize_socket_path(cwd: &PathBuf, raw: &PathBuf) -> PathBuf {
 enum SocketCommand {
     Ping,
     Snapshot,
-    Acquire { request: AcquireCodeRequest },
-    Poll { request: PollCodeRequest },
-    Release { request: ReleaseCodeRequest },
-    RoutingFailover { request: RoutingFailoverRequest },
-    Balance { provider: String },
-    Prices { request: ProviderPriceQuery },
+    Acquire {
+        request: AcquireCodeRequest,
+    },
+    Poll {
+        request: PollCodeRequest,
+    },
+    Release {
+        request: ReleaseCodeRequest,
+    },
+    RoutingFailover {
+        request: RoutingFailoverRequest,
+    },
+    Balance {
+        provider: String,
+    },
+    Prices {
+        request: ProviderPriceQuery,
+    },
     ProviderManifests,
     RoutingPlans,
-    RoutingPlan { plan_id: String },
-    SaveRoutingPlan { plan: RoutingPlan },
-    DeleteRoutingPlan { plan_id: String },
-    ProviderManifest { provider: String },
-    SaveProviderManifest { provider: String, manifest: ProviderManifest },
+    RoutingPlan {
+        plan_id: String,
+    },
+    SaveRoutingPlan {
+        plan: RoutingPlan,
+    },
+    DeleteRoutingPlan {
+        plan_id: String,
+    },
+    ProviderManifest {
+        provider: String,
+    },
+    SaveProviderManifest {
+        provider: String,
+        manifest: ProviderManifest,
+    },
     ReloadProviders,
 }
 
@@ -169,6 +206,8 @@ fn wrap_socket_result<T: serde::Serialize>(result: Result<T, sms_core::error::Sm
     }
 }
 
-fn wrap_socket_plain_result<T: serde::Serialize>(result: Result<T, sms_core::error::SmsError>) -> String {
+fn wrap_socket_plain_result<T: serde::Serialize>(
+    result: Result<T, sms_core::error::SmsError>,
+) -> String {
     wrap_socket_result(result)
 }

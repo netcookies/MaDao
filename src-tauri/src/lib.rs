@@ -1,7 +1,7 @@
 use plugin_sdk::ProviderManifest;
 use serde::Serialize;
-use sms_core::models::ProviderSummary;
 use sms_core::config::ServerConfig;
+use sms_core::models::ProviderSummary;
 use sms_core::registry::ProviderRegistry;
 use sms_core::service::SmsService;
 use sms_server::spawn_http_server;
@@ -49,7 +49,9 @@ enum MenuAction {
 #[serde(tag = "kind", rename_all = "snake_case")]
 enum MenuCommandPayload {
     NewActivation,
-    OpenScreen { screen: &'static str },
+    OpenScreen {
+        screen: &'static str,
+    },
     OpenProvider {
         provider_id: String,
         section: &'static str,
@@ -89,7 +91,8 @@ fn hide_main_window(app: &tauri::AppHandle) -> Result<(), String> {
     if let Some(window) = app.get_webview_window("main") {
         window.hide().map_err(|err| err.to_string())?;
     }
-    app.set_dock_visibility(false).map_err(|err| err.to_string())?;
+    app.set_dock_visibility(false)
+        .map_err(|err| err.to_string())?;
     Ok(())
 }
 
@@ -114,12 +117,15 @@ fn init_user_config(app: &tauri::AppHandle) -> Result<(PathBuf, PathBuf), String
     if !config_path.exists() {
         let resource_config = app
             .path()
-            .resolve(DEFAULT_CONFIG_RESOURCE_PATH, tauri::path::BaseDirectory::Resource)
+            .resolve(
+                DEFAULT_CONFIG_RESOURCE_PATH,
+                tauri::path::BaseDirectory::Resource,
+            )
             .map_err(|err| format!("resolve bundled config failed: {err}"))?;
         let content = fs::read_to_string(&resource_config)
             .map_err(|err| format!("read bundled config failed: {err}"))?;
-        let mut config: ServerConfig =
-            toml::from_str(&content).map_err(|err| format!("parse bundled config failed: {err}"))?;
+        let mut config: ServerConfig = toml::from_str(&content)
+            .map_err(|err| format!("parse bundled config failed: {err}"))?;
         config.provider_dir = PathBuf::from("providers");
         let normalized = toml::to_string_pretty(&config)
             .map_err(|err| format!("serialize normalized config failed: {err}"))?;
@@ -135,11 +141,14 @@ fn init_user_config(app: &tauri::AppHandle) -> Result<(PathBuf, PathBuf), String
 fn seed_default_providers(app: &tauri::AppHandle, target_dir: &Path) -> Result<(), String> {
     let source_dir = app
         .path()
-        .resolve(DEFAULT_PROVIDER_RESOURCE_DIR, tauri::path::BaseDirectory::Resource)
+        .resolve(
+            DEFAULT_PROVIDER_RESOURCE_DIR,
+            tauri::path::BaseDirectory::Resource,
+        )
         .map_err(|err| format!("resolve bundled providers failed: {err}"))?;
 
-    let entries = fs::read_dir(&source_dir)
-        .map_err(|err| format!("read bundled providers failed: {err}"))?;
+    let entries =
+        fs::read_dir(&source_dir).map_err(|err| format!("read bundled providers failed: {err}"))?;
 
     for entry in entries {
         let entry = entry.map_err(|err| format!("read bundled provider entry failed: {err}"))?;
@@ -178,14 +187,32 @@ fn build_app_menu(app: &tauri::AppHandle) -> Result<Menu<tauri::Wry>, String> {
         Some("CmdOrCtrl+O"),
     )
     .map_err(|err| err.to_string())?;
-    let preferences = MenuItem::with_id(app, MENU_PREFERENCES_ID, "Preferences...", true, None::<&str>)
-        .map_err(|err| err.to_string())?;
-    let quit = MenuItem::with_id(app, MENU_QUIT_ID, "Quit MadaoSMS", true, Some("CmdOrCtrl+Q"))
-        .map_err(|err| err.to_string())?;
+    let preferences = MenuItem::with_id(
+        app,
+        MENU_PREFERENCES_ID,
+        "Preferences...",
+        true,
+        None::<&str>,
+    )
+    .map_err(|err| err.to_string())?;
+    let quit = MenuItem::with_id(
+        app,
+        MENU_QUIT_ID,
+        "Quit MadaoSMS",
+        true,
+        Some("CmdOrCtrl+Q"),
+    )
+    .map_err(|err| err.to_string())?;
     let overview = MenuItem::with_id(app, MENU_SCREEN_OVERVIEW_ID, "Overview", true, None::<&str>)
         .map_err(|err| err.to_string())?;
-    let providers = MenuItem::with_id(app, MENU_SCREEN_PROVIDERS_ID, "Providers", true, None::<&str>)
-        .map_err(|err| err.to_string())?;
+    let providers = MenuItem::with_id(
+        app,
+        MENU_SCREEN_PROVIDERS_ID,
+        "Providers",
+        true,
+        None::<&str>,
+    )
+    .map_err(|err| err.to_string())?;
     let routing = MenuItem::with_id(app, MENU_SCREEN_ROUTING_ID, "Routing", true, None::<&str>)
         .map_err(|err| err.to_string())?;
     let messages = MenuItem::with_id(app, MENU_SCREEN_MESSAGES_ID, "Messages", true, None::<&str>)
@@ -226,7 +253,10 @@ fn build_app_menu(app: &tauri::AppHandle) -> Result<Menu<tauri::Wry>, String> {
         .map_err(|err| err.to_string())
 }
 
-fn build_tray_menu(app: &tauri::AppHandle, providers: &[ProviderSummary]) -> Result<Menu<tauri::Wry>, String> {
+fn build_tray_menu(
+    app: &tauri::AppHandle,
+    providers: &[ProviderSummary],
+) -> Result<Menu<tauri::Wry>, String> {
     let mut sorted = providers
         .iter()
         .filter(|provider| provider.id != "mock")
@@ -263,13 +293,30 @@ fn build_tray_menu(app: &tauri::AppHandle, providers: &[ProviderSummary]) -> Res
         Some("CmdOrCtrl+O"),
     )
     .map_err(|err| err.to_string())?;
-    let providers_header =
-        MenuItem::with_id(app, "tray.providers_header", "PROVIDERS", false, None::<&str>)
-            .map_err(|err| err.to_string())?;
-    let preferences = MenuItem::with_id(app, MENU_PREFERENCES_ID, "Preferences...", true, None::<&str>)
-        .map_err(|err| err.to_string())?;
-    let quit = MenuItem::with_id(app, MENU_QUIT_ID, "Quit MadaoSMS", true, Some("CmdOrCtrl+Q"))
-        .map_err(|err| err.to_string())?;
+    let providers_header = MenuItem::with_id(
+        app,
+        "tray.providers_header",
+        "PROVIDERS",
+        false,
+        None::<&str>,
+    )
+    .map_err(|err| err.to_string())?;
+    let preferences = MenuItem::with_id(
+        app,
+        MENU_PREFERENCES_ID,
+        "Preferences...",
+        true,
+        None::<&str>,
+    )
+    .map_err(|err| err.to_string())?;
+    let quit = MenuItem::with_id(
+        app,
+        MENU_QUIT_ID,
+        "Quit MadaoSMS",
+        true,
+        Some("CmdOrCtrl+Q"),
+    )
+    .map_err(|err| err.to_string())?;
 
     let mut builder = MenuBuilder::new(app)
         .item(&status)
@@ -280,8 +327,14 @@ fn build_tray_menu(app: &tauri::AppHandle, providers: &[ProviderSummary]) -> Res
         .item(&providers_header);
 
     if sorted.is_empty() {
-        let empty = MenuItem::with_id(app, "tray.providers_empty", "No providers available", false, None::<&str>)
-            .map_err(|err| err.to_string())?;
+        let empty = MenuItem::with_id(
+            app,
+            "tray.providers_empty",
+            "No providers available",
+            false,
+            None::<&str>,
+        )
+        .map_err(|err| err.to_string())?;
         builder = builder.item(&empty);
     } else {
         for provider in sorted {
@@ -318,8 +371,10 @@ fn sync_menu_bar(app: &tauri::AppHandle) -> Result<(), String> {
     if let Some(tray) = app.tray_by_id(TRAY_ID) {
         tray.set_menu(Some(tray_menu))
             .map_err(|err| err.to_string())?;
-        tray.set_tooltip(Some(format!("MaDao SMS Platform · {active_count} active providers")))
-            .map_err(|err| err.to_string())?;
+        tray.set_tooltip(Some(format!(
+            "MaDao SMS Platform · {active_count} active providers"
+        )))
+        .map_err(|err| err.to_string())?;
         return Ok(());
     }
 
@@ -330,7 +385,9 @@ fn sync_menu_bar(app: &tauri::AppHandle) -> Result<(), String> {
         .icon_as_template(true)
         .menu(&tray_menu)
         .show_menu_on_left_click(false)
-        .tooltip(format!("MaDao SMS Platform · {active_count} active providers"))
+        .tooltip(format!(
+            "MaDao SMS Platform · {active_count} active providers"
+        ))
         .build(app)
         .map_err(|err| err.to_string())?;
 
@@ -346,7 +403,8 @@ fn handle_menu_event(app: &tauri::AppHandle, event_id: &str) {
             }
         }
         MenuAction::NewActivation => {
-            let result = show_main_window(app).and_then(|_| emit_menu_command(app, MenuCommandPayload::NewActivation));
+            let result = show_main_window(app)
+                .and_then(|_| emit_menu_command(app, MenuCommandPayload::NewActivation));
             if let Err(err) = result {
                 eprintln!("menu action `{event_id}` failed: {err}");
             }
@@ -525,8 +583,10 @@ pub fn run() {
         })
         .setup(move |app| {
             let (config_path, providers_dir) = init_user_config(&app.handle())?;
-            let config = ServerConfig::load_from_file(&config_path).map_err(|err| err.to_string())?;
-            let registry = ProviderRegistry::load_from_dir(&providers_dir).map_err(|err| err.to_string())?;
+            let config =
+                ServerConfig::load_from_file(&config_path).map_err(|err| err.to_string())?;
+            let registry =
+                ProviderRegistry::load_from_dir(&providers_dir).map_err(|err| err.to_string())?;
             let runtime_settings_path = config_path
                 .parent()
                 .ok_or_else(|| "resolve config parent dir failed".to_string())?
@@ -590,7 +650,10 @@ mod tests {
 
     #[test]
     fn parses_screen_event_ids() {
-        assert_eq!(menu_action_for_id(MENU_SCREEN_LOGS_ID), MenuAction::OpenScreen("logs"));
+        assert_eq!(
+            menu_action_for_id(MENU_SCREEN_LOGS_ID),
+            MenuAction::OpenScreen("logs")
+        );
     }
 
     #[test]

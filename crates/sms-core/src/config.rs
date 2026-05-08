@@ -17,8 +17,8 @@ impl ServerConfig {
         let path = path.as_ref();
         let content = fs::read_to_string(path)
             .map_err(|err| SmsError::Io(format!("read config failed: {err}")))?;
-        let mut config: Self =
-            toml::from_str(&content).map_err(|err| SmsError::Config(format!("parse config failed: {err}")))?;
+        let mut config: Self = toml::from_str(&content)
+            .map_err(|err| SmsError::Config(format!("parse config failed: {err}")))?;
         let base_dir = path
             .parent()
             .map(Path::to_path_buf)

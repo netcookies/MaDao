@@ -67,7 +67,10 @@ impl ProviderManifest {
 
     pub fn primary_endpoint(&self) -> Option<String> {
         match self.kind {
-            ProviderKind::HandlerApi => self.handler_api.as_ref().map(|config| config.base_url.clone()),
+            ProviderKind::HandlerApi => self
+                .handler_api
+                .as_ref()
+                .map(|config| config.base_url.clone()),
             ProviderKind::FiveSim => self.five_sim.as_ref().map(|config| config.base_url.clone()),
             ProviderKind::Mock => None,
         }
@@ -343,10 +346,7 @@ fn default_phone_json_pointers() -> Vec<String> {
 }
 
 fn default_price_json_pointers() -> Vec<String> {
-    vec![
-        "/activationCost".to_string(),
-        "/price".to_string(),
-    ]
+    vec!["/activationCost".to_string(), "/price".to_string()]
 }
 
 fn default_balance_json_pointers() -> Vec<String> {

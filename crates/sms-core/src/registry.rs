@@ -1,5 +1,5 @@
 use crate::error::SmsError;
-use crate::provider::{build_provider, SmsProvider};
+use crate::provider::{SmsProvider, build_provider};
 use plugin_sdk::ProviderManifest;
 use std::collections::BTreeMap;
 use std::fs;
@@ -22,17 +22,18 @@ impl ProviderRegistry {
         let entries = fs::read_dir(&root_dir)
             .map_err(|err| SmsError::Io(format!("read provider dir failed: {err}")))?;
         for entry in entries {
-            let entry = entry.map_err(|err| SmsError::Io(format!("read dir entry failed: {err}")))?;
+            let entry =
+                entry.map_err(|err| SmsError::Io(format!("read dir entry failed: {err}")))?;
             let path = entry.path();
             if path.extension().and_then(|value| value.to_str()) != Some("toml") {
                 continue;
             }
             let text = fs::read_to_string(&path)
                 .map_err(|err| SmsError::Io(format!("read provider manifest failed: {err}")))?;
-            let manifest: ProviderManifest = normalize_manifest_defaults(
-                toml::from_str(&text)
-                    .map_err(|err| SmsError::Config(format!("parse provider manifest failed: {err}")))?,
-            );
+            let manifest: ProviderManifest =
+                normalize_manifest_defaults(toml::from_str(&text).map_err(|err| {
+                    SmsError::Config(format!("parse provider manifest failed: {err}"))
+                })?);
             let id = manifest.id.clone();
             let provider = build_provider(manifest.clone())?;
             manifests.insert(id.clone(), manifest);
@@ -99,7 +100,11 @@ impl ProviderRegistry {
         Ok(())
     }
 
-    pub fn save_manifest(&mut self, id: &str, manifest: ProviderManifest) -> Result<ProviderManifest, SmsError> {
+    pub fn save_manifest(
+        &mut self,
+        id: &str,
+        manifest: ProviderManifest,
+    ) -> Result<ProviderManifest, SmsError> {
         if manifest.id != id {
             return Err(SmsError::InvalidRequest(format!(
                 "provider id mismatch: path={id}, payload={}",
@@ -117,8 +122,9 @@ impl ProviderRegistry {
             .cloned()
             .unwrap_or_else(|| self.root_dir.join(format!("{id}.toml")));
         let previous = fs::read_to_string(&path).ok();
-        let content = toml::to_string_pretty(&manifest)
-            .map_err(|err| SmsError::Config(format!("serialize provider manifest failed: {err}")))?;
+        let content = toml::to_string_pretty(&manifest).map_err(|err| {
+            SmsError::Config(format!("serialize provider manifest failed: {err}"))
+        })?;
         fs::write(&path, &content)
             .map_err(|err| SmsError::Io(format!("write provider manifest failed: {err}")))?;
         if let Err(err) = self.reload() {
@@ -170,7 +176,11 @@ mod tests {
         .unwrap();
         let legacy_path = base.join("smsbower.toml");
         let content = fs::read_to_string(&legacy_path).unwrap();
-        fs::write(&legacy_path, content.replace("country = \"31\"", "country = \"0\"")).unwrap();
+        fs::write(
+            &legacy_path,
+            content.replace("country = \"31\"", "country = \"0\""),
+        )
+        .unwrap();
 
         let registry = ProviderRegistry::load_from_dir(&base).unwrap();
         let manifest = registry.manifest("smsbower").unwrap();
