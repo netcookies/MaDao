@@ -33,6 +33,7 @@ const DEFAULT_CONFIG_RESOURCE_PATH: &str = "defaults/config/server.toml";
 const DEFAULT_PROVIDER_RESOURCE_DIR: &str = "defaults/providers";
 const RUNTIME_SETTINGS_FILE_NAME: &str = "runtime-settings.json";
 const PROVIDER_OPTIONS_CACHE_FILE_NAME: &str = "provider-options-cache.json";
+const PROVIDER_OPTIONS_RAW_AUDIT_FILE_NAME: &str = "provider-options-raw.json";
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 enum MenuAction {
@@ -534,11 +535,16 @@ pub fn run() {
                 .parent()
                 .ok_or_else(|| "resolve config parent dir failed".to_string())?
                 .join(PROVIDER_OPTIONS_CACHE_FILE_NAME);
+            let provider_options_raw_path = config_path
+                .parent()
+                .ok_or_else(|| "resolve config parent dir failed".to_string())?
+                .join(PROVIDER_OPTIONS_RAW_AUDIT_FILE_NAME);
             let service = Arc::new(SmsService::with_persistence_paths(
                 registry,
                 config.log_buffer,
                 Some(runtime_settings_path),
                 Some(provider_options_path),
+                Some(provider_options_raw_path),
                 None,
             ));
             app.manage(Arc::clone(&service));

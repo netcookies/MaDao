@@ -201,6 +201,15 @@ pub struct ProviderOptionCacheEntry {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ProviderRawOptionAuditEntry {
+    pub provider: String,
+    pub fetched_at: DateTime<Utc>,
+    pub raw_services: Vec<OptionItem>,
+    pub raw_countries: Vec<OptionItem>,
+    pub raw_operators: Vec<OptionItem>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct OptionCacheOverview {
     pub fresh_providers: u32,
     pub stale_providers: u32,

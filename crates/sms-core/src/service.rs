@@ -4,17 +4,18 @@ use crate::models::{
     OptionCacheState, OptionItem, OptionListResponse, PollCodeRequest, PollCodeResponse,
     ProviderBalance, ProviderDynamicOptions, ProviderManifestList, ProviderManifestSaveResponse,
     ProviderOperatorsQuery, ProviderOptionCacheEntry, ProviderPriceQuery, ProviderPriceResponse,
-    ProviderReorderRequest, ProviderServicesQuery, ProviderSummary, ReleaseCodeRequest,
-    ReleaseCodeResponse, RoutingExecutionMode, RoutingFailoverRequest, RoutingPlan,
-    RoutingPlanItem, RoutingPlanList, RoutingPlanStore, RuntimeSettings, RuntimeSettingsUpdate,
-    RuntimeSnapshot, TicketCallbackListResponse, TicketCallbackRegistrationRequest,
-    TicketCallbackSubscription, TicketCodeCallbackPayload, TicketListResponse, TicketRecord,
-    TicketStatus,
+    ProviderRawOptionAuditEntry, ProviderReorderRequest, ProviderServicesQuery, ProviderSummary,
+    ReleaseCodeRequest, ReleaseCodeResponse, RoutingExecutionMode, RoutingFailoverRequest,
+    RoutingPlan, RoutingPlanItem, RoutingPlanList, RoutingPlanStore, RuntimeSettings,
+    RuntimeSettingsUpdate, RuntimeSnapshot, TicketCallbackListResponse,
+    TicketCallbackRegistrationRequest, TicketCallbackSubscription, TicketCodeCallbackPayload,
+    TicketListResponse, TicketRecord, TicketStatus,
 };
 use crate::options::{
-    OptionKind, ProviderOptionCacheStore, build_cache_overview, cache_state,
-    load_option_cache_store, normalize_price_items, normalize_provider_options,
-    resolve_provider_value, save_option_cache_store, with_cache_state,
+    OptionKind, ProviderOptionCacheStore, ProviderRawOptionAuditStore, build_cache_overview,
+    cache_state, load_option_cache_store, load_raw_option_audit_store, normalize_price_items,
+    normalize_provider_options, resolve_provider_value, save_option_cache_store,
+    save_raw_option_audit_store, with_cache_state,
 };
 use crate::registry::ProviderRegistry;
 use chrono::Utc;
@@ -37,9 +38,11 @@ pub struct SmsService {
     runtime_settings: RwLock<RuntimeSettings>,
     runtime_settings_path: Option<PathBuf>,
     provider_options_path: Option<PathBuf>,
+    provider_options_raw_path: Option<PathBuf>,
     routing_plans_path: Option<PathBuf>,
     routing_plans: RwLock<RoutingPlanStore>,
     provider_option_cache: RwLock<ProviderOptionCacheStore>,
+    provider_raw_option_audit: RwLock<ProviderRawOptionAuditStore>,
     callback_subscriptions: RwLock<BTreeMap<String, Vec<TicketCallbackSubscription>>>,
     callback_client: Client,
     log_buffer: usize,
@@ -47,7 +50,7 @@ pub struct SmsService {
 
 impl SmsService {
     pub fn new(registry: ProviderRegistry, log_buffer: usize) -> Self {
-        Self::with_persistence_paths(registry, log_buffer, None, None, None)
+        Self::with_persistence_paths(registry, log_buffer, None, None, None, None)
     }
 
     pub fn with_runtime_settings_path(
@@ -55,7 +58,14 @@ impl SmsService {
         log_buffer: usize,
         runtime_settings_path: Option<PathBuf>,
     ) -> Self {
-        Self::with_persistence_paths(registry, log_buffer, runtime_settings_path, None, None)
+        Self::with_persistence_paths(
+            registry,
+            log_buffer,
+            runtime_settings_path,
+            None,
+            None,
+            None,
+        )
     }
 
     pub fn with_persistence_paths(
@@ -63,6 +73,7 @@ impl SmsService {
         log_buffer: usize,
         runtime_settings_path: Option<PathBuf>,
         provider_options_path: Option<PathBuf>,
+        provider_options_raw_path: Option<PathBuf>,
         routing_plans_path: Option<PathBuf>,
     ) -> Self {
         let runtime_settings = runtime_settings_path
@@ -77,6 +88,10 @@ impl SmsService {
         let provider_option_cache = provider_options_path
             .as_ref()
             .and_then(|path| load_option_cache_store(path).ok())
+            .unwrap_or_default();
+        let provider_raw_option_audit = provider_options_raw_path
+            .as_ref()
+            .and_then(|path| load_raw_option_audit_store(path).ok())
             .unwrap_or_default();
         let routing_plans_path = routing_plans_path.or_else(|| {
             runtime_settings_path.as_ref().and_then(|path| {
@@ -96,9 +111,11 @@ impl SmsService {
             runtime_settings: RwLock::new(runtime_settings),
             runtime_settings_path,
             provider_options_path,
+            provider_options_raw_path,
             routing_plans_path,
             routing_plans: RwLock::new(routing_plans),
             provider_option_cache: RwLock::new(provider_option_cache),
+            provider_raw_option_audit: RwLock::new(provider_raw_option_audit),
             callback_subscriptions: RwLock::new(BTreeMap::new()),
             callback_client: Client::builder()
                 .timeout(std::time::Duration::from_secs(5))
@@ -1041,6 +1058,22 @@ impl SmsService {
             }
         };
         let fetched_at = Utc::now();
+        {
+            let mut raw_store = self.provider_raw_option_audit.write();
+            raw_store.entries.insert(
+                provider_id.to_string(),
+                ProviderRawOptionAuditEntry {
+                    provider: provider_id.to_string(),
+                    fetched_at,
+                    raw_services: raw_options.services.clone(),
+                    raw_countries: raw_options.countries.clone(),
+                    raw_operators: raw_options.operators.clone(),
+                },
+            );
+            if let Some(path) = &self.provider_options_raw_path {
+                let _ = save_raw_option_audit_store(path, &raw_store);
+            }
+        }
         let normalized = normalize_provider_options(&manifest, raw_options, fetched_at);
         let mut store = self.provider_option_cache.write();
         store.entries.insert(
@@ -1715,6 +1748,7 @@ mod tests {
         RoutingExecutionMode, RoutingFailoverRequest, RoutingPlan, RoutingPlanItem,
         RoutingPriceMode,
     };
+    use crate::options::ProviderRawOptionAuditStore;
     use crate::registry::ProviderRegistry;
     use axum::extract::State;
     use axum::routing::post;
@@ -1751,6 +1785,19 @@ mod tests {
         let provider_dir = fixture_provider_dir();
         let registry = ProviderRegistry::load_from_dir(provider_dir).unwrap();
         SmsService::new(registry, 32)
+    }
+
+    fn make_persistent_service(base: &Path) -> SmsService {
+        let provider_dir = fixture_provider_dir();
+        let registry = ProviderRegistry::load_from_dir(provider_dir).unwrap();
+        SmsService::with_persistence_paths(
+            registry,
+            32,
+            Some(base.join("runtime-settings.json")),
+            Some(base.join("provider-options-cache.json")),
+            Some(base.join("provider-options-raw.json")),
+            Some(base.join("routing-plans.json")),
+        )
     }
 
     fn routing_plan() -> RoutingPlan {
@@ -1856,6 +1903,25 @@ mod tests {
         );
         let reloaded = service.provider_manifest("mock").unwrap();
         assert_eq!(reloaded.description.as_deref(), Some("updated manifest"));
+    }
+
+    #[tokio::test]
+    async fn refresh_provider_options_writes_raw_audit_file() {
+        let base = std::env::temp_dir().join(format!("madao-raw-audit-test-{}", Uuid::now_v7()));
+        fs::create_dir_all(&base).unwrap();
+        let service = make_persistent_service(&base);
+
+        service.refresh_provider_options("mock").await.unwrap();
+
+        let raw_path = base.join("provider-options-raw.json");
+        assert!(raw_path.exists());
+        let content = fs::read_to_string(raw_path).unwrap();
+        let store: ProviderRawOptionAuditStore = serde_json::from_str(&content).unwrap();
+        let entry = store.entries.get("mock").unwrap();
+        assert_eq!(entry.provider, "mock");
+        assert!(!entry.raw_services.is_empty());
+        assert!(!entry.raw_countries.is_empty());
+        assert!(!entry.raw_operators.is_empty());
     }
 
     #[tokio::test]

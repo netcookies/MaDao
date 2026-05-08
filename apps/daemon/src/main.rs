@@ -37,6 +37,7 @@ async fn main() -> anyhow::Result<()> {
         config.log_buffer,
         Some(config_dir.join("runtime-settings.json")),
         Some(config_dir.join("provider-options-cache.json")),
+        Some(config_dir.join("provider-options-raw.json")),
         Some(config_dir.join("routing-plans.json")),
     ));
 

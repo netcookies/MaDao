@@ -1,7 +1,7 @@
 use crate::error::SmsError;
 use crate::models::{
     OptionCacheOverview, OptionCacheState, OptionItem, ProviderDynamicOptions,
-    ProviderOptionCacheEntry, ProviderPriceItem, RuntimeSettings,
+    ProviderOptionCacheEntry, ProviderPriceItem, ProviderRawOptionAuditEntry, RuntimeSettings,
 };
 use chrono::{DateTime, Duration, Utc};
 use plugin_sdk::ProviderManifest;
@@ -13,6 +13,11 @@ use std::path::Path;
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct ProviderOptionCacheStore {
     pub entries: BTreeMap<String, ProviderOptionCacheEntry>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+pub struct ProviderRawOptionAuditStore {
+    pub entries: BTreeMap<String, ProviderRawOptionAuditEntry>,
 }
 
 pub fn load_option_cache_store(path: &Path) -> Result<ProviderOptionCacheStore, SmsError> {
@@ -38,6 +43,31 @@ pub fn save_option_cache_store(
     })?;
     fs::write(path, content)
         .map_err(|err| SmsError::Io(format!("write provider option cache failed: {err}")))
+}
+
+pub fn load_raw_option_audit_store(path: &Path) -> Result<ProviderRawOptionAuditStore, SmsError> {
+    if !path.exists() {
+        return Ok(ProviderRawOptionAuditStore::default());
+    }
+    let content = fs::read_to_string(path)
+        .map_err(|err| SmsError::Io(format!("read raw option audit store failed: {err}")))?;
+    serde_json::from_str(&content)
+        .map_err(|err| SmsError::Config(format!("parse raw option audit store failed: {err}")))
+}
+
+pub fn save_raw_option_audit_store(
+    path: &Path,
+    store: &ProviderRawOptionAuditStore,
+) -> Result<(), SmsError> {
+    if let Some(parent) = path.parent() {
+        fs::create_dir_all(parent)
+            .map_err(|err| SmsError::Io(format!("create raw option audit dir failed: {err}")))?;
+    }
+    let content = serde_json::to_string_pretty(store).map_err(|err| {
+        SmsError::Config(format!("serialize raw option audit store failed: {err}"))
+    })?;
+    fs::write(path, content)
+        .map_err(|err| SmsError::Io(format!("write raw option audit store failed: {err}")))
 }
 
 pub fn cache_state(
