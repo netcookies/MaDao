@@ -41,15 +41,16 @@ http://127.0.0.1:7822
 
 - `GET /api/providers/{provider}/balance`
 - `POST /api/providers/{provider}/prices`
-- `GET /api/providers/{provider}/options`
 - `GET /api/providers/{provider}/countries`
-- `POST /api/providers/{provider}/services`
 - `POST /api/providers/{provider}/operators`
+- `POST /api/providers/{provider}/services`
 
 说明：
 
 - 对外统一要求：`countries / services / operators` 动态发现前，provider 必须已配置有效 `api_key`
 - 未配置时返回 `invalid request: provider \`...\` requires api_key before resource discovery`
+- `/api/providers/{provider}/options` 已移除；需要完整动态选项时，调用方按 `countries -> operators -> services` 级联获取
+- daemon 内部 option cache 也通过这 3 条资源链路聚合结果，不再依赖旧 `options` 端点
 
 ### Routing plan
 
@@ -63,7 +64,7 @@ http://127.0.0.1:7822
 
 ## 典型调用链
 
-### 1. 查询国家、服务、运营商
+### 1. 查询国家、运营商、服务
 
 `HeroSMS` / `SmsBower`：
 
@@ -140,9 +141,9 @@ POST /api/tickets/{ticket_id}/callbacks
 
 - callback 订阅当前是 **进程内内存存储**，daemon 重启后不会保留。
 - callback 投递当前是“收到 code 后一次性投递”，未实现签名校验与重试队列持久化。
-- provider options 采用“动态注入”模式：
-  只有本轮成功发现且 provider 凭证有效时，国家 / 服务 / 运营商列表才会进入运行时；
-  刷新失败、凭证失效或 provider 禁用时，不保留旧注入。
+- provider option cache 采用“动态聚合”模式：
+  只有本轮成功发现且 provider 凭证有效时，国家 / 服务 / 运营商列表才会进入运行时缓存；
+  刷新失败、凭证失效或 provider 禁用时，不保留旧聚合结果。
 - `HeroSMS` 正式 REST API 与 `SmsBower` 扩展 API 的更多能力还未完全映射进 daemon 统一业务接口，例如：
   - `getActiveActivations`
   - `getAllSms`

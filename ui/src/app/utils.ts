@@ -21,6 +21,7 @@ export function normalizeServiceOptions(options: OptionItem[]) {
         value,
         label: label || formatServiceLabel(value),
         hint: option.hint,
+        provider_value: option.provider_value ?? option.value,
       });
     }
   }
@@ -37,6 +38,7 @@ export function normalizeCountryOptions(options: OptionItem[]) {
         value: key,
         label: label || formatCountryLabel(key),
         hint: option.hint,
+        provider_value: option.provider_value ?? option.value,
       });
     }
   }

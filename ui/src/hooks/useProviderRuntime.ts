@@ -31,6 +31,10 @@ import {
 import { refreshMenuBar } from '../services/menuBarApi';
 import { mergeOptionItems, normalizeCountryOptions, normalizeServiceOptions } from '../app/utils';
 
+function optionRequestValue(option?: { value?: string; provider_value?: string | null }) {
+  return option?.provider_value?.trim() || option?.value?.trim() || '';
+}
+
 type DataState = {
   snapshot: Snapshot | null;
   setSnapshot: (value: Snapshot | null | ((prev: Snapshot | null) => Snapshot | null)) => void;
@@ -146,7 +150,7 @@ export function useProviderRuntime(
     const countriesPayload = await fetchProviderCountries(providerId);
     const countries = normalizeCountryOptions(countriesPayload.items);
 
-    const countrySeed = countries[0]?.value
+    const countrySeed = optionRequestValue(countries[0])
       || provider.defaults.country
       || '';
     const operatorsPayload = await fetchProviderOperators(
@@ -158,7 +162,7 @@ export function useProviderRuntime(
     let services = [];
     if (provider.kind === 'five_sim') {
       if (countrySeed) {
-        const operatorSeeds = operators.map((item) => item.value).filter(Boolean);
+        const operatorSeeds = operators.map((item) => optionRequestValue(item)).filter(Boolean);
         const serviceGroups = await Promise.all(
           operatorSeeds.map(async (operator) => {
             try {

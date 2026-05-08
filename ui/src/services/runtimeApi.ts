@@ -4,7 +4,6 @@ import type {
   OptionListResponse,
   OptionCacheOverview,
   ProviderBalance,
-  ProviderDynamicOptions,
   ProviderManifest,
   ProviderManifestSaveResponse,
   ProviderManifestList,
@@ -78,10 +77,6 @@ export async function saveProviderManifest(providerId: string, manifest: Provide
 export async function reloadProviderRegistry(): Promise<void> {
   const response = await fetch(`${API_BASE}/api/provider-manifests/reload`, { method: 'POST' });
   if (!response.ok) throw new Error(await response.text());
-}
-
-export async function fetchProviderOptions(providerId: string): Promise<ProviderDynamicOptions> {
-  return readJson<ProviderDynamicOptions>(await fetch(`${API_BASE}/api/providers/${providerId}/options`));
 }
 
 export async function fetchProviderCountries(providerId: string): Promise<OptionListResponse> {

@@ -1,7 +1,7 @@
 use crate::error::SmsError;
 use crate::models::{
-    AcquireCodeRequest, OptionItem, PollCodeResponse, ProviderBalance, ProviderDynamicOptions,
-    ProviderOperatorsQuery, ProviderPriceItem, ProviderServicesQuery, ReleaseAction, TicketRecord,
+    AcquireCodeRequest, OptionItem, PollCodeResponse, ProviderBalance, ProviderOperatorsQuery,
+    ProviderPriceItem, ProviderServicesQuery, ReleaseAction, TicketRecord,
 };
 use async_trait::async_trait;
 use plugin_sdk::{FiveSimConfig, HandlerApiConfig, MockConfig, ProviderKind, ProviderManifest};
@@ -35,25 +35,27 @@ pub trait SmsProvider: Send + Sync {
 
     async fn poll_code(&self, ticket: &TicketRecord) -> Result<PollCodeResponse, SmsError>;
 
-    async fn release(&self, ticket: &TicketRecord, action: ReleaseAction) -> Result<String, SmsError>;
+    async fn release(
+        &self,
+        ticket: &TicketRecord,
+        action: ReleaseAction,
+    ) -> Result<String, SmsError>;
 
     async fn get_balance(&self) -> Result<ProviderBalance, SmsError>;
 
-    async fn get_options(&self) -> Result<ProviderDynamicOptions, SmsError>;
-
     async fn get_prices(&self, service: Option<&str>) -> Result<Vec<ProviderPriceItem>, SmsError>;
 
-    async fn list_countries(&self) -> Result<Vec<OptionItem>, SmsError> {
-        Ok(self.get_options().await?.countries)
-    }
+    async fn list_countries(&self) -> Result<Vec<OptionItem>, SmsError>;
 
-    async fn list_services(&self, _query: ProviderServicesQuery) -> Result<Vec<OptionItem>, SmsError> {
-        Ok(self.get_options().await?.services)
-    }
+    async fn list_services(
+        &self,
+        query: ProviderServicesQuery,
+    ) -> Result<Vec<OptionItem>, SmsError>;
 
-    async fn list_operators(&self, _query: ProviderOperatorsQuery) -> Result<Vec<OptionItem>, SmsError> {
-        Ok(self.get_options().await?.operators)
-    }
+    async fn list_operators(
+        &self,
+        query: ProviderOperatorsQuery,
+    ) -> Result<Vec<OptionItem>, SmsError>;
 }
 
 pub struct MockProvider {
@@ -75,8 +77,12 @@ impl SmsProvider for MockProvider {
     }
 
     async fn acquire(&self, request: &AcquireCodeRequest) -> Result<TicketRecord, SmsError> {
-        let service = self.manifest.resolve_service_alias(request.service.as_deref());
-        let country = self.manifest.resolved_country_hint(request.country.as_deref());
+        let service = self
+            .manifest
+            .resolve_service_alias(request.service.as_deref());
+        let country = self
+            .manifest
+            .resolved_country_hint(request.country.as_deref());
         let mut ticket = TicketRecord::new(
             self.manifest.id.clone(),
             service,
@@ -91,7 +97,12 @@ impl SmsProvider for MockProvider {
     }
 
     async fn poll_code(&self, ticket: &TicketRecord) -> Result<PollCodeResponse, SmsError> {
-        let code = self.config.codes.first().cloned().unwrap_or_else(|| "123456".to_string());
+        let code = self
+            .config
+            .codes
+            .first()
+            .cloned()
+            .unwrap_or_else(|| "123456".to_string());
         Ok(PollCodeResponse {
             ticket_id: ticket.id.clone(),
             provider: self.manifest.id.clone(),
@@ -102,7 +113,11 @@ impl SmsProvider for MockProvider {
         })
     }
 
-    async fn release(&self, _ticket: &TicketRecord, action: ReleaseAction) -> Result<String, SmsError> {
+    async fn release(
+        &self,
+        _ticket: &TicketRecord,
+        action: ReleaseAction,
+    ) -> Result<String, SmsError> {
         Ok(format!("mock release {action:?}"))
     }
 
@@ -111,32 +126,6 @@ impl SmsProvider for MockProvider {
             provider: self.manifest.id.clone(),
             amount: self.config.balance,
             currency: "USD".to_string(),
-        })
-    }
-
-    async fn get_options(&self) -> Result<ProviderDynamicOptions, SmsError> {
-        Ok(ProviderDynamicOptions {
-            provider: self.manifest.id.clone(),
-            services: vec![OptionItem {
-                value: "openai".into(),
-                label: "OpenAI".into(),
-                hint: "openai".into(),
-                provider_value: Some("openai".into()),
-            }],
-            countries: vec![OptionItem {
-                value: "local".into(),
-                label: "Local".into(),
-                hint: "local".into(),
-                provider_value: Some("local".into()),
-            }],
-            operators: vec![OptionItem {
-                value: "mock".into(),
-                label: "Mock".into(),
-                hint: "mock".into(),
-                provider_value: Some("mock".into()),
-            }],
-            cache_state: crate::models::OptionCacheState::Fresh,
-            fetched_at: None,
         })
     }
 
@@ -154,6 +143,39 @@ impl SmsProvider for MockProvider {
             items
         })
     }
+
+    async fn list_countries(&self) -> Result<Vec<OptionItem>, SmsError> {
+        Ok(vec![OptionItem {
+            value: "local".into(),
+            label: "Local".into(),
+            hint: "local".into(),
+            provider_value: Some("local".into()),
+        }])
+    }
+
+    async fn list_services(
+        &self,
+        _query: ProviderServicesQuery,
+    ) -> Result<Vec<OptionItem>, SmsError> {
+        Ok(vec![OptionItem {
+            value: "openai".into(),
+            label: "OpenAI".into(),
+            hint: "openai".into(),
+            provider_value: Some("openai".into()),
+        }])
+    }
+
+    async fn list_operators(
+        &self,
+        _query: ProviderOperatorsQuery,
+    ) -> Result<Vec<OptionItem>, SmsError> {
+        Ok(vec![OptionItem {
+            value: "mock".into(),
+            label: "Mock".into(),
+            hint: "mock".into(),
+            provider_value: Some("mock".into()),
+        }])
+    }
 }
 
 pub struct HeroSmsProvider {
@@ -164,10 +186,12 @@ pub struct HeroSmsProvider {
 
 impl HeroSmsProvider {
     pub fn new(manifest: ProviderManifest) -> Result<Self, SmsError> {
-        let config = manifest
-            .handler_api
-            .clone()
-            .ok_or_else(|| SmsError::Config(format!("provider `{}` missing handler_api config", manifest.id)))?;
+        let config = manifest.handler_api.clone().ok_or_else(|| {
+            SmsError::Config(format!(
+                "provider `{}` missing handler_api config",
+                manifest.id
+            ))
+        })?;
         let client = Client::builder()
             .timeout(Duration::from_secs(30))
             .build()
@@ -195,7 +219,11 @@ impl HeroSmsProvider {
         }
     }
 
-    async fn request(&self, action: &str, extra: &[(&str, String)]) -> Result<(String, Option<Value>), SmsError> {
+    async fn request(
+        &self,
+        action: &str,
+        extra: &[(&str, String)],
+    ) -> Result<(String, Option<Value>), SmsError> {
         self.as_shared().request(action, extra).await
     }
 
@@ -249,10 +277,12 @@ struct SharedHandlerApiProvider {
 
 impl SharedHandlerApiProvider {
     fn new(manifest: ProviderManifest) -> Result<Self, SmsError> {
-        let config = manifest
-            .handler_api
-            .clone()
-            .ok_or_else(|| SmsError::Config(format!("provider `{}` missing handler_api config", manifest.id)))?;
+        let config = manifest.handler_api.clone().ok_or_else(|| {
+            SmsError::Config(format!(
+                "provider `{}` missing handler_api config",
+                manifest.id
+            ))
+        })?;
         let client = Client::builder()
             .timeout(Duration::from_secs(30))
             .build()
@@ -264,7 +294,11 @@ impl SharedHandlerApiProvider {
         })
     }
 
-    async fn request(&self, action: &str, extra: &[(&str, String)]) -> Result<(String, Option<Value>), SmsError> {
+    async fn request(
+        &self,
+        action: &str,
+        extra: &[(&str, String)],
+    ) -> Result<(String, Option<Value>), SmsError> {
         let mut query = vec![
             ("action", action.to_string()),
             ("api_key", self.config.api_key.clone()),
@@ -305,13 +339,18 @@ impl SharedHandlerApiProvider {
             .into_iter()
             .filter_map(|item| {
                 let value = item.pointer("/id").and_then(coerce_str_value)?;
-                let label = item.pointer("/chn")
+                let label = item
+                    .pointer("/chn")
                     .and_then(Value::as_str)
                     .or_else(|| item.pointer("/eng").and_then(Value::as_str))
                     .or_else(|| item.pointer("/rus").and_then(Value::as_str))
                     .unwrap_or(&value)
                     .to_string();
-                let hint = item.pointer("/eng").and_then(Value::as_str).unwrap_or(&value).to_string();
+                let hint = item
+                    .pointer("/eng")
+                    .and_then(Value::as_str)
+                    .unwrap_or(&value)
+                    .to_string();
                 Some(OptionItem {
                     provider_value: Some(value.clone()),
                     value,
@@ -335,9 +374,13 @@ impl SharedHandlerApiProvider {
                     let services = items
                         .into_iter()
                         .filter_map(|item| {
-                            let value = item.pointer("/code").and_then(Value::as_str)
+                            let value = item
+                                .pointer("/code")
+                                .and_then(Value::as_str)
                                 .or_else(|| item.pointer("/id").and_then(Value::as_str))?;
-                            let label = item.pointer("/name").and_then(Value::as_str)
+                            let label = item
+                                .pointer("/name")
+                                .and_then(Value::as_str)
                                 .or_else(|| item.pointer("/title").and_then(Value::as_str))
                                 .unwrap_or(value);
                             Some(OptionItem {
@@ -375,12 +418,14 @@ impl SharedHandlerApiProvider {
                 continue;
             };
             for operator in operators.iter().filter_map(Value::as_str) {
-                merged.entry(operator.to_string()).or_insert_with(|| OptionItem {
-                    value: operator.to_string(),
-                    label: operator.to_string(),
-                    hint: format!("country={country_id}"),
-                    provider_value: Some(operator.to_string()),
-                });
+                merged
+                    .entry(operator.to_string())
+                    .or_insert_with(|| OptionItem {
+                        value: operator.to_string(),
+                        label: operator.to_string(),
+                        hint: format!("country={country_id}"),
+                        provider_value: Some(operator.to_string()),
+                    });
             }
         }
         Ok(merged.into_values().collect())
@@ -425,7 +470,10 @@ impl SharedHandlerApiProvider {
                 .get("count")
                 .or_else(|| price_obj.get("qty"))
                 .or_else(|| price_obj.get("stock"))
-                .and_then(|v| v.as_u64().or_else(|| v.as_str().and_then(|s| s.parse().ok())))
+                .and_then(|v| {
+                    v.as_u64()
+                        .or_else(|| v.as_str().and_then(|s| s.parse().ok()))
+                })
                 .unwrap_or(0);
             let operator = price_obj
                 .get("operator")
@@ -501,16 +549,30 @@ impl SmsProvider for HeroSmsProvider {
     }
 
     async fn acquire(&self, request: &AcquireCodeRequest) -> Result<TicketRecord, SmsError> {
-        let service = self.manifest.resolve_service_alias(request.service.as_deref());
-        let country = self.manifest.resolved_country_hint(request.country.as_deref());
+        let service = self
+            .manifest
+            .resolve_service_alias(request.service.as_deref());
+        let country = self
+            .manifest
+            .resolved_country_hint(request.country.as_deref());
         let mut params = vec![("service", service.clone()), ("country", country.clone())];
-        if let Some(max_price) = request.max_price.or(Some(self.manifest.defaults.max_price)).filter(|v| *v > 0.0) {
+        if let Some(max_price) = request
+            .max_price
+            .or(Some(self.manifest.defaults.max_price))
+            .filter(|v| *v > 0.0)
+        {
             params.push(("maxPrice", max_price.to_string()));
         }
-        if let Some(min_price) = request.min_price.or(Some(self.manifest.defaults.min_price)).filter(|v| *v > 0.0) {
+        if let Some(min_price) = request
+            .min_price
+            .or(Some(self.manifest.defaults.min_price))
+            .filter(|v| *v > 0.0)
+        {
             params.push(("minPrice", min_price.to_string()));
         }
-        let (text, json) = self.request(&self.config.get_number_action, &params).await?;
+        let (text, json) = self
+            .request(&self.config.get_number_action, &params)
+            .await?;
         let (upstream_id, phone_number, price) = self.parse_number(&text, json.as_ref())?;
         let mut ticket = TicketRecord::new(
             self.manifest.id.clone(),
@@ -596,7 +658,11 @@ impl SmsProvider for HeroSmsProvider {
         })
     }
 
-    async fn release(&self, ticket: &TicketRecord, action: ReleaseAction) -> Result<String, SmsError> {
+    async fn release(
+        &self,
+        ticket: &TicketRecord,
+        action: ReleaseAction,
+    ) -> Result<String, SmsError> {
         let upstream_id = ticket
             .upstream_id
             .clone()
@@ -628,54 +694,33 @@ impl SmsProvider for HeroSmsProvider {
     async fn get_prices(&self, service: Option<&str>) -> Result<Vec<ProviderPriceItem>, SmsError> {
         let service = self.manifest.resolve_service_alias(service);
         let (_text, json) = self
-            .request(&self.config.get_prices_action, &[("service", service.clone())])
+            .request(
+                &self.config.get_prices_action,
+                &[("service", service.clone())],
+            )
             .await?;
         Ok(self.parse_prices(&service, json.as_ref()))
     }
 
-    async fn get_options(&self) -> Result<ProviderDynamicOptions, SmsError> {
-        let services = self.request_services().await?;
-        let countries = self.request_countries().await?;
-        let operators = self.as_shared().request_operators(None).await?;
-        Ok(ProviderDynamicOptions {
-            provider: self.manifest.id.clone(),
-            services: if services.is_empty() {
-                vec![OptionItem {
-                    value: self.manifest.defaults.service.clone(),
-                    label: self.manifest.defaults.service.clone(),
-                    hint: self.manifest.defaults.service.clone(),
-                    provider_value: Some(self.manifest.defaults.service.clone()),
-                }]
-            } else {
-                services
-            },
-            countries: if countries.is_empty() {
-                vec![OptionItem {
-                    value: self.manifest.defaults.country.clone(),
-                    label: self.manifest.defaults.country.clone(),
-                    hint: self.manifest.defaults.country.clone(),
-                    provider_value: Some(self.manifest.defaults.country.clone()),
-                }]
-            } else {
-                countries
-            },
-            operators: if operators.is_empty() {
-                vec![OptionItem {
-                    value: "any".into(),
-                    label: "Any Operator".into(),
-                    hint: "any".into(),
-                    provider_value: Some("any".into()),
-                }]
-            } else {
-                operators
-            },
-            cache_state: crate::models::OptionCacheState::Fresh,
-            fetched_at: None,
-        })
+    async fn list_countries(&self) -> Result<Vec<OptionItem>, SmsError> {
+        self.request_countries().await
     }
 
-    async fn list_operators(&self, query: ProviderOperatorsQuery) -> Result<Vec<OptionItem>, SmsError> {
-        let operators = self.as_shared().request_operators(query.country.as_deref()).await?;
+    async fn list_services(
+        &self,
+        _query: ProviderServicesQuery,
+    ) -> Result<Vec<OptionItem>, SmsError> {
+        self.request_services().await
+    }
+
+    async fn list_operators(
+        &self,
+        query: ProviderOperatorsQuery,
+    ) -> Result<Vec<OptionItem>, SmsError> {
+        let operators = self
+            .as_shared()
+            .request_operators(query.country.as_deref())
+            .await?;
         if operators.is_empty() {
             return Ok(vec![OptionItem {
                 value: "any".into(),
@@ -712,7 +757,11 @@ impl SmsProvider for SmsBowerProvider {
         hero.poll_code(ticket).await
     }
 
-    async fn release(&self, ticket: &TicketRecord, action: ReleaseAction) -> Result<String, SmsError> {
+    async fn release(
+        &self,
+        ticket: &TicketRecord,
+        action: ReleaseAction,
+    ) -> Result<String, SmsError> {
         let hero = HeroSmsProvider::from_shared(SharedHandlerApiProvider {
             manifest: self.manifest.clone(),
             client: self.client.clone(),
@@ -730,13 +779,13 @@ impl SmsProvider for SmsBowerProvider {
         hero.get_balance().await
     }
 
-    async fn get_options(&self) -> Result<ProviderDynamicOptions, SmsError> {
+    async fn list_countries(&self) -> Result<Vec<OptionItem>, SmsError> {
         let hero = HeroSmsProvider::from_shared(SharedHandlerApiProvider {
             manifest: self.manifest.clone(),
             client: self.client.clone(),
             config: self.config.clone(),
         });
-        hero.get_options().await
+        hero.list_countries().await
     }
 
     async fn get_prices(&self, service: Option<&str>) -> Result<Vec<ProviderPriceItem>, SmsError> {
@@ -748,7 +797,22 @@ impl SmsProvider for SmsBowerProvider {
         hero.get_prices(service).await
     }
 
-    async fn list_operators(&self, query: ProviderOperatorsQuery) -> Result<Vec<OptionItem>, SmsError> {
+    async fn list_services(
+        &self,
+        query: ProviderServicesQuery,
+    ) -> Result<Vec<OptionItem>, SmsError> {
+        let hero = HeroSmsProvider::from_shared(SharedHandlerApiProvider {
+            manifest: self.manifest.clone(),
+            client: self.client.clone(),
+            config: self.config.clone(),
+        });
+        hero.list_services(query).await
+    }
+
+    async fn list_operators(
+        &self,
+        query: ProviderOperatorsQuery,
+    ) -> Result<Vec<OptionItem>, SmsError> {
         let hero = HeroSmsProvider::from_shared(SharedHandlerApiProvider {
             manifest: self.manifest.clone(),
             client: self.client.clone(),
@@ -766,10 +830,12 @@ pub struct FiveSimProvider {
 
 impl FiveSimProvider {
     pub fn new(manifest: ProviderManifest) -> Result<Self, SmsError> {
-        let config = manifest
-            .five_sim
-            .clone()
-            .ok_or_else(|| SmsError::Config(format!("provider `{}` missing five_sim config", manifest.id)))?;
+        let config = manifest.five_sim.clone().ok_or_else(|| {
+            SmsError::Config(format!(
+                "provider `{}` missing five_sim config",
+                manifest.id
+            ))
+        })?;
         let client = Client::builder()
             .timeout(Duration::from_secs(30))
             .build()
@@ -815,7 +881,11 @@ impl FiveSimProvider {
         Ok((text, json))
     }
 
-    async fn request_products(&self, country: &str, operator: &str) -> Result<Vec<OptionItem>, SmsError> {
+    async fn request_products(
+        &self,
+        country: &str,
+        operator: &str,
+    ) -> Result<Vec<OptionItem>, SmsError> {
         let path = format!(
             "{}/{}/{}",
             self.config.products_endpoint.trim_end_matches('/'),
@@ -827,8 +897,19 @@ impl FiveSimProvider {
         Ok(entries
             .into_iter()
             .map(|(value, item)| {
-                let qty = item.pointer("/Qty").or_else(|| item.pointer("/qty")).and_then(|v| v.as_u64().or_else(|| v.as_str().and_then(|s| s.parse().ok()))).unwrap_or(0);
-                let price = item.pointer("/Price").or_else(|| item.pointer("/price")).and_then(coerce_f64).unwrap_or(0.0);
+                let qty = item
+                    .pointer("/Qty")
+                    .or_else(|| item.pointer("/qty"))
+                    .and_then(|v| {
+                        v.as_u64()
+                            .or_else(|| v.as_str().and_then(|s| s.parse().ok()))
+                    })
+                    .unwrap_or(0);
+                let price = item
+                    .pointer("/Price")
+                    .or_else(|| item.pointer("/price"))
+                    .and_then(coerce_f64)
+                    .unwrap_or(0.0);
                 OptionItem {
                     provider_value: Some(value.clone()),
                     value: value.clone(),
@@ -859,7 +940,10 @@ impl FiveSimProvider {
             .collect()
     }
 
-    fn map_poll_payload(&self, json: &Value) -> (String, Option<String>, crate::models::TicketStatus) {
+    fn map_poll_payload(
+        &self,
+        json: &Value,
+    ) -> (String, Option<String>, crate::models::TicketStatus) {
         let status = json
             .pointer(&self.config.status_json_pointer)
             .and_then(Value::as_str)
@@ -874,7 +958,9 @@ impl FiveSimProvider {
         let mapped = match status.as_str() {
             // RECEIVED = 号码活跃，等待 SMS；PENDING = 初始化；FINISHED = 完成
             // 只要 sms 数组中有验证码，均视为 CodeReceived
-            "RECEIVED" | "PENDING" | "FINISHED" if sms_code.is_some() => crate::models::TicketStatus::CodeReceived,
+            "RECEIVED" | "PENDING" | "FINISHED" if sms_code.is_some() => {
+                crate::models::TicketStatus::CodeReceived
+            }
             _ if self
                 .config
                 .failure_statuses
@@ -896,8 +982,12 @@ impl SmsProvider for FiveSimProvider {
     }
 
     async fn acquire(&self, request: &AcquireCodeRequest) -> Result<TicketRecord, SmsError> {
-        let service = self.manifest.resolve_service_alias(request.service.as_deref());
-        let country = self.manifest.resolved_country_hint(request.country.as_deref());
+        let service = self
+            .manifest
+            .resolve_service_alias(request.service.as_deref());
+        let country = self
+            .manifest
+            .resolved_country_hint(request.country.as_deref());
         let endpoint = format!(
             "{}/{}/{}/{}",
             self.config.buy_endpoint_prefix.trim_end_matches('/'),
@@ -906,10 +996,18 @@ impl SmsProvider for FiveSimProvider {
             service
         );
         let mut params = Vec::new();
-        if let Some(max_price) = request.max_price.or(Some(self.manifest.defaults.max_price)).filter(|v| *v > 0.0) {
+        if let Some(max_price) = request
+            .max_price
+            .or(Some(self.manifest.defaults.max_price))
+            .filter(|v| *v > 0.0)
+        {
             params.push(("maxPrice", max_price.to_string()));
         }
-        if request.reuse_phone.or(Some(self.manifest.defaults.reuse_phone)).unwrap_or(false) {
+        if request
+            .reuse_phone
+            .or(Some(self.manifest.defaults.reuse_phone))
+            .unwrap_or(false)
+        {
             params.push(("reuse", "1".to_string()));
         }
         let (_text, json) = self.request_get(&endpoint, &params).await?;
@@ -964,15 +1062,15 @@ impl SmsProvider for FiveSimProvider {
             status: mapped,
             code: sms_code,
             message: Some(status),
-            next_retry_after_ms: if should_retry {
-                Some(3000)
-            } else {
-                None
-            },
+            next_retry_after_ms: if should_retry { Some(3000) } else { None },
         })
     }
 
-    async fn release(&self, ticket: &TicketRecord, action: ReleaseAction) -> Result<String, SmsError> {
+    async fn release(
+        &self,
+        ticket: &TicketRecord,
+        action: ReleaseAction,
+    ) -> Result<String, SmsError> {
         let upstream_id = ticket
             .upstream_id
             .clone()
@@ -1009,7 +1107,10 @@ impl SmsProvider for FiveSimProvider {
     async fn get_prices(&self, service: Option<&str>) -> Result<Vec<ProviderPriceItem>, SmsError> {
         let service = self.manifest.resolve_service_alias(service);
         let (_text, json) = self
-            .request_get(&self.config.prices_endpoint, &[("product", service.clone())])
+            .request_get(
+                &self.config.prices_endpoint,
+                &[("product", service.clone())],
+            )
             .await?;
         let mut items = Vec::new();
         let root = json
@@ -1024,7 +1125,11 @@ impl SmsProvider for FiveSimProvider {
                 let price = operator.get("cost").and_then(coerce_f64);
                 let stock = operator
                     .get("count")
-                    .and_then(|value| value.as_u64().or_else(|| value.as_str().and_then(|text| text.parse().ok())))
+                    .and_then(|value| {
+                        value
+                            .as_u64()
+                            .or_else(|| value.as_str().and_then(|text| text.parse().ok()))
+                    })
                     .unwrap_or(0);
                 if stock == 0 {
                     continue;
@@ -1047,67 +1152,6 @@ impl SmsProvider for FiveSimProvider {
                 .then_with(|| left.price.total_cmp(&right.price))
         });
         Ok(items)
-    }
-
-    async fn get_options(&self) -> Result<ProviderDynamicOptions, SmsError> {
-        let prices = self.get_prices(Some(&self.manifest.defaults.service)).await?;
-        let mut countries = Vec::<OptionItem>::new();
-        let mut operators = Vec::<OptionItem>::new();
-        for item in &prices {
-            if !countries.iter().any(|entry| entry.value == item.country) {
-                countries.push(OptionItem {
-                    provider_value: Some(item.country.clone()),
-                    value: item.country.clone(),
-                    label: item.display_name.clone(),
-                    hint: item.country.clone(),
-                });
-            }
-            if !operators.iter().any(|entry| entry.value == item.operator) {
-                operators.push(OptionItem {
-                    provider_value: Some(item.operator.clone()),
-                    value: item.operator.clone(),
-                    label: item.operator.clone(),
-                    hint: item.operator.clone(),
-                });
-            }
-        }
-        let services = self
-            .request_products(&self.manifest.defaults.country, &self.config.buy_operator)
-            .await
-            .unwrap_or_else(|_| {
-                vec![OptionItem {
-                    value: self.manifest.defaults.service.clone(),
-                    label: self.manifest.defaults.service.clone(),
-                    hint: self.manifest.defaults.service.clone(),
-                    provider_value: Some(self.manifest.defaults.service.clone()),
-                }]
-            });
-        Ok(ProviderDynamicOptions {
-            provider: self.manifest.id.clone(),
-            services,
-            countries: if countries.is_empty() {
-                vec![OptionItem {
-                    value: self.manifest.defaults.country.clone(),
-                    label: self.manifest.defaults.country.clone(),
-                    hint: self.manifest.defaults.country.clone(),
-                    provider_value: Some(self.manifest.defaults.country.clone()),
-                }]
-            } else {
-                countries
-            },
-            operators: if operators.is_empty() {
-                vec![OptionItem {
-                    value: self.config.buy_operator.clone(),
-                    label: self.config.buy_operator.clone(),
-                    hint: self.config.buy_operator.clone(),
-                    provider_value: Some(self.config.buy_operator.clone()),
-                }]
-            } else {
-                operators
-            },
-            cache_state: crate::models::OptionCacheState::Fresh,
-            fetched_at: None,
-        })
     }
 
     async fn list_countries(&self) -> Result<Vec<OptionItem>, SmsError> {
@@ -1135,7 +1179,10 @@ impl SmsProvider for FiveSimProvider {
             .collect())
     }
 
-    async fn list_operators(&self, query: ProviderOperatorsQuery) -> Result<Vec<OptionItem>, SmsError> {
+    async fn list_operators(
+        &self,
+        query: ProviderOperatorsQuery,
+    ) -> Result<Vec<OptionItem>, SmsError> {
         let countries = self.request_countries_map().await?;
         let operator_keys = if let Some(country) = query.country.as_deref() {
             countries
@@ -1163,12 +1210,19 @@ impl SmsProvider for FiveSimProvider {
             .collect())
     }
 
-    async fn list_services(&self, query: ProviderServicesQuery) -> Result<Vec<OptionItem>, SmsError> {
+    async fn list_services(
+        &self,
+        query: ProviderServicesQuery,
+    ) -> Result<Vec<OptionItem>, SmsError> {
         let country = query
             .country
             .as_deref()
             .filter(|value| !value.is_empty())
-            .ok_or_else(|| SmsError::InvalidRequest("country is required for 5SIM service discovery".to_string()))?;
+            .ok_or_else(|| {
+                SmsError::InvalidRequest(
+                    "country is required for 5SIM service discovery".to_string(),
+                )
+            })?;
         let operator = query
             .operator
             .as_deref()
@@ -1181,8 +1235,12 @@ impl SmsProvider for FiveSimProvider {
 pub fn build_provider(manifest: ProviderManifest) -> Result<Arc<dyn SmsProvider>, SmsError> {
     match manifest.kind {
         ProviderKind::Mock => Ok(Arc::new(MockProvider::new(manifest))),
-        ProviderKind::HandlerApi if manifest.id == "herosms" => Ok(Arc::new(HeroSmsProvider::new(manifest)?)),
-        ProviderKind::HandlerApi if manifest.id == "smsbower" => Ok(Arc::new(SmsBowerProvider::new(manifest)?)),
+        ProviderKind::HandlerApi if manifest.id == "herosms" => {
+            Ok(Arc::new(HeroSmsProvider::new(manifest)?))
+        }
+        ProviderKind::HandlerApi if manifest.id == "smsbower" => {
+            Ok(Arc::new(SmsBowerProvider::new(manifest)?))
+        }
         ProviderKind::HandlerApi => Ok(Arc::new(HeroSmsProvider::new(manifest)?)),
         ProviderKind::FiveSim => Ok(Arc::new(FiveSimProvider::new(manifest)?)),
     }
@@ -1323,11 +1381,13 @@ mod tests {
         });
         assert!(!upper.starts_with(&success_prefix));
         assert!(code_from_json.is_none());
-        assert!(provider
-            .config
-            .wait_status_tokens
-            .iter()
-            .all(|token| !upper.contains(&token.to_ascii_uppercase())));
+        assert!(
+            provider
+                .config
+                .wait_status_tokens
+                .iter()
+                .all(|token| !upper.contains(&token.to_ascii_uppercase()))
+        );
         assert_eq!(ticket.status, crate::models::TicketStatus::Pending);
     }
 

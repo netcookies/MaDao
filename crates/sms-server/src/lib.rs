@@ -5,11 +5,11 @@ use axum::{Json, Router};
 use serde::Serialize;
 use sms_core::config::ServerConfig;
 use sms_core::models::{
-    AcquireCodeRequest, NotificationFeed, OptionCacheOverview, PollCodeRequest, ProviderDynamicOptions,
+    AcquireCodeRequest, NotificationFeed, OptionCacheOverview, PollCodeRequest,
     ProviderManifestList, ProviderOperatorsQuery, ProviderPriceQuery, ProviderReorderRequest,
-    ProviderServicesQuery, ReleaseCodeRequest, RoutingFailoverRequest, RoutingPlan, RoutingPlanList,
-    RuntimeSettings, RuntimeSettingsUpdate, RuntimeSnapshot, TicketCallbackRegistrationRequest,
-    TicketListResponse,
+    ProviderServicesQuery, ReleaseCodeRequest, RoutingFailoverRequest, RoutingPlan,
+    RoutingPlanList, RuntimeSettings, RuntimeSettingsUpdate, RuntimeSnapshot,
+    TicketCallbackRegistrationRequest, TicketListResponse,
 };
 use sms_core::service::SmsService;
 use std::net::SocketAddr;
@@ -33,15 +33,30 @@ pub fn build_router(service: Arc<SmsService>) -> Router {
         .route("/health", get(health))
         .route("/api/providers", get(list_runtime))
         .route("/api/provider-manifests", get(list_provider_manifests))
-        .route("/api/provider-manifests/reload", post(reload_provider_manifests))
+        .route(
+            "/api/provider-manifests/reload",
+            post(reload_provider_manifests),
+        )
         .route("/api/providers/reorder", post(reorder_providers))
-        .route("/api/routing-plans", get(list_routing_plans).post(save_routing_plan))
-        .route("/api/routing-plans/{plan_id}", get(get_routing_plan).delete(delete_routing_plan))
+        .route(
+            "/api/routing-plans",
+            get(list_routing_plans).post(save_routing_plan),
+        )
+        .route(
+            "/api/routing-plans/{plan_id}",
+            get(get_routing_plan).delete(delete_routing_plan),
+        )
         .route("/api/notifications", get(get_notifications))
         .route("/api/tickets", get(list_tickets))
         .route("/api/tickets/{ticket_id}", get(get_ticket))
-        .route("/api/tickets/{ticket_id}/callbacks", get(list_ticket_callbacks).post(register_ticket_callback))
-        .route("/api/settings/runtime", get(get_runtime_settings).post(update_runtime_settings))
+        .route(
+            "/api/tickets/{ticket_id}/callbacks",
+            get(list_ticket_callbacks).post(register_ticket_callback),
+        )
+        .route(
+            "/api/settings/runtime",
+            get(get_runtime_settings).post(update_runtime_settings),
+        )
         .route("/api/settings/option-cache", get(get_option_cache_overview))
         .route("/api/acquire", post(acquire_code))
         .route("/api/poll", post(poll_code))
@@ -49,11 +64,22 @@ pub fn build_router(service: Arc<SmsService>) -> Router {
         .route("/api/routing/failover", post(failover_routing))
         .route("/api/providers/{provider}/balance", get(get_balance))
         .route("/api/providers/{provider}/prices", post(get_prices))
-        .route("/api/providers/{provider}/options", get(get_provider_options))
-        .route("/api/providers/{provider}/countries", get(get_provider_countries))
-        .route("/api/providers/{provider}/services", post(get_provider_services))
-        .route("/api/providers/{provider}/operators", post(get_provider_operators))
-        .route("/api/providers/{provider}/manifest", get(get_manifest).put(put_manifest))
+        .route(
+            "/api/providers/{provider}/countries",
+            get(get_provider_countries),
+        )
+        .route(
+            "/api/providers/{provider}/services",
+            post(get_provider_services),
+        )
+        .route(
+            "/api/providers/{provider}/operators",
+            post(get_provider_operators),
+        )
+        .route(
+            "/api/providers/{provider}/manifest",
+            get(get_manifest).put(put_manifest),
+        )
         .layer(CorsLayer::permissive())
         .layer(TraceLayer::new_for_http())
         .with_state(ApiState { service })
@@ -87,17 +113,23 @@ async fn health() -> Json<serde_json::Value> {
 }
 
 async fn list_runtime(State(state): State<ApiState>) -> Json<RuntimeSnapshot> {
-    state.service.log_http_access("GET", "/api/providers", "200");
+    state
+        .service
+        .log_http_access("GET", "/api/providers", "200");
     Json(state.service.runtime_snapshot())
 }
 
 async fn list_provider_manifests(State(state): State<ApiState>) -> Json<ProviderManifestList> {
-    state.service.log_http_access("GET", "/api/provider-manifests", "200");
+    state
+        .service
+        .log_http_access("GET", "/api/provider-manifests", "200");
     Json(state.service.list_provider_manifests())
 }
 
 async fn get_notifications(State(state): State<ApiState>) -> Json<NotificationFeed> {
-    state.service.log_http_access("GET", "/api/notifications", "200");
+    state
+        .service
+        .log_http_access("GET", "/api/notifications", "200");
     Json(state.service.notification_feed())
 }
 
@@ -115,7 +147,11 @@ async fn get_ticket(
         .ticket(&ticket_id)
         .map(|value| Json(serde_json::json!(value)))
         .map_err(to_api_error);
-    state.service.log_http_access("GET", format!("/api/tickets/{ticket_id}"), if result.is_ok() { "200" } else { "400" });
+    state.service.log_http_access(
+        "GET",
+        format!("/api/tickets/{ticket_id}"),
+        if result.is_ok() { "200" } else { "400" },
+    );
     result
 }
 
@@ -128,7 +164,11 @@ async fn list_ticket_callbacks(
         .list_ticket_callbacks(&ticket_id)
         .map(|value| Json(serde_json::json!(value)))
         .map_err(to_api_error);
-    state.service.log_http_access("GET", format!("/api/tickets/{ticket_id}/callbacks"), if result.is_ok() { "200" } else { "400" });
+    state.service.log_http_access(
+        "GET",
+        format!("/api/tickets/{ticket_id}/callbacks"),
+        if result.is_ok() { "200" } else { "400" },
+    );
     result
 }
 
@@ -142,12 +182,18 @@ async fn register_ticket_callback(
         .register_ticket_callback(&ticket_id, request)
         .map(|value| Json(serde_json::json!(value)))
         .map_err(to_api_error);
-    state.service.log_http_access("POST", format!("/api/tickets/{ticket_id}/callbacks"), if result.is_ok() { "200" } else { "400" });
+    state.service.log_http_access(
+        "POST",
+        format!("/api/tickets/{ticket_id}/callbacks"),
+        if result.is_ok() { "200" } else { "400" },
+    );
     result
 }
 
 async fn list_routing_plans(State(state): State<ApiState>) -> Json<RoutingPlanList> {
-    state.service.log_http_access("GET", "/api/routing-plans", "200");
+    state
+        .service
+        .log_http_access("GET", "/api/routing-plans", "200");
     Json(state.service.list_routing_plans())
 }
 
@@ -160,7 +206,11 @@ async fn get_routing_plan(
         .routing_plan(&plan_id)
         .map(|value| Json(serde_json::json!(value)))
         .map_err(to_api_error);
-    state.service.log_http_access("GET", format!("/api/routing-plans/{plan_id}"), if result.is_ok() { "200" } else { "400" });
+    state.service.log_http_access(
+        "GET",
+        format!("/api/routing-plans/{plan_id}"),
+        if result.is_ok() { "200" } else { "400" },
+    );
     result
 }
 
@@ -173,7 +223,11 @@ async fn save_routing_plan(
         .save_routing_plan(plan)
         .map(|value| Json(serde_json::json!(value)))
         .map_err(to_api_error);
-    state.service.log_http_access("POST", "/api/routing-plans", if result.is_ok() { "200" } else { "400" });
+    state.service.log_http_access(
+        "POST",
+        "/api/routing-plans",
+        if result.is_ok() { "200" } else { "400" },
+    );
     result
 }
 
@@ -186,12 +240,18 @@ async fn delete_routing_plan(
         .delete_routing_plan(&plan_id)
         .map(|value| Json(serde_json::json!(value)))
         .map_err(to_api_error);
-    state.service.log_http_access("DELETE", format!("/api/routing-plans/{plan_id}"), if result.is_ok() { "200" } else { "400" });
+    state.service.log_http_access(
+        "DELETE",
+        format!("/api/routing-plans/{plan_id}"),
+        if result.is_ok() { "200" } else { "400" },
+    );
     result
 }
 
 async fn get_runtime_settings(State(state): State<ApiState>) -> Json<RuntimeSettings> {
-    state.service.log_http_access("GET", "/api/settings/runtime", "200");
+    state
+        .service
+        .log_http_access("GET", "/api/settings/runtime", "200");
     Json(state.service.runtime_settings())
 }
 
@@ -199,12 +259,16 @@ async fn update_runtime_settings(
     State(state): State<ApiState>,
     Json(update): Json<RuntimeSettingsUpdate>,
 ) -> Json<RuntimeSettings> {
-    state.service.log_http_access("POST", "/api/settings/runtime", "200");
+    state
+        .service
+        .log_http_access("POST", "/api/settings/runtime", "200");
     Json(state.service.update_runtime_settings(update))
 }
 
 async fn get_option_cache_overview(State(state): State<ApiState>) -> Json<OptionCacheOverview> {
-    state.service.log_http_access("GET", "/api/settings/option-cache", "200");
+    state
+        .service
+        .log_http_access("GET", "/api/settings/option-cache", "200");
     Json(state.service.option_cache_overview())
 }
 
@@ -216,7 +280,11 @@ async fn reload_provider_manifests(
         .reload_provider_registry()
         .map(|value| Json(serde_json::json!(value)))
         .map_err(to_api_error);
-    state.service.log_http_access("POST", "/api/provider-manifests/reload", if result.is_ok() { "200" } else { "400" });
+    state.service.log_http_access(
+        "POST",
+        "/api/provider-manifests/reload",
+        if result.is_ok() { "200" } else { "400" },
+    );
     result
 }
 
@@ -229,7 +297,11 @@ async fn reorder_providers(
         .reorder_providers(request)
         .map(|value| Json(serde_json::json!(value)))
         .map_err(to_api_error);
-    state.service.log_http_access("POST", "/api/providers/reorder", if result.is_ok() { "200" } else { "400" });
+    state.service.log_http_access(
+        "POST",
+        "/api/providers/reorder",
+        if result.is_ok() { "200" } else { "400" },
+    );
     result
 }
 
@@ -243,7 +315,11 @@ async fn acquire_code(
         .await
         .map(|value| Json(serde_json::json!(value)))
         .map_err(to_api_error);
-    state.service.log_http_access("POST", "/api/acquire", if result.is_ok() { "200" } else { "400" });
+    state.service.log_http_access(
+        "POST",
+        "/api/acquire",
+        if result.is_ok() { "200" } else { "400" },
+    );
     result
 }
 
@@ -257,7 +333,11 @@ async fn poll_code(
         .await
         .map(|value| Json(serde_json::json!(value)))
         .map_err(to_api_error);
-    state.service.log_http_access("POST", "/api/poll", if result.is_ok() { "200" } else { "400" });
+    state.service.log_http_access(
+        "POST",
+        "/api/poll",
+        if result.is_ok() { "200" } else { "400" },
+    );
     result
 }
 
@@ -271,7 +351,11 @@ async fn release_code(
         .await
         .map(|value| Json(serde_json::json!(value)))
         .map_err(to_api_error);
-    state.service.log_http_access("POST", "/api/release", if result.is_ok() { "200" } else { "400" });
+    state.service.log_http_access(
+        "POST",
+        "/api/release",
+        if result.is_ok() { "200" } else { "400" },
+    );
     result
 }
 
@@ -285,7 +369,11 @@ async fn failover_routing(
         .await
         .map(|value| Json(serde_json::json!(value)))
         .map_err(to_api_error);
-    state.service.log_http_access("POST", "/api/routing/failover", if result.is_ok() { "200" } else { "400" });
+    state.service.log_http_access(
+        "POST",
+        "/api/routing/failover",
+        if result.is_ok() { "200" } else { "400" },
+    );
     result
 }
 
@@ -299,7 +387,11 @@ async fn get_balance(
         .await
         .map(|value| Json(serde_json::json!(value)))
         .map_err(to_api_error);
-    state.service.log_http_access("GET", format!("/api/providers/{provider}/balance"), if result.is_ok() { "200" } else { "400" });
+    state.service.log_http_access(
+        "GET",
+        format!("/api/providers/{provider}/balance"),
+        if result.is_ok() { "200" } else { "400" },
+    );
     result
 }
 
@@ -316,19 +408,11 @@ async fn get_prices(
         .await
         .map(|value| Json(serde_json::json!(value)))
         .map_err(to_api_error);
-    state.service.log_http_access("POST", format!("/api/providers/{provider_for_log}/prices"), if result.is_ok() { "200" } else { "400" });
-    result
-}
-
-async fn get_provider_options(
-    State(state): State<ApiState>,
-    Path(provider): Path<String>,
-) -> Result<Json<ProviderDynamicOptions>, (StatusCode, Json<ApiError>)> {
-    let result = match state.service.provider_dynamic_options(&provider).await {
-        Ok(value) => Ok(Json(value)),
-        Err(error) => Err(to_api_error(error)),
-    };
-    state.service.log_http_access("GET", format!("/api/providers/{provider}/options"), if result.is_ok() { "200" } else { "400" });
+    state.service.log_http_access(
+        "POST",
+        format!("/api/providers/{provider_for_log}/prices"),
+        if result.is_ok() { "200" } else { "400" },
+    );
     result
 }
 
@@ -342,7 +426,11 @@ async fn get_provider_countries(
         .await
         .map(|value| Json(serde_json::json!(value)))
         .map_err(to_api_error);
-    state.service.log_http_access("GET", format!("/api/providers/{provider}/countries"), if result.is_ok() { "200" } else { "400" });
+    state.service.log_http_access(
+        "GET",
+        format!("/api/providers/{provider}/countries"),
+        if result.is_ok() { "200" } else { "400" },
+    );
     result
 }
 
@@ -357,7 +445,11 @@ async fn get_provider_services(
         .await
         .map(|value| Json(serde_json::json!(value)))
         .map_err(to_api_error);
-    state.service.log_http_access("POST", format!("/api/providers/{provider}/services"), if result.is_ok() { "200" } else { "400" });
+    state.service.log_http_access(
+        "POST",
+        format!("/api/providers/{provider}/services"),
+        if result.is_ok() { "200" } else { "400" },
+    );
     result
 }
 
@@ -372,7 +464,11 @@ async fn get_provider_operators(
         .await
         .map(|value| Json(serde_json::json!(value)))
         .map_err(to_api_error);
-    state.service.log_http_access("POST", format!("/api/providers/{provider}/operators"), if result.is_ok() { "200" } else { "400" });
+    state.service.log_http_access(
+        "POST",
+        format!("/api/providers/{provider}/operators"),
+        if result.is_ok() { "200" } else { "400" },
+    );
     result
 }
 
@@ -385,7 +481,11 @@ async fn get_manifest(
         .provider_manifest(&provider)
         .map(|value| Json(serde_json::json!(value)))
         .map_err(to_api_error);
-    state.service.log_http_access("GET", format!("/api/providers/{provider}/manifest"), if result.is_ok() { "200" } else { "400" });
+    state.service.log_http_access(
+        "GET",
+        format!("/api/providers/{provider}/manifest"),
+        if result.is_ok() { "200" } else { "400" },
+    );
     result
 }
 
@@ -394,16 +494,29 @@ async fn put_manifest(
     Path(provider): Path<String>,
     Json(manifest): Json<plugin_sdk::ProviderManifest>,
 ) -> Result<Json<serde_json::Value>, (StatusCode, Json<ApiError>)> {
-    let result = match state.service.save_provider_manifest(&provider, manifest).await {
+    let result = match state
+        .service
+        .save_provider_manifest(&provider, manifest)
+        .await
+    {
         Ok(value) => Ok(Json(serde_json::json!(value))),
         Err(error) => Err(to_api_error(error)),
     };
-    state.service.log_http_access("PUT", format!("/api/providers/{provider}/manifest"), if result.is_ok() { "200" } else { "400" });
+    state.service.log_http_access(
+        "PUT",
+        format!("/api/providers/{provider}/manifest"),
+        if result.is_ok() { "200" } else { "400" },
+    );
     result
 }
 
 fn to_api_error(error: sms_core::error::SmsError) -> (StatusCode, Json<ApiError>) {
-    (StatusCode::BAD_REQUEST, Json(ApiError { message: error.to_string() }))
+    (
+        StatusCode::BAD_REQUEST,
+        Json(ApiError {
+            message: error.to_string(),
+        }),
+    )
 }
 
 #[cfg(test)]
@@ -431,7 +544,11 @@ mod tests {
         let base = std::env::temp_dir().join(format!("madao-sms-server-test-{}", Uuid::now_v7()));
         fs::create_dir_all(&base).unwrap();
         for name in ["mock.toml", "herosms.toml", "smsbower.toml", "fivesim.toml"] {
-            fs::copy(repo_root().join("plugins/providers").join(name), base.join(name)).unwrap();
+            fs::copy(
+                repo_root().join("plugins/providers").join(name),
+                base.join(name),
+            )
+            .unwrap();
         }
         base
     }
@@ -563,13 +680,20 @@ mod tests {
             .await
             .unwrap();
         let acquire_json: serde_json::Value = serde_json::from_slice(&acquire_body).unwrap();
-        let ticket_id = acquire_json.pointer("/ticket_id").and_then(serde_json::Value::as_str).unwrap();
+        let ticket_id = acquire_json
+            .pointer("/ticket_id")
+            .and_then(serde_json::Value::as_str)
+            .unwrap();
         assert_eq!(
-            acquire_json.pointer("/routing_plan_id").and_then(serde_json::Value::as_str),
+            acquire_json
+                .pointer("/routing_plan_id")
+                .and_then(serde_json::Value::as_str),
             Some("openai-plan")
         );
         assert_eq!(
-            acquire_json.pointer("/routing_item_id").and_then(serde_json::Value::as_str),
+            acquire_json
+                .pointer("/routing_item_id")
+                .and_then(serde_json::Value::as_str),
             Some("mock-first")
         );
 
@@ -597,7 +721,9 @@ mod tests {
             .unwrap();
         let failover_json: serde_json::Value = serde_json::from_slice(&failover_body).unwrap();
         assert_eq!(
-            failover_json.pointer("/routing_item_id").and_then(serde_json::Value::as_str),
+            failover_json
+                .pointer("/routing_item_id")
+                .and_then(serde_json::Value::as_str),
             Some("mock-second")
         );
     }
@@ -660,6 +786,19 @@ mod tests {
     #[tokio::test]
     async fn provider_option_resource_endpoints_work_over_http() {
         let app = test_router();
+
+        let options_response = app
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .method(Method::GET)
+                    .uri("/api/providers/mock/options")
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(options_response.status(), StatusCode::NOT_FOUND);
 
         let countries_response = app
             .clone()
@@ -743,7 +882,9 @@ mod tests {
             .unwrap();
         let tickets_json: serde_json::Value = serde_json::from_slice(&tickets_body).unwrap();
         assert_eq!(
-            tickets_json.pointer("/items/0/provider").and_then(serde_json::Value::as_str),
+            tickets_json
+                .pointer("/items/0/provider")
+                .and_then(serde_json::Value::as_str),
             Some("mock")
         );
     }
@@ -776,7 +917,10 @@ mod tests {
             .await
             .unwrap();
         let acquire_json: serde_json::Value = serde_json::from_slice(&acquire_body).unwrap();
-        let ticket_id = acquire_json.pointer("/ticket_id").and_then(serde_json::Value::as_str).unwrap();
+        let ticket_id = acquire_json
+            .pointer("/ticket_id")
+            .and_then(serde_json::Value::as_str)
+            .unwrap();
 
         let detail_response = app
             .clone()
@@ -827,7 +971,9 @@ mod tests {
             .unwrap();
         let callbacks_json: serde_json::Value = serde_json::from_slice(&callbacks_body).unwrap();
         assert_eq!(
-            callbacks_json.pointer("/items/0/url").and_then(serde_json::Value::as_str),
+            callbacks_json
+                .pointer("/items/0/url")
+                .and_then(serde_json::Value::as_str),
             Some("https://example.com/callback")
         );
     }
@@ -862,10 +1008,17 @@ mod tests {
             .await
             .unwrap();
         let json: serde_json::Value = serde_json::from_slice(&body).unwrap();
-        let logs = json.pointer("/logs").and_then(serde_json::Value::as_array).unwrap();
+        let logs = json
+            .pointer("/logs")
+            .and_then(serde_json::Value::as_array)
+            .unwrap();
         assert!(logs.iter().any(|entry| {
             entry.pointer("/scope").and_then(serde_json::Value::as_str) == Some("http")
-                && entry.pointer("/message").and_then(serde_json::Value::as_str).unwrap_or_default().contains("GET /api/providers -> 200")
+                && entry
+                    .pointer("/message")
+                    .and_then(serde_json::Value::as_str)
+                    .unwrap_or_default()
+                    .contains("GET /api/providers -> 200")
         }));
     }
 }

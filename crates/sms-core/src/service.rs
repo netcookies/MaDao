@@ -1,19 +1,20 @@
 use crate::error::SmsError;
 use crate::models::{
     AcquireCodeRequest, AcquireCodeResponse, LogEntry, NotificationFeed, OptionCacheOverview,
-    OptionCacheState, OptionListResponse, PollCodeRequest, PollCodeResponse, ProviderBalance,
-    ProviderDynamicOptions, ProviderManifestList, ProviderManifestSaveResponse, ProviderOperatorsQuery,
-    ProviderOptionCacheEntry, ProviderPriceQuery, ProviderPriceResponse, ProviderReorderRequest,
-    ProviderServicesQuery, ProviderSummary, ReleaseCodeRequest, ReleaseCodeResponse,
-    RoutingExecutionMode, RoutingFailoverRequest, RoutingPlan, RoutingPlanItem, RoutingPlanList,
-    RoutingPlanStore, RuntimeSettings, RuntimeSettingsUpdate, RuntimeSnapshot,
-    TicketCallbackListResponse, TicketCallbackRegistrationRequest, TicketCallbackSubscription,
-    TicketCodeCallbackPayload, TicketListResponse, TicketRecord, TicketStatus,
+    OptionCacheState, OptionItem, OptionListResponse, PollCodeRequest, PollCodeResponse,
+    ProviderBalance, ProviderDynamicOptions, ProviderManifestList, ProviderManifestSaveResponse,
+    ProviderOperatorsQuery, ProviderOptionCacheEntry, ProviderPriceQuery, ProviderPriceResponse,
+    ProviderReorderRequest, ProviderServicesQuery, ProviderSummary, ReleaseCodeRequest,
+    ReleaseCodeResponse, RoutingExecutionMode, RoutingFailoverRequest, RoutingPlan,
+    RoutingPlanItem, RoutingPlanList, RoutingPlanStore, RuntimeSettings, RuntimeSettingsUpdate,
+    RuntimeSnapshot, TicketCallbackListResponse, TicketCallbackRegistrationRequest,
+    TicketCallbackSubscription, TicketCodeCallbackPayload, TicketListResponse, TicketRecord,
+    TicketStatus,
 };
 use crate::options::{
-    build_cache_overview, cache_state, load_option_cache_store, normalize_price_items,
-    normalize_provider_options, resolve_provider_value, save_option_cache_store, with_cache_state,
-    OptionKind, ProviderOptionCacheStore,
+    OptionKind, ProviderOptionCacheStore, build_cache_overview, cache_state,
+    load_option_cache_store, normalize_price_items, normalize_provider_options,
+    resolve_provider_value, save_option_cache_store, with_cache_state,
 };
 use crate::registry::ProviderRegistry;
 use chrono::Utc;
@@ -77,9 +78,10 @@ impl SmsService {
             .and_then(|path| load_option_cache_store(path).ok())
             .unwrap_or_default();
         let routing_plans_path = routing_plans_path.or_else(|| {
-            runtime_settings_path
-                .as_ref()
-                .and_then(|path| path.parent().map(|parent| parent.join(ROUTING_PLANS_FILE_NAME)))
+            runtime_settings_path.as_ref().and_then(|path| {
+                path.parent()
+                    .map(|parent| parent.join(ROUTING_PLANS_FILE_NAME))
+            })
         });
         let routing_plans = routing_plans_path
             .as_ref()
@@ -150,12 +152,19 @@ impl SmsService {
         let details = details.into();
         self.log(
             format!("upstream:{provider}"),
-            if status.starts_with('2') { "info" } else { "warn" },
+            if status.starts_with('2') {
+                "info"
+            } else {
+                "warn"
+            },
             format!("{action} -> {status} {details}"),
         );
     }
 
-    pub async fn acquire_code(&self, request: AcquireCodeRequest) -> Result<AcquireCodeResponse, SmsError> {
+    pub async fn acquire_code(
+        &self,
+        request: AcquireCodeRequest,
+    ) -> Result<AcquireCodeResponse, SmsError> {
         if request.routing_plan_id.is_some() || request.routing_plan_name.is_some() {
             return self.acquire_code_by_routing_plan(request).await;
         }
@@ -187,7 +196,10 @@ impl SmsService {
             ),
         );
         let ticket = match provider
-            .acquire(&self.translate_acquire_request(&request, cached_options.as_ref().map(|entry| &entry.options)))
+            .acquire(&self.translate_acquire_request(
+                &request,
+                cached_options.as_ref().map(|entry| &entry.options),
+            ))
             .await
         {
             Ok(ticket) => {
@@ -195,7 +207,12 @@ impl SmsService {
                 ticket
             }
             Err(error) => {
-                self.log_upstream_response(&request.provider, "acquire", "error", error.to_string());
+                self.log_upstream_response(
+                    &request.provider,
+                    "acquire",
+                    "error",
+                    error.to_string(),
+                );
                 return Err(error);
             }
         };
@@ -214,12 +231,19 @@ impl SmsService {
             routing_item_id: ticket.routing_item_id.clone(),
             routing_item_index: ticket.routing_item_index,
         };
-        self.log("system", "info", format!("ticket {} acquired by {}", ticket.id, ticket.provider));
+        self.log(
+            "system",
+            "info",
+            format!("ticket {} acquired by {}", ticket.id, ticket.provider),
+        );
         self.tickets.write().insert(ticket.id.clone(), ticket);
         Ok(response)
     }
 
-    async fn acquire_code_by_routing_plan(&self, request: AcquireCodeRequest) -> Result<AcquireCodeResponse, SmsError> {
+    async fn acquire_code_by_routing_plan(
+        &self,
+        request: AcquireCodeRequest,
+    ) -> Result<AcquireCodeResponse, SmsError> {
         let plan = self.resolve_routing_plan(&request)?;
         let item_order = self.routing_item_order(&plan);
         if item_order.is_empty() {
@@ -236,7 +260,13 @@ impl SmsService {
         let mut last_error = SmsError::InvalidRequest("no routing plan items tried".into());
         for (attempt_index, item) in item_order.iter().enumerate() {
             let response = self
-                .try_acquire_from_routing_item(&request, &plan, item, attempt_index, &candidate_item_ids)
+                .try_acquire_from_routing_item(
+                    &request,
+                    &plan,
+                    item,
+                    attempt_index,
+                    &candidate_item_ids,
+                )
                 .await;
             match response {
                 Ok(ticket) => return Ok(ticket),
@@ -353,7 +383,10 @@ impl SmsService {
         self.log(
             "router",
             "info",
-            format!("routing plan {} matched item {} -> {}", plan.id, item.id, ticket.provider),
+            format!(
+                "routing plan {} matched item {} -> {}",
+                plan.id, item.id, ticket.provider
+            ),
         );
         self.tickets.write().insert(ticket.id.clone(), ticket);
         Ok(response)
@@ -365,15 +398,26 @@ impl SmsService {
             .read()
             .get(&request.ticket_id)
             .cloned()
-            .ok_or_else(|| SmsError::InvalidRequest(format!("unknown ticket {}", request.ticket_id)))?;
+            .ok_or_else(|| {
+                SmsError::InvalidRequest(format!("unknown ticket {}", request.ticket_id))
+            })?;
         let provider = {
             let registry = self.registry.read();
             registry.get(&current.provider)?
         };
-        self.log_upstream_request(&current.provider, "poll", format!("ticket_id={}", current.id));
+        self.log_upstream_request(
+            &current.provider,
+            "poll",
+            format!("ticket_id={}", current.id),
+        );
         let response = match provider.poll_code(&current).await {
             Ok(response) => {
-                self.log_upstream_response(&current.provider, "poll", "200", format!("status={:?}", response.status));
+                self.log_upstream_response(
+                    &current.provider,
+                    "poll",
+                    "200",
+                    format!("status={:?}", response.status),
+                );
                 response
             }
             Err(error) => {
@@ -381,51 +425,73 @@ impl SmsService {
                 return Err(error);
             }
         };
-        self.tickets.write().entry(current.id.clone()).and_modify(|ticket| {
-            ticket.updated_at = Utc::now();
-            ticket.status = response.status.clone();
-            if response.code.is_some() {
-                ticket.code = response.code.clone();
-            }
-            if response.message.is_some() {
-                ticket.message = response.message.clone();
-            }
-        });
+        self.tickets
+            .write()
+            .entry(current.id.clone())
+            .and_modify(|ticket| {
+                ticket.updated_at = Utc::now();
+                ticket.status = response.status.clone();
+                if response.code.is_some() {
+                    ticket.code = response.code.clone();
+                }
+                if response.message.is_some() {
+                    ticket.message = response.message.clone();
+                }
+            });
         Ok(response)
     }
 
-    pub async fn release_code(&self, request: ReleaseCodeRequest) -> Result<ReleaseCodeResponse, SmsError> {
+    pub async fn release_code(
+        &self,
+        request: ReleaseCodeRequest,
+    ) -> Result<ReleaseCodeResponse, SmsError> {
         let current = self
             .tickets
             .read()
             .get(&request.ticket_id)
             .cloned()
-            .ok_or_else(|| SmsError::InvalidRequest(format!("unknown ticket {}", request.ticket_id)))?;
+            .ok_or_else(|| {
+                SmsError::InvalidRequest(format!("unknown ticket {}", request.ticket_id))
+            })?;
         let provider = {
             let registry = self.registry.read();
             registry.get(&current.provider)?
         };
-        self.log_upstream_request(&current.provider, "release", format!("ticket_id={}", current.id));
+        self.log_upstream_request(
+            &current.provider,
+            "release",
+            format!("ticket_id={}", current.id),
+        );
         let message = match provider.release(&current, request.action.clone()).await {
             Ok(message) => {
                 self.log_upstream_response(&current.provider, "release", "200", message.clone());
                 message
             }
             Err(error) => {
-                self.log_upstream_response(&current.provider, "release", "error", error.to_string());
+                self.log_upstream_response(
+                    &current.provider,
+                    "release",
+                    "error",
+                    error.to_string(),
+                );
                 return Err(error);
             }
         };
         let next_status = match request.action {
             crate::models::ReleaseAction::Finish => TicketStatus::Finished,
-            crate::models::ReleaseAction::Cancel | crate::models::ReleaseAction::Ban => TicketStatus::Cancelled,
+            crate::models::ReleaseAction::Cancel | crate::models::ReleaseAction::Ban => {
+                TicketStatus::Cancelled
+            }
             crate::models::ReleaseAction::Retry => TicketStatus::WaitingCode,
         };
-        self.tickets.write().entry(current.id.clone()).and_modify(|ticket| {
-            ticket.updated_at = Utc::now();
-            ticket.status = next_status.clone();
-            ticket.message = Some(message.clone());
-        });
+        self.tickets
+            .write()
+            .entry(current.id.clone())
+            .and_modify(|ticket| {
+                ticket.updated_at = Utc::now();
+                ticket.status = next_status.clone();
+                ticket.message = Some(message.clone());
+            });
         Ok(ReleaseCodeResponse {
             ticket_id: current.id,
             provider: current.provider,
@@ -443,11 +509,12 @@ impl SmsService {
             .read()
             .get(&request.ticket_id)
             .cloned()
-            .ok_or_else(|| SmsError::InvalidRequest(format!("unknown ticket {}", request.ticket_id)))?;
-        let plan_id = current
-            .routing_plan_id
-            .clone()
-            .ok_or_else(|| SmsError::InvalidRequest("ticket is not associated with a routing plan".to_string()))?;
+            .ok_or_else(|| {
+                SmsError::InvalidRequest(format!("unknown ticket {}", request.ticket_id))
+            })?;
+        let plan_id = current.routing_plan_id.clone().ok_or_else(|| {
+            SmsError::InvalidRequest("ticket is not associated with a routing plan".to_string())
+        })?;
         let plan = self
             .routing_plans
             .read()
@@ -455,7 +522,9 @@ impl SmsService {
             .iter()
             .find(|plan| plan.id == plan_id)
             .cloned()
-            .ok_or_else(|| SmsError::InvalidRequest(format!("routing plan `{plan_id}` not found")))?;
+            .ok_or_else(|| {
+                SmsError::InvalidRequest(format!("routing plan `{plan_id}` not found"))
+            })?;
 
         let current_item_id = request
             .failed_item_id
@@ -467,13 +536,19 @@ impl SmsService {
             .and_then(|item_id| candidates.iter().position(|item| &item.id == item_id))
             .map(|index| index + 1)
             .unwrap_or(0);
-        let candidate_item_ids = candidates.iter().map(|item| item.id.clone()).collect::<Vec<_>>();
+        let candidate_item_ids = candidates
+            .iter()
+            .map(|item| item.id.clone())
+            .collect::<Vec<_>>();
 
         if let Some(reason) = request.reason.as_ref() {
             self.log(
                 "router",
                 "warn",
-                format!("routing failover for ticket {}: {}", request.ticket_id, reason),
+                format!(
+                    "routing failover for ticket {}: {}",
+                    request.ticket_id, reason
+                ),
             );
         }
 
@@ -515,7 +590,13 @@ impl SmsService {
                 }
             }
             let response = self
-                .try_acquire_from_routing_item(&acquire_request, &plan, item, attempt_index, &candidate_item_ids)
+                .try_acquire_from_routing_item(
+                    &acquire_request,
+                    &plan,
+                    item,
+                    attempt_index,
+                    &candidate_item_ids,
+                )
                 .await;
             match response {
                 Ok(response) => return Ok(response),
@@ -558,13 +639,21 @@ impl SmsService {
         }
     }
 
-    pub async fn get_prices(&self, query: ProviderPriceQuery) -> Result<ProviderPriceResponse, SmsError> {
+    pub async fn get_prices(
+        &self,
+        query: ProviderPriceQuery,
+    ) -> Result<ProviderPriceResponse, SmsError> {
         self.log_upstream_request(
             &query.provider,
             "get_prices",
             format!("service={}", query.service.clone().unwrap_or_default()),
         );
-        let cached_options = self.provider_option_cache.read().entries.get(&query.provider).cloned();
+        let cached_options = self
+            .provider_option_cache
+            .read()
+            .entries
+            .get(&query.provider)
+            .cloned();
         let provider = {
             let registry = self.registry.read();
             registry.get(&query.provider)?
@@ -572,7 +661,10 @@ impl SmsService {
         let service = resolve_provider_value(
             cached_options.as_ref().map(|entry| &entry.options),
             OptionKind::Service,
-            query.service.as_deref().unwrap_or(provider.manifest().defaults.service.as_str()),
+            query
+                .service
+                .as_deref()
+                .unwrap_or(provider.manifest().defaults.service.as_str()),
         );
         let items = match provider.get_prices(Some(&service)).await {
             Ok(items) => {
@@ -585,14 +677,17 @@ impl SmsService {
                 items
             }
             Err(error) => {
-                self.log_upstream_response(&query.provider, "get_prices", "error", error.to_string());
+                self.log_upstream_response(
+                    &query.provider,
+                    "get_prices",
+                    "error",
+                    error.to_string(),
+                );
                 return Err(error);
             }
         };
-        let normalized_items = normalize_price_items(
-            cached_options.as_ref().map(|entry| &entry.options),
-            items,
-        );
+        let normalized_items =
+            normalize_price_items(cached_options.as_ref().map(|entry| &entry.options), items);
         Ok(ProviderPriceResponse {
             provider: query.provider,
             service: provider.manifest().resolve_service_alias(Some(&service)),
@@ -600,7 +695,10 @@ impl SmsService {
         })
     }
 
-    pub async fn list_provider_countries(&self, provider_id: &str) -> Result<OptionListResponse, SmsError> {
+    pub async fn list_provider_countries(
+        &self,
+        provider_id: &str,
+    ) -> Result<OptionListResponse, SmsError> {
         let provider = {
             let registry = self.registry.read();
             registry.get(provider_id)?
@@ -679,7 +777,9 @@ impl SmsService {
         request: TicketCallbackRegistrationRequest,
     ) -> Result<TicketCallbackSubscription, SmsError> {
         if !self.tickets.read().contains_key(ticket_id) {
-            return Err(SmsError::InvalidRequest(format!("unknown ticket {ticket_id}")));
+            return Err(SmsError::InvalidRequest(format!(
+                "unknown ticket {ticket_id}"
+            )));
         }
         let subscription = TicketCallbackSubscription {
             id: Uuid::now_v7().to_string(),
@@ -696,9 +796,14 @@ impl SmsService {
         Ok(subscription)
     }
 
-    pub fn list_ticket_callbacks(&self, ticket_id: &str) -> Result<TicketCallbackListResponse, SmsError> {
+    pub fn list_ticket_callbacks(
+        &self,
+        ticket_id: &str,
+    ) -> Result<TicketCallbackListResponse, SmsError> {
         if !self.tickets.read().contains_key(ticket_id) {
-            return Err(SmsError::InvalidRequest(format!("unknown ticket {ticket_id}")));
+            return Err(SmsError::InvalidRequest(format!(
+                "unknown ticket {ticket_id}"
+            )));
         }
         Ok(TicketCallbackListResponse {
             items: self
@@ -762,16 +867,36 @@ impl SmsService {
                     message: latest.message.clone(),
                     received_at: Utc::now(),
                 };
-                let result = self.callback_client.post(&callback.url).json(&payload).send().await;
+                let result = self
+                    .callback_client
+                    .post(&callback.url)
+                    .json(&payload)
+                    .send()
+                    .await;
                 match result {
                     Ok(response) if response.status().is_success() => {
-                        self.log("callback", "info", format!("delivered callback for ticket `{ticket_id}`"));
+                        self.log(
+                            "callback",
+                            "info",
+                            format!("delivered callback for ticket `{ticket_id}`"),
+                        );
                     }
                     Ok(response) => {
-                        self.log("callback", "warn", format!("callback failed for ticket `{ticket_id}`: {}", response.status()));
+                        self.log(
+                            "callback",
+                            "warn",
+                            format!(
+                                "callback failed for ticket `{ticket_id}`: {}",
+                                response.status()
+                            ),
+                        );
                     }
                     Err(error) => {
-                        self.log("callback", "warn", format!("callback delivery error for ticket `{ticket_id}`: {error}"));
+                        self.log(
+                            "callback",
+                            "warn",
+                            format!("callback delivery error for ticket `{ticket_id}`: {error}"),
+                        );
                     }
                 }
             }
@@ -783,20 +908,33 @@ impl SmsService {
         ProviderManifestList { manifests }
     }
 
-    pub async fn provider_dynamic_options(&self, provider_id: &str) -> Result<ProviderDynamicOptions, SmsError> {
+    pub async fn provider_dynamic_options(
+        &self,
+        provider_id: &str,
+    ) -> Result<ProviderDynamicOptions, SmsError> {
         let settings = self.runtime_settings();
-        let cached = self.provider_option_cache.read().entries.get(provider_id).cloned();
+        let cached = self
+            .provider_option_cache
+            .read()
+            .entries
+            .get(provider_id)
+            .cloned();
         if let Some(entry) = cached.clone() {
             let state = cache_state(Some(entry.fetched_at), &settings);
             if !settings.option_cache_enabled || state == OptionCacheState::Fresh {
                 return Ok(with_cache_state(entry.options, &settings));
             }
         }
-        self.log_upstream_request(provider_id, "get_options", "");
+        self.log_upstream_request(provider_id, "discover_options", "");
         match self.refresh_provider_options(provider_id).await {
             Ok(options) => Ok(options),
             Err(error) => {
-                self.log_upstream_response(provider_id, "get_options", "error", error.to_string());
+                self.log_upstream_response(
+                    provider_id,
+                    "discover_options",
+                    "error",
+                    error.to_string(),
+                );
                 if let Some(entry) = cached {
                     Ok(with_cache_state(entry.options, &settings))
                 } else {
@@ -806,22 +944,31 @@ impl SmsService {
         }
     }
 
-    pub async fn refresh_provider_options(&self, provider_id: &str) -> Result<ProviderDynamicOptions, SmsError> {
+    pub async fn refresh_provider_options(
+        &self,
+        provider_id: &str,
+    ) -> Result<ProviderDynamicOptions, SmsError> {
         let manifest = {
             let registry = self.registry.read();
             registry.manifest(provider_id)?
         };
-        let provider = {
-            let registry = self.registry.read();
-            registry.get(provider_id)?
-        };
-        let raw_options = match provider.get_options().await {
+        let raw_options = match self.discover_provider_options(provider_id).await {
             Ok(options) => {
-                self.log_upstream_response(provider_id, "get_options", "200", "options refreshed");
+                self.log_upstream_response(
+                    provider_id,
+                    "discover_options",
+                    "200",
+                    "options refreshed",
+                );
                 options
             }
             Err(error) => {
-                self.log_upstream_response(provider_id, "get_options", "error", error.to_string());
+                self.log_upstream_response(
+                    provider_id,
+                    "discover_options",
+                    "error",
+                    error.to_string(),
+                );
                 return Err(error);
             }
         };
@@ -840,6 +987,98 @@ impl SmsService {
             let _ = save_option_cache_store(path, &store);
         }
         Ok(with_cache_state(normalized, &self.runtime_settings()))
+    }
+
+    async fn discover_provider_options(
+        &self,
+        provider_id: &str,
+    ) -> Result<ProviderDynamicOptions, SmsError> {
+        let (manifest, provider) = {
+            let registry = self.registry.read();
+            (registry.manifest(provider_id)?, registry.get(provider_id)?)
+        };
+        if !manifest.has_configured_api_key() {
+            return Err(SmsError::InvalidRequest(format!(
+                "provider `{provider_id}` requires api_key before resource discovery"
+            )));
+        }
+
+        let countries = provider.list_countries().await?;
+        let country_seed = countries
+            .iter()
+            .find_map(option_request_value)
+            .or_else(|| non_empty_value(&manifest.defaults.country));
+        let operators = provider
+            .list_operators(ProviderOperatorsQuery {
+                country: country_seed.clone(),
+            })
+            .await?;
+
+        let services = if matches!(manifest.kind, plugin_sdk::ProviderKind::FiveSim) {
+            match country_seed {
+                Some(country) => {
+                    let operator_seeds = {
+                        let seeds = operators
+                            .iter()
+                            .filter_map(option_request_value)
+                            .collect::<Vec<_>>();
+                        if seeds.is_empty() {
+                            option_request_value(&default_operator_option(&manifest))
+                                .into_iter()
+                                .collect::<Vec<_>>()
+                        } else {
+                            seeds
+                        }
+                    };
+                    let mut merged = Vec::new();
+                    for operator in operator_seeds {
+                        match provider
+                            .list_services(ProviderServicesQuery {
+                                country: Some(country.clone()),
+                                operator: Some(operator.clone()),
+                            })
+                            .await
+                        {
+                            Ok(mut items) => merged.append(&mut items),
+                            Err(error) => self.log(
+                                "cache",
+                                "warn",
+                                format!(
+                                    "provider `{provider_id}` service discovery failed for country `{country}` operator `{operator}`: {error}"
+                                ),
+                            ),
+                        }
+                    }
+                    merged
+                }
+                None => Vec::new(),
+            }
+        } else {
+            provider
+                .list_services(ProviderServicesQuery::default())
+                .await?
+        };
+
+        Ok(ProviderDynamicOptions {
+            provider: provider_id.to_string(),
+            services: if services.is_empty() {
+                vec![default_service_option(&manifest)]
+            } else {
+                services
+            },
+            countries: if countries.is_empty() {
+                vec![default_country_option(&manifest)]
+            } else {
+                countries
+            },
+            operators: if operators.is_empty() {
+                vec![default_operator_option(&manifest)]
+            } else {
+                operators
+            },
+            cache_state: OptionCacheState::Fresh,
+            fetched_at: None,
+        })
     }
 
     pub fn provider_manifest(&self, provider_id: &str) -> Result<ProviderManifest, SmsError> {
@@ -863,7 +1102,8 @@ impl SmsService {
             "info",
             format!("provider manifest `{provider_id}` saved and reloaded"),
         );
-        let (option_cache_state, option_cache_fetched_at, cache_refresh_error) = match cache_refresh {
+        let (option_cache_state, option_cache_fetched_at, cache_refresh_error) = match cache_refresh
+        {
             Ok(options) => (options.cache_state, options.fetched_at, None),
             Err(error) => (
                 self.provider_option_cache_state(provider_id),
@@ -906,13 +1146,19 @@ impl SmsService {
             plan.id = generate_routing_plan_id();
         }
         if plan.name.trim().is_empty() {
-            return Err(SmsError::InvalidRequest("routing plan name is required".to_string()));
+            return Err(SmsError::InvalidRequest(
+                "routing plan name is required".to_string(),
+            ));
         }
         if plan.service.trim().is_empty() {
-            return Err(SmsError::InvalidRequest("routing plan service is required".to_string()));
+            return Err(SmsError::InvalidRequest(
+                "routing plan service is required".to_string(),
+            ));
         }
         if plan.items.is_empty() {
-            return Err(SmsError::InvalidRequest("routing plan must contain at least one item".to_string()));
+            return Err(SmsError::InvalidRequest(
+                "routing plan must contain at least one item".to_string(),
+            ));
         }
         if plan.enabled && !plan.items.iter().any(|item| item.enabled) {
             return Err(SmsError::InvalidRequest(
@@ -926,7 +1172,11 @@ impl SmsService {
         }
 
         let mut store = self.routing_plans.write();
-        if let Some(existing) = store.plans.iter_mut().find(|existing| existing.id == plan.id) {
+        if let Some(existing) = store
+            .plans
+            .iter_mut()
+            .find(|existing| existing.id == plan.id)
+        {
             *existing = plan.clone();
         } else {
             store.plans.push(plan.clone());
@@ -934,7 +1184,11 @@ impl SmsService {
         if let Some(path) = &self.routing_plans_path {
             save_routing_plans(path, &store)?;
         }
-        self.log("config", "info", format!("routing plan `{}` saved", plan.id));
+        self.log(
+            "config",
+            "info",
+            format!("routing plan `{}` saved", plan.id),
+        );
         Ok(plan)
     }
 
@@ -943,18 +1197,27 @@ impl SmsService {
         let before = store.plans.len();
         store.plans.retain(|plan| plan.id != plan_id);
         if before == store.plans.len() {
-            return Err(SmsError::InvalidRequest(format!("routing plan `{plan_id}` not found")));
+            return Err(SmsError::InvalidRequest(format!(
+                "routing plan `{plan_id}` not found"
+            )));
         }
         if let Some(path) = &self.routing_plans_path {
             save_routing_plans(path, &store)?;
         }
-        self.log("config", "info", format!("routing plan `{plan_id}` deleted"));
+        self.log(
+            "config",
+            "info",
+            format!("routing plan `{plan_id}` deleted"),
+        );
         Ok(RoutingPlanList {
             plans: store.plans.clone(),
         })
     }
 
-    pub fn reorder_providers(&self, req: ProviderReorderRequest) -> Result<ProviderManifestList, SmsError> {
+    pub fn reorder_providers(
+        &self,
+        req: ProviderReorderRequest,
+    ) -> Result<ProviderManifestList, SmsError> {
         let pairs: Vec<(String, u32)> = req.order.into_iter().map(|e| (e.id, e.priority)).collect();
         self.registry.write().set_priorities(&pairs)?;
         self.log("config", "info", "provider priority order saved");
@@ -963,14 +1226,7 @@ impl SmsService {
 
     pub fn notification_feed(&self) -> NotificationFeed {
         NotificationFeed {
-            items: self
-                .logs
-                .read()
-                .iter()
-                .rev()
-                .take(20)
-                .cloned()
-                .collect(),
+            items: self.logs.read().iter().rev().take(20).cloned().collect(),
         }
     }
 
@@ -983,7 +1239,8 @@ impl SmsService {
         current.routing_strategy = update.routing_strategy;
         current.auto_fallback = update.auto_fallback;
         current.option_cache_enabled = update.option_cache_enabled;
-        current.option_cache_poll_interval_minutes = update.option_cache_poll_interval_minutes.max(1);
+        current.option_cache_poll_interval_minutes =
+            update.option_cache_poll_interval_minutes.max(1);
         if let Some(path) = &self.runtime_settings_path {
             let _ = save_runtime_settings(path, &current);
         }
@@ -1008,16 +1265,22 @@ impl SmsService {
                 homepage: manifest.homepage.clone(),
                 description: manifest.description.clone(),
                 priority: manifest.priority,
-                option_cache_state: self.provider_option_cache_state_with_settings(&manifest.id, &settings),
+                option_cache_state: self
+                    .provider_option_cache_state_with_settings(&manifest.id, &settings),
                 option_cache_fetched_at: self.provider_option_cache_fetched_at(&manifest.id),
                 can_enable: matches!(manifest.kind, plugin_sdk::ProviderKind::Mock)
                     || !settings.option_cache_enabled
-                    || self.provider_option_cache_state_with_settings(&manifest.id, &settings) == OptionCacheState::Fresh,
+                    || self.provider_option_cache_state_with_settings(&manifest.id, &settings)
+                        == OptionCacheState::Fresh,
             })
             .collect();
         let tickets = self.tickets.read().values().cloned().collect();
         let logs = self.logs.read().iter().cloned().collect();
-        RuntimeSnapshot { providers, tickets, logs }
+        RuntimeSnapshot {
+            providers,
+            tickets,
+            logs,
+        }
     }
 
     pub fn option_cache_overview(&self) -> OptionCacheOverview {
@@ -1040,8 +1303,16 @@ impl SmsService {
 
         for provider_id in provider_ids {
             match self.refresh_provider_options(&provider_id).await {
-                Ok(_) => self.log("cache", "info", format!("provider option cache refreshed for `{provider_id}`")),
-                Err(error) => self.log("cache", "warn", format!("provider option cache refresh failed for `{provider_id}`: {error}")),
+                Ok(_) => self.log(
+                    "cache",
+                    "info",
+                    format!("provider option cache refreshed for `{provider_id}`"),
+                ),
+                Err(error) => self.log(
+                    "cache",
+                    "warn",
+                    format!("provider option cache refresh failed for `{provider_id}`: {error}"),
+                ),
             }
         }
 
@@ -1093,7 +1364,9 @@ impl SmsService {
 
     fn can_enable_manifest(&self, provider_id: &str) -> bool {
         let settings = self.runtime_settings();
-        !settings.option_cache_enabled || self.provider_option_cache_state_with_settings(provider_id, &settings) == OptionCacheState::Fresh
+        !settings.option_cache_enabled
+            || self.provider_option_cache_state_with_settings(provider_id, &settings)
+                == OptionCacheState::Fresh
     }
 
     fn resolve_routing_plan(&self, request: &AcquireCodeRequest) -> Result<RoutingPlan, SmsError> {
@@ -1104,7 +1377,9 @@ impl SmsService {
                 .iter()
                 .find(|plan| &plan.id == plan_id)
                 .cloned()
-                .ok_or_else(|| SmsError::InvalidRequest(format!("routing plan `{plan_id}` not found")))
+                .ok_or_else(|| {
+                    SmsError::InvalidRequest(format!("routing plan `{plan_id}` not found"))
+                })
                 .and_then(ensure_routing_plan_enabled);
         }
         if let Some(plan_name) = request.routing_plan_name.as_ref() {
@@ -1113,7 +1388,9 @@ impl SmsService {
                 .iter()
                 .find(|plan| plan.name == *plan_name)
                 .cloned()
-                .ok_or_else(|| SmsError::InvalidRequest(format!("routing plan `{plan_name}` not found")))
+                .ok_or_else(|| {
+                    SmsError::InvalidRequest(format!("routing plan `{plan_name}` not found"))
+                })
                 .and_then(ensure_routing_plan_enabled);
         }
         Err(SmsError::InvalidRequest(
@@ -1137,14 +1414,22 @@ impl SmsService {
         items
     }
 
-    fn routing_item_order_for_ticket<'a>(&self, plan: &'a RoutingPlan, ticket: &TicketRecord) -> Vec<&'a RoutingPlanItem> {
+    fn routing_item_order_for_ticket<'a>(
+        &self,
+        plan: &'a RoutingPlan,
+        ticket: &TicketRecord,
+    ) -> Vec<&'a RoutingPlanItem> {
         if ticket.routing_candidate_item_ids.is_empty() {
             return self.routing_item_order(plan);
         }
 
         let mut ordered = Vec::new();
         for item_id in &ticket.routing_candidate_item_ids {
-            if let Some(item) = plan.items.iter().find(|item| item.enabled && &item.id == item_id) {
+            if let Some(item) = plan
+                .items
+                .iter()
+                .find(|item| item.enabled && &item.id == item_id)
+            {
                 ordered.push(item);
             }
         }
@@ -1164,10 +1449,18 @@ impl SmsService {
     ) -> AcquireCodeRequest {
         let mut translated = request.clone();
         if let Some(service) = translated.service.as_ref() {
-            translated.service = Some(resolve_provider_value(options, OptionKind::Service, service));
+            translated.service = Some(resolve_provider_value(
+                options,
+                OptionKind::Service,
+                service,
+            ));
         }
         if let Some(country) = translated.country.as_ref() {
-            translated.country = Some(resolve_provider_value(options, OptionKind::Country, country));
+            translated.country = Some(resolve_provider_value(
+                options,
+                OptionKind::Country,
+                country,
+            ));
         }
         if let Some(operator) = translated.metadata.get("operator").cloned() {
             let resolved = resolve_provider_value(options, OptionKind::Operator, &operator);
@@ -1176,7 +1469,12 @@ impl SmsService {
         translated
     }
 
-    pub fn log(&self, scope: impl Into<String>, level: impl Into<String>, message: impl Into<String>) {
+    pub fn log(
+        &self,
+        scope: impl Into<String>,
+        level: impl Into<String>,
+        message: impl Into<String>,
+    ) {
         let mut logs = self.logs.write();
         logs.push_back(LogEntry {
             timestamp: Utc::now(),
@@ -1229,6 +1527,65 @@ fn save_routing_plans(path: &Path, store: &RoutingPlanStore) -> Result<(), SmsEr
         .map_err(|err| SmsError::Io(format!("write routing plans failed: {err}")))
 }
 
+fn option_request_value(item: &OptionItem) -> Option<String> {
+    item.provider_value
+        .as_ref()
+        .and_then(|value| non_empty_value(value))
+        .or_else(|| non_empty_value(&item.value))
+}
+
+fn non_empty_value(value: &str) -> Option<String> {
+    let trimmed = value.trim();
+    if trimmed.is_empty() {
+        None
+    } else {
+        Some(trimmed.to_string())
+    }
+}
+
+fn default_service_option(manifest: &ProviderManifest) -> OptionItem {
+    OptionItem {
+        value: manifest.defaults.service.clone(),
+        label: manifest.defaults.service.clone(),
+        hint: manifest.defaults.service.clone(),
+        provider_value: Some(manifest.defaults.service.clone()),
+    }
+}
+
+fn default_country_option(manifest: &ProviderManifest) -> OptionItem {
+    OptionItem {
+        value: manifest.defaults.country.clone(),
+        label: manifest.defaults.country.clone(),
+        hint: manifest.defaults.country.clone(),
+        provider_value: Some(manifest.defaults.country.clone()),
+    }
+}
+
+fn default_operator_option(manifest: &ProviderManifest) -> OptionItem {
+    let value = match manifest.kind {
+        plugin_sdk::ProviderKind::Mock => "mock".to_string(),
+        plugin_sdk::ProviderKind::FiveSim => manifest
+            .five_sim
+            .as_ref()
+            .map(|config| config.buy_operator.clone())
+            .unwrap_or_else(|| "any".to_string()),
+        plugin_sdk::ProviderKind::HandlerApi => "any".to_string(),
+    };
+    let label = if value == "any" {
+        "Any Operator".to_string()
+    } else if value == "mock" {
+        "Mock".to_string()
+    } else {
+        value.clone()
+    };
+    OptionItem {
+        value: value.clone(),
+        label,
+        hint: value.clone(),
+        provider_value: Some(value),
+    }
+}
+
 fn generate_routing_plan_id() -> String {
     format!("plan-{}", Uuid::now_v7().simple())
 }
@@ -1246,11 +1603,14 @@ fn ensure_routing_plan_enabled(plan: RoutingPlan) -> Result<RoutingPlan, SmsErro
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::models::{
+        RoutingExecutionMode, RoutingFailoverRequest, RoutingPlan, RoutingPlanItem,
+        RoutingPriceMode,
+    };
+    use crate::registry::ProviderRegistry;
     use axum::extract::State;
     use axum::routing::post;
     use axum::{Json, Router};
-    use crate::registry::ProviderRegistry;
-    use crate::models::{RoutingExecutionMode, RoutingFailoverRequest, RoutingPlan, RoutingPlanItem, RoutingPriceMode};
     use std::fs;
     use std::net::SocketAddr;
     use std::path::PathBuf;
@@ -1356,8 +1716,14 @@ mod tests {
         let mut manifest = service.provider_manifest("mock").unwrap();
         service.refresh_provider_options("mock").await.unwrap();
         manifest.description = Some("updated manifest".to_string());
-        let saved = service.save_provider_manifest("mock", manifest).await.unwrap();
-        assert_eq!(saved.manifest.description.as_deref(), Some("updated manifest"));
+        let saved = service
+            .save_provider_manifest("mock", manifest)
+            .await
+            .unwrap();
+        assert_eq!(
+            saved.manifest.description.as_deref(),
+            Some("updated manifest")
+        );
         let reloaded = service.provider_manifest("mock").unwrap();
         assert_eq!(reloaded.description.as_deref(), Some("updated manifest"));
     }
@@ -1373,7 +1739,10 @@ mod tests {
         assert!(result.is_err());
 
         let after = service.provider_manifest("herosms").unwrap();
-        assert_eq!(after.handler_api.as_ref().map(|cfg| cfg.base_url.clone()), before.handler_api.as_ref().map(|cfg| cfg.base_url.clone()));
+        assert_eq!(
+            after.handler_api.as_ref().map(|cfg| cfg.base_url.clone()),
+            before.handler_api.as_ref().map(|cfg| cfg.base_url.clone())
+        );
     }
 
     #[test]
@@ -1488,7 +1857,12 @@ mod tests {
         assert_eq!(failover.country, "canada");
 
         let logs = service.runtime_snapshot().logs;
-        assert!(logs.iter().any(|entry| entry.scope == "upstream:mock" && entry.message.contains("acquire service=openai country=canada")));
+        assert!(logs.iter().any(|entry| {
+            entry.scope == "upstream:mock"
+                && entry
+                    .message
+                    .contains("acquire service=openai country=canada")
+        }));
     }
 
     #[tokio::test]
@@ -1516,7 +1890,12 @@ mod tests {
             .unwrap();
 
         let first_item_id = acquire.routing_item_id.clone().unwrap();
-        let current_ticket = service.tickets.read().get(&acquire.ticket_id).cloned().unwrap();
+        let current_ticket = service
+            .tickets
+            .read()
+            .get(&acquire.ticket_id)
+            .cloned()
+            .unwrap();
         let candidate_ids = current_ticket.routing_candidate_item_ids.clone();
         assert_eq!(candidate_ids.len(), 2);
         assert_eq!(candidate_ids[0], first_item_id);
@@ -1530,7 +1909,10 @@ mod tests {
             .await
             .unwrap();
 
-        assert_eq!(failover.routing_item_id.as_deref(), Some(candidate_ids[1].as_str()));
+        assert_eq!(
+            failover.routing_item_id.as_deref(),
+            Some(candidate_ids[1].as_str())
+        );
     }
 
     #[tokio::test]
@@ -1546,7 +1928,11 @@ mod tests {
             .unwrap();
 
         let logs = service.runtime_snapshot().logs;
-        assert!(logs.iter().any(|entry| entry.scope == "upstream:mock" && entry.message.contains("get_balance")));
+        assert!(
+            logs.iter().any(
+                |entry| entry.scope == "upstream:mock" && entry.message.contains("get_balance")
+            )
+        );
         assert!(logs.iter().any(|entry| entry.scope == "upstream:mock" && entry.message.contains("get_prices")));
     }
 
@@ -1559,8 +1945,14 @@ mod tests {
 
         let feed = service.notification_feed();
 
-        assert_eq!(feed.items.first().map(|entry| entry.message.as_str()), Some("entry-3"));
-        assert_eq!(feed.items.get(1).map(|entry| entry.message.as_str()), Some("entry-2"));
+        assert_eq!(
+            feed.items.first().map(|entry| entry.message.as_str()),
+            Some("entry-3")
+        );
+        assert_eq!(
+            feed.items.get(1).map(|entry| entry.message.as_str()),
+            Some("entry-2")
+        );
     }
 
     #[tokio::test]
@@ -1656,7 +2048,10 @@ mod tests {
                 routing_item_id: Some("mock-first".to_string()),
                 routing_item_index: Some(0),
                 routing_execution_mode: Some(RoutingExecutionMode::Sequential),
-                routing_candidate_item_ids: vec!["mock-first".to_string(), "mock-second".to_string()],
+                routing_candidate_item_ids: vec![
+                    "mock-first".to_string(),
+                    "mock-second".to_string(),
+                ],
                 routing_attempt_count: 1,
             },
         );
@@ -1671,8 +2066,17 @@ mod tests {
             .await
             .unwrap_err();
 
-        assert!(error.to_string().contains("provider `missing-provider` not found"));
+        assert!(
+            error
+                .to_string()
+                .contains("provider `missing-provider` not found")
+        );
         let logs = service.runtime_snapshot().logs;
-        assert!(logs.iter().any(|entry| entry.scope == "router" && entry.message.contains("routing failover skipped mock-second")));
+        assert!(logs.iter().any(|entry| {
+            entry.scope == "router"
+                && entry
+                    .message
+                    .contains("routing failover skipped mock-second")
+        }));
     }
 }
