@@ -82,6 +82,8 @@ http://127.0.0.1:7822
 - 三家现在统一要求先配置 `api_key` 才允许动态发现这些资源
 - `5SIM` 的服务发现是级联的，依赖 `country + operator`
 - `HeroSMS` / `SmsBower` 当前服务发现不依赖 `country/operator`
+- UI 侧对 `5SIM` 会按国家下的 operator 列表逐个探测 products，再合并成 service 列表；
+  不再依赖 `operator=any` 的单点请求结果
 
 ### 2. 创建激活
 

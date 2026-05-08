@@ -29,7 +29,7 @@ import {
   saveRuntimeSettings as persistRuntimeSettings,
 } from '../services/runtimeApi';
 import { refreshMenuBar } from '../services/menuBarApi';
-import { normalizeCountryOptions, normalizeServiceOptions } from '../app/utils';
+import { mergeOptionItems, normalizeCountryOptions, normalizeServiceOptions } from '../app/utils';
 
 type DataState = {
   snapshot: Snapshot | null;
@@ -157,13 +157,22 @@ export function useProviderRuntime(
 
     let services = [];
     if (provider.kind === 'five_sim') {
-      const operatorSeed = operators[0]?.value || '';
       if (countrySeed) {
-        const servicesPayload = await fetchProviderServices(providerId, {
-          country: countrySeed,
-          operator: operatorSeed || undefined,
-        });
-        services = normalizeServiceOptions(servicesPayload.items);
+        const operatorSeeds = operators.map((item) => item.value).filter(Boolean);
+        const serviceGroups = await Promise.all(
+          operatorSeeds.map(async (operator) => {
+            try {
+              const servicesPayload = await fetchProviderServices(providerId, {
+                country: countrySeed,
+                operator,
+              });
+              return servicesPayload.items;
+            } catch {
+              return [];
+            }
+          }),
+        );
+        services = normalizeServiceOptions(mergeOptionItems(serviceGroups));
       }
     } else {
       const servicesPayload = await fetchProviderServices(providerId);
