@@ -823,20 +823,18 @@ impl FiveSimProvider {
             operator,
         );
         let (_text, json) = self.request_get(&path, &[]).await?;
-        let items = json.as_array().cloned().unwrap_or_default();
-        Ok(items
+        let entries = json.as_object().cloned().unwrap_or_default();
+        Ok(entries
             .into_iter()
-            .filter_map(|item| {
-                let value = item.pointer("/name").and_then(Value::as_str)
-                    .or_else(|| item.pointer("/product").and_then(Value::as_str))?;
+            .map(|(value, item)| {
                 let qty = item.pointer("/Qty").or_else(|| item.pointer("/qty")).and_then(|v| v.as_u64().or_else(|| v.as_str().and_then(|s| s.parse().ok()))).unwrap_or(0);
                 let price = item.pointer("/Price").or_else(|| item.pointer("/price")).and_then(coerce_f64).unwrap_or(0.0);
-                Some(OptionItem {
-                    provider_value: Some(value.to_string()),
-                    value: value.to_string(),
-                    label: value.to_string(),
+                OptionItem {
+                    provider_value: Some(value.clone()),
+                    value: value.clone(),
+                    label: value,
                     hint: format!("qty={qty}, price={price:.3}"),
-                })
+                }
             })
             .collect())
     }
