@@ -1,12 +1,19 @@
 import React from 'react';
 import ReactDOM from 'react-dom/client';
 import { App } from './App';
-import { getScreenshotTarget, ScreenshotScene } from './testing/ScreenshotScene';
+import { i18n } from './app/i18n';
+import { getScreenshotLanguage, getScreenshotTarget, ScreenshotScene } from './testing/ScreenshotScene';
 import './design-system/theme.css';
 import './tailwind.css';
 import './base.css';
 
 const screenshotTarget = getScreenshotTarget();
+const initialLanguage = screenshotTarget
+  ? getScreenshotLanguage()
+  : ((window.localStorage.getItem('madao-language') as 'en' | 'zh' | null) ?? 'en');
+
+void i18n.changeLanguage(initialLanguage);
+document.documentElement.lang = initialLanguage;
 
 ReactDOM.createRoot(document.getElementById('root')!).render(
   <React.StrictMode>

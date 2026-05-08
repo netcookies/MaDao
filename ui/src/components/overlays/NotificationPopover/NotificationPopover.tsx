@@ -1,5 +1,6 @@
 import type { ReactNode } from 'react';
 import { AlertCircle, AlertTriangle, Info } from 'lucide-react';
+import { useTranslation } from 'react-i18next';
 import { cx } from '../../../lib/cx';
 
 export type NotificationLevel = 'info' | 'warning' | 'danger';
@@ -19,6 +20,7 @@ export type NotificationPopoverProps = {
 };
 
 export function NotificationPopover(props: NotificationPopoverProps) {
+  const { t } = useTranslation();
   const { title = 'Notifications', markAllAction, footer, items } = props;
 
   return (
@@ -65,7 +67,7 @@ export function NotificationPopover(props: NotificationPopoverProps) {
           </div>
         )) : (
           <div className="px-4 py-5 font-text text-caption font-normal tracking-[var(--ds-type-caption-tracking)] text-ds-text-secondary">
-            No notifications.
+            {t('No notifications.')}
           </div>
         )}
       </div>

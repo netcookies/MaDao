@@ -4,6 +4,7 @@ import {
   Sliders,
   type LucideIcon,
 } from 'lucide-react';
+import { useTranslation } from 'react-i18next';
 import {
   AppButton,
   ConfigRow,
@@ -30,7 +31,7 @@ import {
 } from '../../lib/formatters';
 import { formatOperatorLabel } from '../utils';
 import { cx } from '../../lib/cx';
-import { useLanguage } from '../language';
+import type { LanguageCode } from '../types';
 
 const WORKSPACE_SECTIONS: Array<{
   id: ProviderSectionId;
@@ -72,10 +73,19 @@ export type ProviderWorkspaceScreenProps = {
 };
 
 export function ProviderWorkspaceScreen(props: ProviderWorkspaceScreenProps) {
-  const language = useLanguage();
+  const { t, i18n } = useTranslation();
+  const language = (i18n.resolvedLanguage ?? i18n.language ?? 'en') as LanguageCode;
   const { manifest, section } = props;
   const isConnected = manifest.enabled;
   const compact = props.compact ?? false;
+  const workspaceSections: Array<{
+    id: ProviderSectionId;
+    label: string;
+    Icon: LucideIcon;
+  }> = [
+    { id: 'config', label: t('Configuration'), Icon: Sliders },
+    { id: 'store', label: t('Store & Inventory'), Icon: ShoppingCart },
+  ];
 
   return (
     <div className="flex flex-col">
@@ -84,7 +94,7 @@ export function ProviderWorkspaceScreen(props: ProviderWorkspaceScreenProps) {
         compact && 'h-[40px] gap-5 px-8',
       )}
       >
-        {WORKSPACE_SECTIONS.map(({ id, label, Icon }) => (
+        {workspaceSections.map(({ id, label, Icon }) => (
           <button
             key={id}
             className={cx(
@@ -97,7 +107,7 @@ export function ProviderWorkspaceScreen(props: ProviderWorkspaceScreenProps) {
             onClick={() => props.onSelectSection(id)}
           >
             <Icon size={15} className={section === id ? 'opacity-100' : 'opacity-40'} />
-            <span>{label === 'Configuration' ? (language === 'zh' ? '配置' : 'Configuration') : (language === 'zh' ? '库存与价格' : 'Store & Inventory')}</span>
+            <span>{label}</span>
           </button>
         ))}
       </div>
@@ -162,16 +172,17 @@ function WorkspaceConfig(props: {
   onOpenRawJson: () => void;
   onOpenSelector: (kind: SelectorKind) => void;
 }) {
-  const language = useLanguage();
+  const { t, i18n } = useTranslation();
+  const language = (i18n.resolvedLanguage ?? i18n.language ?? 'en') as LanguageCode;
   const { manifest } = props;
   const enableLocked = !props.isConnected && props.summary?.can_enable === false;
   const cacheState = props.summary?.option_cache_state ?? 'missing';
   const cacheLabel = cacheState === 'fresh'
-    ? (language === 'zh' ? '缓存新鲜' : 'Fresh Cache')
+    ? t('Fresh Cache')
     : cacheState === 'stale'
-      ? (language === 'zh' ? '缓存过期' : 'Stale Cache')
-      : (language === 'zh' ? '无缓存' : 'No Cache');
-  const toggleLabel = props.isConnected ? (language === 'zh' ? '已启用' : 'Enabled') : (language === 'zh' ? '已禁用' : 'Disabled');
+      ? t('Stale Cache')
+      : t('No Cache');
+  const toggleLabel = props.isConnected ? t('Enabled') : t('Disabled');
 
   return (
     <div className={cx('flex flex-col gap-5', props.compact && 'gap-4')}>
@@ -180,7 +191,7 @@ function WorkspaceConfig(props: {
           {manifest.name}
         </h1>
         <p className="m-0 text-[13px] leading-none text-ds-text-secondary opacity-50">
-          {language === 'zh' ? '管理 API 凭证与连接设置' : 'Manage API credentials and connection settings'}
+          {t('Manage API credentials and connection settings')}
         </p>
       </div>
 
@@ -211,7 +222,7 @@ function WorkspaceConfig(props: {
         <div className="h-px bg-ds-border" />
         <div className={cx('flex flex-wrap items-center gap-2 px-5 py-3', props.compact && 'px-4 py-2.5')}>
           <StatusBadge tone={props.isConnected ? 'green' : 'gray'}>
-            {props.isConnected ? (language === 'zh' ? '已连接' : 'Connected') : (language === 'zh' ? '已禁用' : 'Disabled')}
+            {props.isConnected ? t('Connected') : t('Disabled')}
           </StatusBadge>
           <StatusBadge tone={cacheState === 'fresh' ? 'green' : cacheState === 'stale' ? 'orange' : 'gray'}>
             {cacheLabel}
@@ -220,7 +231,7 @@ function WorkspaceConfig(props: {
       </div>
 
       <div className="overflow-hidden rounded-[10px] border border-[var(--ds-color-card-border)] bg-ds-surface shadow-ds backdrop-blur-ds">
-        <ConfigRow label="API Key" last>
+        <ConfigRow label="API 密钥" last>
           <input
             className={cx(
               'min-h-control w-full rounded-sm border border-ds-border-strong bg-ds-surface px-4 py-[11px] text-utility tracking-[var(--ds-type-utility-tracking)] text-ds-text-primary',
@@ -229,7 +240,7 @@ function WorkspaceConfig(props: {
             type="password"
             value={props.apiKeyValue}
             onChange={(e) => props.onApiKeyChange(e.target.value)}
-            placeholder={language === 'zh' ? '粘贴 Provider API key' : 'Paste provider API key'}
+            placeholder={t('Paste provider API key')}
           />
         </ConfigRow>
         <div className="h-px bg-ds-border" />
@@ -237,16 +248,16 @@ function WorkspaceConfig(props: {
           <div>
             {props.showAdvancedEditor && (
               <AppButton variant="ghost" size="utility" className="min-h-0 px-0 py-0 text-ds-accent-blue" onClick={props.onOpenRawJson}>
-                Raw JSON
+                {t('Raw JSON')}
               </AppButton>
             )}
           </div>
           <div className="flex items-center gap-2">
             <AppButton variant="ghost" size="utility" className="min-h-0 px-0 py-0 text-ds-accent-blue" onClick={props.onRefresh} disabled={props.busyAction.includes('refresh') || props.busyAction.includes('save')}>
-              {props.busyAction.includes('refresh') ? (language === 'zh' ? '刷新中…' : 'Refreshing…') : (language === 'zh' ? '刷新' : 'Refresh')}
+              {props.busyAction.includes('refresh') ? t('Refreshing…') : t('Refresh')}
             </AppButton>
             <AppButton variant="primary" size="utility" onClick={props.onSave} disabled={props.busyAction.includes('save')}>
-              {props.busyAction.includes('save') ? (language === 'zh' ? '保存中…' : 'Saving…') : (language === 'zh' ? '保存' : 'Save')}
+              {props.busyAction.includes('save') ? t('Saving…') : t('Save')}
             </AppButton>
           </div>
         </div>
@@ -267,16 +278,17 @@ function WorkspaceStore(props: {
   onSortPrices: (key: PriceSortKey) => void;
   priceSort: { key: PriceSortKey; dir: 'asc' | 'desc' };
 }) {
-  const language = useLanguage();
+  const { t, i18n } = useTranslation();
+  const language = (i18n.resolvedLanguage ?? i18n.language ?? 'en') as LanguageCode;
   return (
     <div className={cx('flex flex-col gap-5', props.compact && 'gap-4')}>
       <div className={cx('flex items-start justify-between gap-6', props.compact && 'gap-4')}>
         <div className="flex flex-col gap-[3px]">
           <h2 className="m-0 text-[20px] font-semibold leading-none tracking-[-0.3px] text-ds-text-primary">
-            {language === 'zh' ? '价格库存' : 'Price Inventory'}
+            {t('Price Inventory')}
           </h2>
           <p className="m-0 text-[13px] leading-none text-ds-text-secondary opacity-50">
-            {language === 'zh' ? '按服务、国家和运营商查看库存' : 'Stock by service, country and operator'}
+            {t('Stock by service, country and operator')}
           </p>
         </div>
         <div className="flex shrink-0 items-center gap-2">
@@ -288,14 +300,14 @@ function WorkspaceStore(props: {
           <SelectTrigger
             compact={props.compact}
             value={props.storeQuery.country ? `${countryBadge(props.storeQuery.country)} ${formatCountryLabel(props.storeQuery.country, language)}` : ''}
-            placeholder={language === 'zh' ? '全部国家' : 'All countries'}
+            placeholder={t('All countries')}
             muted={!props.storeQuery.country}
             onClick={() => props.onOpenSelector('store-country')}
           />
           <SelectTrigger
             compact={props.compact}
             value={props.storeQuery.operator ? formatOperatorLabel(props.storeQuery.operator, language) : ''}
-            placeholder={language === 'zh' ? '全部运营商' : 'All operators'}
+            placeholder={t('All operators')}
             muted={!props.storeQuery.operator}
             onClick={() => props.onOpenSelector('store-operator')}
           />
@@ -306,7 +318,7 @@ function WorkspaceStore(props: {
         compact={props.compact}
         value={props.storeQuery.search}
         onChange={(event) => props.onStoreQueryChange({ search: event.target.value })}
-        placeholder={language === 'zh' ? '按国家或运营商筛选…' : 'Filter by country or operator...'}
+        placeholder={t('Filter by country or operator...')}
         className="w-full"
       />
 
@@ -319,16 +331,16 @@ function WorkspaceStore(props: {
           header={(
             <>
               <button className="inline-flex items-center justify-start gap-1.5 bg-transparent p-0 text-left text-inherit" onClick={() => props.onSortPrices('country')}>
-                <span>{language === 'zh' ? '国家' : 'Country'}</span>
+                <span>{t('Country')}</span>
                 <ChevronsUpDown size={12} />
               </button>
-              <span>{language === 'zh' ? '运营商' : 'Operator'}</span>
+              <span>{t('Operator')}</span>
               <button className="inline-flex items-center justify-start gap-1.5 bg-transparent p-0 text-left text-inherit min-[760px]:justify-self-end" onClick={() => props.onSortPrices('price')}>
-                <span>{language === 'zh' ? '价格' : 'Price'}</span>
+                <span>{t('Price')}</span>
                 <ChevronsUpDown size={12} />
               </button>
               <button className="inline-flex items-center justify-start gap-1.5 bg-transparent p-0 text-left text-inherit min-[760px]:justify-self-end" onClick={() => props.onSortPrices('stock')}>
-                <span>{language === 'zh' ? '库存' : 'Stock'}</span>
+                <span>{t('Stock')}</span>
                 <ChevronsUpDown size={12} />
               </button>
             </>
@@ -352,7 +364,7 @@ function WorkspaceStore(props: {
             </div>
           )) : (
             <div className="px-5 py-7 text-center text-utility tracking-[var(--ds-type-utility-tracking)] text-ds-text-secondary">
-              {language === 'zh' ? '点击加载价格以获取库存。' : 'Click Load Prices to fetch inventory.'}
+              {t('Click Load Prices to fetch inventory.')}
             </div>
           )}
         </DataTable>

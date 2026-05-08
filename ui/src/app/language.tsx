@@ -1,16 +1,13 @@
-import { createContext, useContext } from 'react';
+import { useEffect } from 'react';
 import type { LanguageCode } from './types';
-
-const LanguageContext = createContext<LanguageCode>('en');
+import { i18n } from './i18n';
 
 export function LanguageProvider(props: { language: LanguageCode; children: React.ReactNode }) {
-  return (
-    <LanguageContext.Provider value={props.language}>
-      {props.children}
-    </LanguageContext.Provider>
-  );
-}
+  useEffect(() => {
+    if (i18n.language !== props.language) {
+      void i18n.changeLanguage(props.language);
+    }
+  }, [props.language]);
 
-export function useLanguage() {
-  return useContext(LanguageContext);
+  return props.children;
 }

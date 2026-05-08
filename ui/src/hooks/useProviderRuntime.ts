@@ -2,6 +2,7 @@ import { startTransition, useMemo } from 'react';
 import type {
   ActivationFormState,
   LanguageCode,
+  OptionItem,
   PriceSortKey,
   ProviderDynamicOptions,
   ProviderManifest,
@@ -30,7 +31,7 @@ import {
   saveRuntimeSettings as persistRuntimeSettings,
 } from '../services/runtimeApi';
 import { refreshMenuBar } from '../services/menuBarApi';
-import { t } from '../app/i18n';
+import { i18n } from '../app/i18n';
 import {
   mergeOptionItems,
   normalizeCountryOptions,
@@ -87,6 +88,8 @@ export function useProviderRuntime(
   data: DataState,
   ui: UiState,
 ) {
+  const translate = i18n.getFixedT(ui.language);
+
   const manageableProviders = useMemo(
     () => Object.values(data.manifests).filter((provider) => provider.id !== 'mock' && provider.kind !== 'mock'),
     [data.manifests],
@@ -149,7 +152,7 @@ export function useProviderRuntime(
       const runtime = await fetchRuntimeSnapshot();
       startTransition(() => data.setSnapshot(runtime));
     } catch {
-      ui.setStatusMessage(t(ui.language, 'cannot_connect_runtime_snapshot'));
+      ui.setStatusMessage(translate('cannot_connect_runtime_snapshot'));
     }
   }
 
@@ -169,8 +172,8 @@ export function useProviderRuntime(
     const rawOperators = operatorsPayload.items;
     const operators = normalizeOperatorOptions(rawOperators);
 
-    let rawServices = [];
-    let services = [];
+    let rawServices: OptionItem[] = [];
+    let services: OptionItem[] = [];
     if (provider.kind === 'five_sim') {
       if (countrySeed) {
         const operatorSeeds = operators.map((item) => optionRequestValue(item)).filter(Boolean);
@@ -259,7 +262,7 @@ export function useProviderRuntime(
       }
       void refreshMenuBar().catch(() => {});
     } catch {
-      ui.setStatusMessage(t(ui.language, 'failed_load_provider_manifests'));
+      ui.setStatusMessage(translate('failed_load_provider_manifests'));
     }
   }
 
@@ -285,7 +288,7 @@ export function useProviderRuntime(
         delete next[providerId];
         return next;
       });
-      ui.setStatusMessage(t(ui.language, 'failed_load_options_for_provider', { provider: providerId }));
+      ui.setStatusMessage(translate('failed_load_options_for_provider', { provider: providerId }));
     }
   }
 
@@ -296,7 +299,7 @@ export function useProviderRuntime(
       const cacheOverview = await fetchOptionCacheOverview();
       data.setOptionCacheOverview(cacheOverview);
     } catch {
-      ui.setStatusMessage(t(ui.language, 'failed_load_runtime_settings'));
+      ui.setStatusMessage(translate('failed_load_runtime_settings'));
     }
   }
 
@@ -344,7 +347,7 @@ export function useProviderRuntime(
         };
       });
       if (result.cache_refresh_error) {
-        ui.setStatusMessage(t(ui.language, 'cache_refresh_failed', { message: successMessage, error: result.cache_refresh_error }));
+        ui.setStatusMessage(translate('cache_refresh_failed', { message: successMessage, error: result.cache_refresh_error }));
       } else {
         ui.setStatusMessage(successMessage);
       }
@@ -359,10 +362,10 @@ export function useProviderRuntime(
   async function saveProvider(providerId: string) {
     try {
       const manifest = JSON.parse(data.rawEditors[providerId] ?? '{}') as ProviderManifest;
-      await persistProvider(providerId, manifest, t(ui.language, 'saved_provider_reloaded_refreshed', { provider: providerId }));
+      await persistProvider(providerId, manifest, translate('saved_provider_reloaded_refreshed', { provider: providerId }));
       ui.setShowManifestModal(false);
     } catch (error) {
-      ui.setStatusMessage(t(ui.language, 'save_failed', { error: String(error) }));
+      ui.setStatusMessage(translate('save_failed', { error: String(error) }));
     }
   }
 
@@ -396,8 +399,8 @@ export function useProviderRuntime(
         providerId,
         nextManifest,
         enabled
-          ? t(ui.language, 'saved_provider_reloaded_refreshed', { provider: providerId })
-          : (ui.language === 'zh' ? `已禁用 ${providerId}。` : `Disabled ${providerId}.`),
+          ? translate('saved_provider_reloaded_refreshed', { provider: providerId })
+          : translate('provider_disabled', { provider: providerId }),
       );
     } catch (error) {
       data.setManifests((current) => ({
@@ -408,7 +411,7 @@ export function useProviderRuntime(
         ...current,
         [providerId]: previousRaw,
       }));
-      ui.setStatusMessage(t(ui.language, 'failed_update_provider', { provider: providerId, error: String(error) }));
+      ui.setStatusMessage(translate('failed_update_provider', { provider: providerId, error: String(error) }));
     }
   }
 
@@ -416,10 +419,10 @@ export function useProviderRuntime(
     try {
       ui.setBusyAction('reload');
       await reloadProviderRegistry();
-      ui.setStatusMessage(t(ui.language, 'providers_reloaded'));
+      ui.setStatusMessage(translate('providers_reloaded'));
       await Promise.all([loadManifests(), loadSnapshot()]);
     } catch (error) {
-      ui.setStatusMessage(t(ui.language, 'reload_failed', { error: String(error) }));
+      ui.setStatusMessage(translate('reload_failed', { error: String(error) }));
     } finally {
       ui.setBusyAction('');
     }
@@ -431,9 +434,9 @@ export function useProviderRuntime(
       const dataNext = await persistRuntimeSettings(next);
       data.setRuntimeSettings(dataNext);
       data.setOptionCacheOverview(await fetchOptionCacheOverview());
-      ui.setStatusMessage(t(ui.language, 'runtime_settings_saved'));
+      ui.setStatusMessage(translate('runtime_settings_saved'));
     } catch (error) {
-      ui.setStatusMessage(t(ui.language, 'failed_save_runtime_settings', { error: String(error) }));
+      ui.setStatusMessage(translate('failed_save_runtime_settings', { error: String(error) }));
     } finally {
       ui.setBusyAction('');
     }
@@ -447,9 +450,9 @@ export function useProviderRuntime(
         ...current,
         [providerId]: `${payload.amount.toFixed(2)} ${payload.currency}`,
       }));
-      ui.setStatusMessage(t(ui.language, 'balance_fetched_for_provider', { provider: providerId }));
+      ui.setStatusMessage(translate('balance_fetched_for_provider', { provider: providerId }));
     } catch (error) {
-      ui.setStatusMessage(t(ui.language, 'failed_fetch_balance', { error: String(error) }));
+      ui.setStatusMessage(translate('failed_fetch_balance', { error: String(error) }));
     } finally {
       ui.setBusyAction('');
     }
@@ -460,9 +463,9 @@ export function useProviderRuntime(
       ui.setBusyAction(`refresh-${providerId}`);
       await Promise.all([loadProviderOptions(providerId), fetchBalance(providerId)]);
       await Promise.all([loadManifests(), loadSnapshot()]);
-      ui.setStatusMessage(t(ui.language, 'refreshed_cache_and_balance_for_provider', { provider: providerId }));
+      ui.setStatusMessage(translate('refreshed_cache_and_balance_for_provider', { provider: providerId }));
     } catch (error) {
-      ui.setStatusMessage(t(ui.language, 'failed_refresh_provider', { provider: providerId, error: String(error) }));
+      ui.setStatusMessage(translate('failed_refresh_provider', { provider: providerId, error: String(error) }));
     } finally {
       ui.setBusyAction('');
     }
@@ -479,9 +482,9 @@ export function useProviderRuntime(
         ...current,
         [providerId]: payload,
       }));
-      ui.setStatusMessage(t(ui.language, 'prices_loaded_for_provider', { provider: providerId }));
+      ui.setStatusMessage(translate('prices_loaded_for_provider', { provider: providerId }));
     } catch (error) {
-      ui.setStatusMessage(t(ui.language, 'failed_fetch_prices', { error: String(error) }));
+      ui.setStatusMessage(translate('failed_fetch_prices', { error: String(error) }));
     } finally {
       ui.setBusyAction('');
     }
@@ -504,10 +507,10 @@ export function useProviderRuntime(
     const order = ids.map((id, index) => ({ id, priority: (index + 1) * 10 }));
     try {
       await reorderProviderManifests(order);
-      ui.setStatusMessage(t(ui.language, 'priority_order_saved'));
+      ui.setStatusMessage(translate('priority_order_saved'));
       await loadManifests();
     } catch (error) {
-      ui.setStatusMessage(t(ui.language, 'failed_save_order', { error: String(error) }));
+      ui.setStatusMessage(translate('failed_save_order', { error: String(error) }));
     }
   }
 

@@ -30,6 +30,7 @@ export function parseArgs(argv) {
     failOnDiff: false,
     updateBaselines: false,
     port: 4173,
+    lang: 'en',
   };
 
   for (let index = 0; index < argv.length; index += 1) {
@@ -45,6 +46,9 @@ export function parseArgs(argv) {
       args.updateBaselines = true;
     } else if (token === '--port') {
       args.port = Number(argv[index + 1] ?? '4173');
+      index += 1;
+    } else if (token === '--lang') {
+      args.lang = argv[index + 1] ?? 'en';
       index += 1;
     }
   }

@@ -1,8 +1,8 @@
 import { ChevronRight, Server } from 'lucide-react';
+import { useTranslation } from 'react-i18next';
 import { PageHeader, StatusBadge } from '../ui-bridge';
-import type { ProviderManifest, ProviderSummary } from '../types';
+import type { LanguageCode, ProviderManifest, ProviderSummary } from '../types';
 import { formatProviderLabel, formatProviderProtocolLabel } from '../../lib/formatters';
-import { useLanguage } from '../language';
 
 export type ProvidersListScreenProps = {
   providers: ProviderManifest[];
@@ -15,19 +15,20 @@ export type ProvidersListScreenProps = {
 };
 
 export function ProvidersListScreen(props: ProvidersListScreenProps) {
-  const language = useLanguage();
+  const { t, i18n } = useTranslation();
+  const language = (i18n.resolvedLanguage ?? i18n.language ?? 'en') as LanguageCode;
   return (
     <div className="flex flex-col gap-8">
       <PageHeader
-        title={language === 'zh' ? '服务商' : 'Providers'}
-        subtitle={language === 'zh' ? '在这里配置 Provider 凭证与健康状态。路由优先级由 Routing 工作区管理。' : 'Configure provider credentials and health. Routing priority is managed in the Routing workspace.'}
+        title={t('Providers')}
+        subtitle={t('Configure provider credentials and health. Routing priority is managed in the Routing workspace.')}
       />
 
       <div className="grid grid-cols-1 gap-4 min-[760px]:grid-cols-2">
         {props.providers.map((provider) => {
           const summary = props.summaries?.find((item) => item.id === provider.id);
           const enableLocked = !provider.enabled && summary?.can_enable === false;
-          const endpoint = summary?.primary_endpoint ?? provider.homepage ?? 'No endpoint';
+          const endpoint = summary?.primary_endpoint ?? provider.homepage ?? t('No endpoint');
           const protocolTag = summary?.protocol
             ?? (provider.id === 'herosms' || provider.id === 'smsbower' ? provider.id : provider.kind);
           const balanceLabel = props.balances?.[provider.id] ?? '—';
@@ -47,7 +48,7 @@ export function ProvidersListScreen(props: ProvidersListScreenProps) {
                   </span>
                 </div>
                 <StatusBadge tone={provider.enabled ? 'green' : 'gray'}>
-                  {provider.enabled ? (language === 'zh' ? '已连接' : 'Connected') : (language === 'zh' ? '待命' : 'Standby')}
+                  {provider.enabled ? t('Connected') : t('Standby')}
                 </StatusBadge>
               </div>
 
@@ -70,7 +71,7 @@ export function ProvidersListScreen(props: ProvidersListScreenProps) {
                   {balanceLabel}
                 </span>
                 <div className="flex items-center gap-1 text-ds-accent-blue">
-                  <span className="text-[12px] font-medium">{language === 'zh' ? '配置' : 'Configure'}</span>
+                  <span className="text-[12px] font-medium">{t('Configure')}</span>
                   <ChevronRight size={12} />
                 </div>
               </div>

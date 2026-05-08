@@ -1,7 +1,9 @@
 import { Trash2 } from 'lucide-react';
+import { useTranslation } from 'react-i18next';
 import { AppButton, DataTable, PageHeader, SegmentedControl } from '../ui-bridge';
 import { cx } from '../../lib/cx';
-import { useLanguage } from '../language';
+import type { LanguageCode } from '../types';
+import { formatScopeLabel } from '../../lib/formatters';
 
 export type LogFilter = 'all' | 'info' | 'warn' | 'error';
 
@@ -22,7 +24,9 @@ export type LogsScreenProps = {
 };
 
 export function LogsScreen(props: LogsScreenProps) {
-  const language = useLanguage();
+  const { t, i18n } = useTranslation();
+  const language = (i18n.resolvedLanguage ?? i18n.language ?? 'en') as LanguageCode;
+  const timeLocale = language === 'zh' ? 'zh-CN' : 'en-US';
   const visibleLogs = [...props.logs].sort((left, right) => (
     new Date(right.timestamp).getTime() - new Date(left.timestamp).getTime()
   ));
@@ -30,13 +34,13 @@ export function LogsScreen(props: LogsScreenProps) {
   return (
     <div className="flex flex-col gap-5">
       <PageHeader
-        title={language === 'zh' ? '系统日志' : 'System Logs'}
-        subtitle={language === 'zh' ? '用于调试和监控的实时事件流。' : 'Real-time event stream for debugging and monitoring.'}
+        title={t('System Logs')}
+        subtitle={t('Real-time event stream for debugging and monitoring.')}
         align="center"
         actions={(
           <AppButton variant="danger-outline" size="utility" onClick={() => props.onSearch('')}>
             <Trash2 size={14} />
-            {language === 'zh' ? '清空日志' : 'Clear Logs'}
+            {t('Clear Logs')}
           </AppButton>
         )}
       />
@@ -50,10 +54,10 @@ export function LogsScreen(props: LogsScreenProps) {
           headerClassName="grid grid-cols-1 items-center gap-3 border-b border-solid border-ds-border-strong border-x-0 border-t-0 bg-ds-content px-4 py-2.5 text-[12px] font-medium uppercase tracking-[0.08em] text-ds-text-secondary min-[760px]:grid-cols-[58px_96px_72px_minmax(0,1fr)]"
           header={(
             <>
-              <span>{language === 'zh' ? '级别' : 'Level'}</span>
-              <span>{language === 'zh' ? '时间' : 'Time'}</span>
-              <span>{language === 'zh' ? '范围' : 'Scope'}</span>
-              <span>{language === 'zh' ? '消息' : 'Message'}</span>
+              <span>{t('Level')}</span>
+              <span>{t('Time')}</span>
+              <span>{t('Scope')}</span>
+              <span>{t('Message')}</span>
             </>
           )}
         >
@@ -79,8 +83,8 @@ export function LogsScreen(props: LogsScreenProps) {
                   {entry.level.toUpperCase()}
                 </span>
               </span>
-              <span className="text-[12px] text-ds-text-secondary">{new Date(entry.timestamp).toLocaleTimeString(language === 'zh' ? 'zh-CN' : 'en-US')}</span>
-              <span className="text-[12px] text-ds-text-secondary">{entry.scope}</span>
+              <span className="text-[12px] text-ds-text-secondary">{new Date(entry.timestamp).toLocaleTimeString(timeLocale)}</span>
+              <span className="text-[12px] text-ds-text-secondary">{formatScopeLabel(entry.scope, language)}</span>
               <span className={cx(
                 'text-[13px]',
                 entry.level.toLowerCase() === 'error' && 'text-ds-state-danger',
@@ -93,7 +97,7 @@ export function LogsScreen(props: LogsScreenProps) {
             </div>
           )) : (
             <div className="px-5 py-7 text-center text-utility tracking-[var(--ds-type-utility-tracking)] text-ds-text-secondary">
-              {language === 'zh' ? '暂无日志事件。' : 'No log events.'}
+              {t('No log events.')}
             </div>
           )}
         </DataTable>

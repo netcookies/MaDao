@@ -1,4 +1,5 @@
 import type { LanguageCode, OptionCatalog, OptionCatalogItem, OptionItem, ProviderDynamicOptions } from './types';
+import { i18n } from './i18n';
 import { canonicalCountryValue, formatCountryLabel, formatServiceLabel } from '../lib/formatters';
 
 export function mergeOptionItems(optionGroups: OptionItem[][]) {
@@ -65,7 +66,7 @@ export function normalizeOperatorOptions(options: OptionItem[]) {
 export function formatOperatorLabel(operator: string, language: LanguageCode = 'en') {
   const normalized = operator.trim().toLowerCase();
   if (!normalized) return '';
-  if (normalized === 'any') return language === 'zh' ? '任意运营商' : 'Any operator';
+  if (normalized === 'any') return i18n.getFixedT(language)('Any operator');
   if (normalized === 'o2') return 'O2';
   return normalized
     .split(/\s+/)

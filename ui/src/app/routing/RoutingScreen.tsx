@@ -1,10 +1,10 @@
 import { useState, useEffect } from 'react';
 import { ChevronRight, GripVertical, Plus } from 'lucide-react';
+import { useTranslation } from 'react-i18next';
 import { Modal } from '../../components/overlays';
 import { countryBadge, formatCountryLabel, formatProviderLabel, formatServiceLabel, serviceBadge } from '../../lib/formatters';
 import { formatOperatorLabel } from '../utils';
 import { cx } from '../../lib/cx';
-import { useLanguage } from '../language';
 import {
   AppButton,
   ModalField,
@@ -17,6 +17,7 @@ import {
 import type {
   ProviderManifest,
   ProviderPriceItem,
+  LanguageCode,
   RoutingExecutionMode,
   RoutingPlan,
   RoutingPlanFilter,
@@ -77,18 +78,19 @@ function emptyPlan(): RoutingPlan {
   };
 }
 
-function summarizePrice(item: RoutingPlanItem) {
+function summarizePrice(item: RoutingPlanItem, t: (key: string) => string) {
   if (item.price_mode === 'fixed' && item.fixed_price != null) {
-    return `$${item.fixed_price.toFixed(3)} fixed`;
+    return `$${item.fixed_price.toFixed(3)} ${t('fixed')}`;
   }
   if (item.min_price != null || item.max_price != null) {
-    return `${item.min_price != null ? `$${item.min_price.toFixed(3)}` : 'Min'} - ${item.max_price != null ? `$${item.max_price.toFixed(3)}` : 'Max'}`;
+    return `${item.min_price != null ? `$${item.min_price.toFixed(3)}` : t('Min')} - ${item.max_price != null ? `$${item.max_price.toFixed(3)}` : t('Max')}`;
   }
-  return 'No price limit';
+  return t('No price limit');
 }
 
 export function RoutingScreen(props: RoutingScreenProps) {
-  const language = useLanguage();
+  const { i18n } = useTranslation();
+  const language = (i18n.resolvedLanguage ?? i18n.language ?? 'en') as LanguageCode;
   const plan = props.plans.find((item) => item.id === props.selectedPlanId) ?? props.plans[0] ?? emptyPlan();
   const enabledPlans = props.plans.filter((item) => item.enabled).length;
   const disabledPlans = props.plans.length - enabledPlans;
@@ -147,6 +149,7 @@ export function RoutingScreen(props: RoutingScreenProps) {
         editor={props.itemEditor}
         providers={props.providers}
         provider={props.providers.find((item) => item.id === props.itemEditor?.providerId)}
+        language={language}
         priceItems={props.itemPriceOptions}
         loading={props.itemEditorLoading}
         onClose={props.onCloseItemEditor}
@@ -175,22 +178,23 @@ function RoutingPlanMatrixScreen(props: {
   onUpdateRoutingFilter: (value: RoutingPlanFilter) => void;
   onUpdateRoutingSearch: (value: string) => void;
 }) {
+  const { t } = useTranslation();
   return (
     <div className="flex flex-col gap-6">
       <PageHeader
-        title={props.language === 'zh' ? '路由方案' : 'Routing Plans'}
-        subtitle={props.language === 'zh' ? '浏览可复用的路由方案，并打开任意方案管理其候选项。' : 'Browse reusable routing plans and open any plan to manage its candidates.'}
+        title={t('Routing Plans')}
+        subtitle={t('Browse reusable routing plans and open any plan to manage its candidates.')}
       />
 
       <div className="flex flex-wrap items-center justify-between gap-4">
         <span className="text-[13px] text-ds-text-secondary">
-          {props.plans.length} {props.language === 'zh' ? '个方案' : (props.plans.length === 1 ? 'plan' : 'plans')}
+          {props.plans.length} {props.plans.length === 1 ? t('plan') : t('plans')}
         </span>
         <SegmentedControl
           items={[
-            { id: 'all', label: props.language === 'zh' ? '全部' : 'All' },
-            { id: 'enabled', label: props.language === 'zh' ? '启用中' : 'Active' },
-            { id: 'disabled', label: props.language === 'zh' ? '未启用' : 'Inactive' },
+            { id: 'all', label: t('All') },
+            { id: 'enabled', label: t('Active') },
+            { id: 'disabled', label: t('Inactive') },
           ]}
           value={props.routingFilter}
           onChange={props.onUpdateRoutingFilter}
@@ -214,11 +218,11 @@ function RoutingPlanMatrixScreen(props: {
                     <RoutingShuffleIcon />
                   </span>
                   <span className="truncate text-[14px] font-semibold text-ds-text-primary">
-                    {plan.name || (props.language === 'zh' ? '未命名方案' : 'Untitled Plan')}
+                    {plan.name || t('Untitled Plan')}
                   </span>
                 </div>
                 <StatusBadge tone={plan.enabled ? 'green' : 'gray'}>
-                  {plan.enabled ? (props.language === 'zh' ? '已启用' : 'Enabled') : (props.language === 'zh' ? '已禁用' : 'Disabled')}
+                  {plan.enabled ? t('Enabled') : t('Disabled')}
                 </StatusBadge>
               </div>
 
@@ -230,7 +234,7 @@ function RoutingPlanMatrixScreen(props: {
                       : 'bg-ds-surface-subtle text-ds-text-secondary'
                   }`}
                 >
-                  {plan.service ? `${serviceBadge(plan.service)} ${formatServiceLabel(plan.service, props.language)}` : (props.language === 'zh' ? '未选择服务' : 'No Service')}
+                  {plan.service ? `${serviceBadge(plan.service)} ${formatServiceLabel(plan.service, props.language)}` : t('No Service')}
                 </span>
               </div>
 
@@ -243,15 +247,15 @@ function RoutingPlanMatrixScreen(props: {
                   overflow: 'hidden',
                 }}
               >
-                {plan.description || (props.language === 'zh' ? '还没有描述，补充上下文会让这个路由更容易维护。' : 'No description yet. Add context so this route is easier to maintain later.')}
+                {plan.description || t('No description yet. Add context so this route is easier to maintain later.')}
               </p>
 
               <div className="mt-5 flex items-center justify-between text-[12px] text-ds-text-secondary">
                 <span>
-                  {plan.items.length} {props.language === 'zh' ? '个候选项' : (plan.items.length === 1 ? 'candidate' : 'candidates')}
+                  {plan.items.length} {plan.items.length === 1 ? t('candidate') : t('candidates')}
                 </span>
                 <span className="inline-flex items-center gap-1 text-ds-accent-blue">
-                  {props.language === 'zh' ? '管理' : 'Manage'}
+                  {t('Manage')}
                   <ChevronRight size={12} className="transition-transform group-hover:translate-x-0.5" />
                 </span>
               </div>
@@ -260,7 +264,7 @@ function RoutingPlanMatrixScreen(props: {
         </div>
       ) : (
         <div className="rounded-2xl border border-ds-border bg-ds-surface px-6 py-12 text-center text-[14px] text-ds-text-secondary shadow-ds backdrop-blur-ds">
-          {props.language === 'zh' ? '当前筛选条件下没有匹配的方案。' : 'No plans match the current filters.'}
+          {t('No plans match the current filters.')}
         </div>
       )}
     </div>
@@ -284,7 +288,8 @@ function RoutingPlanDetailScreen(props: {
   onOpenItemSelector: (itemId: string, field: 'provider' | 'country' | 'operator') => void;
   onOpenItemEditor: (itemId: string) => void;
 }) {
-  const toggleLabel = props.plan.enabled ? (props.language === 'zh' ? '已启用' : 'Enabled') : (props.language === 'zh' ? '已禁用' : 'Disabled');
+  const { t } = useTranslation();
+  const toggleLabel = props.plan.enabled ? t('Enabled') : t('Disabled');
   const [draggedItemId, setDraggedItemId] = useState<string | null>(null);
   const [dragOverItemId, setDragOverItemId] = useState<string | null>(null);
 
@@ -298,10 +303,10 @@ function RoutingPlanDetailScreen(props: {
       <div className="flex flex-col gap-4 min-[860px]:flex-row min-[860px]:items-start min-[860px]:justify-between">
         <div className="flex flex-col gap-[3px]">
           <h1 className="m-0 text-[20px] font-semibold leading-none tracking-[-0.3px] text-ds-text-primary">
-            {props.plan.name || (props.language === 'zh' ? '未命名方案' : 'Untitled Plan')}
+            {props.plan.name || t('Untitled Plan')}
           </h1>
           <p className="m-0 text-[13px] leading-none text-ds-text-secondary opacity-50">
-            {props.language === 'zh' ? '管理这个路由方案的服务匹配、执行顺序与候选可用性。' : 'Manage service matching, execution order, and candidate availability for this routing plan.'}
+            {t('Manage service matching, execution order, and candidate availability for this routing plan.')}
           </p>
         </div>
 
@@ -312,7 +317,7 @@ function RoutingPlanDetailScreen(props: {
             onClick={() => props.onDeletePlan(props.plan.id)}
             disabled={!props.plan.id || props.busyAction === 'delete-routing-plan'}
           >
-            {props.busyAction === 'delete-routing-plan' ? (props.language === 'zh' ? '删除中…' : 'Deleting...') : (props.language === 'zh' ? '删除方案' : 'Delete Plan')}
+            {props.busyAction === 'delete-routing-plan' ? t('Deleting...') : t('Delete Plan')}
           </AppButton>
         </div>
       </div>
@@ -321,7 +326,7 @@ function RoutingPlanDetailScreen(props: {
         <div className="flex flex-col gap-6">
           <div className="flex items-center justify-between gap-4">
             <span className="text-[11px] font-semibold uppercase tracking-[0.08em] text-ds-text-secondary">
-              PLAN DETAILS
+              {t('Plan Details')}
             </span>
             <div className="flex items-center gap-2">
               <span className="text-[11px] font-semibold text-ds-text-primary">
@@ -330,7 +335,7 @@ function RoutingPlanDetailScreen(props: {
               <ToggleSwitch
                 checked={props.plan.enabled}
                 onChange={(enabled) => props.onUpdatePlan({ ...props.plan, enabled })}
-                ariaLabel="Toggle routing plan"
+                ariaLabel={t('Toggle routing plan')}
               />
             </div>
           </div>
@@ -338,23 +343,23 @@ function RoutingPlanDetailScreen(props: {
           <div className="grid grid-cols-1 gap-4 min-[760px]:grid-cols-[minmax(0,1fr)_200px]">
             <label className="flex flex-col gap-2">
               <span className="text-[11px] font-semibold uppercase tracking-[0.08em] text-ds-text-secondary">
-                {props.language === 'zh' ? '名称' : 'Name'}
+                {t('Name')}
               </span>
               <input
                 value={props.plan.name}
                 onChange={(event) => props.onUpdatePlan({ ...props.plan, name: event.target.value })}
                 className="min-h-control w-full rounded-[10px] border border-ds-border-strong bg-ds-surface px-4 py-[11px] text-utility text-ds-text-primary"
-                placeholder={props.language === 'zh' ? 'OpenAI 主路由' : 'OpenAI Primary Route'}
+                placeholder={t('OpenAI Primary Route')}
               />
             </label>
 
             <label className="flex flex-col gap-2">
               <span className="text-[11px] font-semibold uppercase tracking-[0.08em] text-ds-text-secondary">
-                {props.language === 'zh' ? '服务' : 'Service'}
+                {t('Service')}
               </span>
               <SelectTrigger
-              value={props.plan.service ? `${serviceBadge(props.plan.service)} ${formatServiceLabel(props.plan.service, props.language)}` : ''}
-                placeholder={props.language === 'zh' ? '选择服务' : 'Choose service'}
+                value={props.plan.service ? `${serviceBadge(props.plan.service)} ${formatServiceLabel(props.plan.service, props.language)}` : ''}
+                placeholder={t('Choose service')}
                 onClick={props.onOpenServicePicker}
                 className="w-full"
               />
@@ -363,25 +368,25 @@ function RoutingPlanDetailScreen(props: {
 
           <label className="flex flex-col gap-2">
             <span className="text-[11px] font-semibold uppercase tracking-[0.08em] text-ds-text-secondary">
-              {props.language === 'zh' ? '描述' : 'Description'}
+              {t('Description')}
             </span>
             <textarea
               value={props.plan.description ?? ''}
               onChange={(event) => props.onUpdatePlan({ ...props.plan, description: event.target.value })}
               className="min-h-[80px] w-full rounded-[10px] border border-ds-border-strong bg-ds-surface px-4 py-3 text-[13px] text-ds-text-primary"
-              placeholder={props.language === 'zh' ? '描述这个方案在什么场景下使用，以及应该优先哪些候选项。' : 'Describe when this plan should be used and what kind of candidates it should prefer.'}
+              placeholder={t('Describe when this plan should be used and what kind of candidates it should prefer.')}
             />
           </label>
 
           <div className="flex flex-col gap-4 min-[760px]:flex-row min-[760px]:items-end min-[760px]:justify-between">
             <div className="flex flex-col gap-2">
               <span className="text-[11px] font-semibold uppercase tracking-[0.08em] text-ds-text-secondary">
-                {props.language === 'zh' ? '执行模式' : 'Execution Mode'}
+                {t('Execution Mode')}
               </span>
               <SegmentedControl
                 items={[
-                  { id: 'sequential', label: props.language === 'zh' ? '顺序' : 'Sequential' },
-                  { id: 'random', label: props.language === 'zh' ? '随机' : 'Random' },
+                  { id: 'sequential', label: t('Sequential') },
+                  { id: 'random', label: t('Random') },
                 ]}
                 value={props.plan.execution_mode as RoutingExecutionMode}
                 onChange={(value) => props.onUpdatePlan({ ...props.plan, execution_mode: value })}
@@ -392,10 +397,10 @@ function RoutingPlanDetailScreen(props: {
 
             <div className="min-[760px]:text-right">
               <div className="text-[11px] font-semibold uppercase tracking-[0.08em] text-ds-text-secondary">
-                {props.language === 'zh' ? '方案 ID' : 'Plan ID'}
+                {t('Plan ID')}
               </div>
               <div className="mt-1 break-all font-mono text-[11px] text-ds-text-secondary">
-                {props.plan.id || (props.language === 'zh' ? '保存后生成 ID' : 'Save to generate an id')}
+                {props.plan.id || t('Save to generate an id')}
               </div>
             </div>
           </div>
@@ -406,14 +411,14 @@ function RoutingPlanDetailScreen(props: {
       <section className="flex flex-col gap-4">
         <div className="flex flex-col gap-3 min-[760px]:flex-row min-[760px]:items-center min-[760px]:justify-between">
           <div className="flex items-center gap-2">
-            <h2 className="m-0 text-[14px] font-semibold text-ds-text-primary">{props.language === 'zh' ? '路由候选项' : 'Route Candidates'}</h2>
+            <h2 className="m-0 text-[14px] font-semibold text-ds-text-primary">{t('Route Candidates')}</h2>
             <span className="inline-flex items-center rounded-pill bg-ds-surface-subtle px-2.5 py-1 text-[12px] font-semibold text-ds-text-secondary">
               {props.plan.items.length}
             </span>
           </div>
           <AppButton variant="outline" size="utility" onClick={props.onAddItem}>
             <Plus size={14} />
-            {props.language === 'zh' ? '添加候选项' : 'Add Candidate'}
+            {t('Add Candidate')}
           </AppButton>
         </div>
 
@@ -421,20 +426,20 @@ function RoutingPlanDetailScreen(props: {
           <div className="hidden min-[900px]:grid min-[900px]:grid-cols-[24px_36px_minmax(0,1fr)_160px_120px_60px] min-[900px]:items-center bg-ds-surface-subtle px-4 py-2.5 text-[11px] font-semibold uppercase tracking-[0.08em] text-ds-text-secondary">
             <span />
             <span>#</span>
-            <span>{props.language === 'zh' ? '服务商' : 'Provider'}</span>
-            <span>{props.language === 'zh' ? '国家 · 运营商' : 'Country · Operator'}</span>
-            <span>{props.language === 'zh' ? '价格区间' : 'Price Range'}</span>
-            <span className="text-right">{props.language === 'zh' ? '操作' : 'Actions'}</span>
+            <span>{t('Provider')}</span>
+            <span>{t('Country · Operator')}</span>
+            <span>{t('Price Range')}</span>
+            <span className="text-right">{t('Actions')}</span>
           </div>
 
           {props.plan.items.length > 0 ? props.plan.items.map((item, index) => {
             const provider = props.providers.find((entry) => entry.id === item.provider);
             const providerLabel = item.provider === 'any'
-              ? (props.language === 'zh' ? '任意 Provider' : 'Any provider')
+              ? t('Any provider')
               : provider
                 ? formatProviderLabel(provider.name, props.language)
-                : (props.language === 'zh' ? '选择 Provider' : 'Choose provider');
-            const countryOperator = `${item.country ? formatCountryLabel(item.country, props.language) : (props.language === 'zh' ? '任意国家' : 'Any country')} · ${formatOperatorLabel(item.operator || 'any', props.language)}`;
+                : t('Choose provider');
+            const countryOperator = `${item.country ? formatCountryLabel(item.country, props.language) : t('Any country')} · ${formatOperatorLabel(item.operator || 'any', props.language)}`;
 
             return (
               <div
@@ -477,7 +482,7 @@ function RoutingPlanDetailScreen(props: {
                     setDragOverItemId(null);
                   }}
                   className="flex cursor-grab items-center justify-center text-ds-text-secondary min-[900px]:justify-start"
-                  aria-label={`Drag candidate ${index + 1}`}
+                  aria-label={t('Drag candidate {{index}}', { index: index + 1 })}
                 >
                   <GripVertical size={14} className="opacity-30" />
                 </div>
@@ -497,8 +502,8 @@ function RoutingPlanDetailScreen(props: {
                   <div className="mt-1 flex flex-wrap gap-3 text-[12px] text-ds-text-secondary min-[900px]:hidden">
                     <span>#{index + 1}</span>
                     <span>{countryOperator}</span>
-                    <span>{summarizePrice(item)}</span>
-                    {!item.enabled ? <span>{props.language === 'zh' ? '已禁用' : 'Disabled'}</span> : null}
+                    <span>{summarizePrice(item, t)}</span>
+                    {!item.enabled ? <span>{t('Disabled')}</span> : null}
                   </div>
                 </div>
 
@@ -507,7 +512,7 @@ function RoutingPlanDetailScreen(props: {
                 </div>
 
                 <div className="hidden text-[12px] text-ds-text-secondary min-[900px]:block">
-                  {summarizePrice(item)}
+                  {summarizePrice(item, t)}
                 </div>
 
                 <div className="flex items-center justify-end gap-2.5">
@@ -515,8 +520,8 @@ function RoutingPlanDetailScreen(props: {
                     type="button"
                     onClick={() => props.onOpenItemEditor(item.id)}
                     className="inline-flex h-7 w-7 items-center justify-center rounded-[8px] text-ds-accent-blue transition-colors duration-fast ease-[var(--ds-motion-transition-fast)] hover:bg-ds-surface-subtle"
-                    aria-label={`Edit candidate ${index + 1}`}
-                    title={props.language === 'zh' ? '编辑候选项' : 'Edit candidate'}
+                    aria-label={t('Edit candidate {{index}}', { index: index + 1 })}
+                    title={t('Edit candidate')}
                   >
                     <RoutingPencilIcon />
                   </button>
@@ -524,8 +529,8 @@ function RoutingPlanDetailScreen(props: {
                     type="button"
                     onClick={() => props.onRemoveItem(item.id)}
                     className="inline-flex h-7 w-7 items-center justify-center rounded-[8px] text-[rgb(224,68,62)] transition-colors duration-fast ease-[var(--ds-motion-transition-fast)] hover:bg-ds-surface-subtle"
-                    aria-label={`Delete candidate ${index + 1}`}
-                    title={props.language === 'zh' ? '删除候选项' : 'Delete candidate'}
+                    aria-label={t('Delete candidate {{index}}', { index: index + 1 })}
+                    title={t('Delete candidate')}
                   >
                     <RoutingTrashIcon />
                   </button>
@@ -534,7 +539,7 @@ function RoutingPlanDetailScreen(props: {
             );
           }) : (
             <div className="px-5 py-10 text-center text-[13px] text-ds-text-secondary">
-              {props.language === 'zh' ? '还没有候选项，先添加一个候选项开始构建此路由。' : 'No candidates yet. Add a candidate to start building this route.'}
+              {t('No candidates yet. Add a candidate to start building this route.')}
             </div>
           )}
         </div>
@@ -619,6 +624,7 @@ function RoutingItemEditorModal(props: {
   onLoadPriceOptions: () => void;
   onQuickFill: (kind: 'min' | 'max', price: number) => void;
 }) {
+  const { t } = useTranslation();
   const [priceMode, setPriceMode] = useState<'any' | 'range'>('any');
 
   const editor = props.editor;
@@ -644,7 +650,7 @@ function RoutingItemEditorModal(props: {
   });
 
   const providerLabel = editor.providerId === 'any'
-    ? (props.language === 'zh' ? '任意 Provider' : 'Any provider')
+    ? t('Any provider')
     : props.providers.find((provider) => provider.id === editor.providerId)?.name ?? editor.providerId;
   const isRangeMode = priceMode === 'range';
   const priceInputClass = `min-h-[34px] w-full rounded-[10px] border px-3 py-2 text-[13px] leading-none transition-[background-color,color,border-color,opacity] duration-fast ease-[var(--ds-motion-transition-fast)] ${
@@ -657,40 +663,40 @@ function RoutingItemEditorModal(props: {
     <Modal
       open
       variant="wide"
-      title={props.language === 'zh' ? '编辑路由候选项' : 'Edit Route Candidate'}
+      title={t('Edit Route Candidate')}
       onClose={props.onClose}
       footer={(
         <>
-          <AppButton variant="outline" onClick={props.onClose}>{props.language === 'zh' ? '取消' : 'Cancel'}</AppButton>
-          <AppButton variant="primary" size="utility" onClick={props.onApply}>{props.language === 'zh' ? '保存修改' : 'Save Changes'}</AppButton>
+          <AppButton variant="outline" onClick={props.onClose}>{t('Cancel')}</AppButton>
+          <AppButton variant="primary" size="utility" onClick={props.onApply}>{t('Save Changes')}</AppButton>
         </>
       )}
     >
       <div className="flex flex-col gap-4 px-5 py-4">
         <div className="grid grid-cols-1 gap-3 min-[580px]:grid-cols-3">
-          <ModalField label={props.language === 'zh' ? '服务商' : 'PROVIDER'}>
+          <ModalField label={t('PROVIDER')}>
             <SelectTrigger
               compact
               value={providerLabel ? formatProviderLabel(providerLabel, props.language) : ''}
-              placeholder={props.language === 'zh' ? '选择 Provider' : 'Select provider'}
+              placeholder={t('Select provider')}
               onClick={() => props.onOpenSelector('provider')}
               className="w-full"
             />
           </ModalField>
-          <ModalField label={props.language === 'zh' ? '国家' : 'COUNTRY'}>
+          <ModalField label={t('COUNTRY')}>
             <SelectTrigger
               compact
               value={editor.country ? `${countryBadge(editor.country)} ${formatCountryLabel(editor.country, props.language)}` : ''}
-              placeholder={props.language === 'zh' ? '任意国家' : 'Any country'}
+              placeholder={t('Any country')}
               onClick={() => props.onOpenSelector('country')}
               className="w-full"
             />
           </ModalField>
-          <ModalField label={props.language === 'zh' ? '运营商' : 'CARRIER'}>
+          <ModalField label={t('CARRIER')}>
             <SelectTrigger
               compact
               value={editor.operator ? formatOperatorLabel(editor.operator, props.language) : ''}
-              placeholder={props.language === 'zh' ? '任意运营商' : 'Any carrier'}
+              placeholder={t('Any carrier')}
               onClick={() => props.onOpenSelector('operator')}
               className="w-full"
             />
@@ -698,9 +704,9 @@ function RoutingItemEditorModal(props: {
         </div>
 
         <div className="grid grid-cols-1 gap-3 min-[680px]:grid-cols-[auto_minmax(0,1fr)] min-[680px]:items-end">
-          <ModalField label={props.language === 'zh' ? '价格模式' : 'PRICE MODE'}>
+          <ModalField label={t('PRICE MODE')}>
             <SegmentedControl
-              items={[{ id: 'any', label: props.language === 'zh' ? '任意' : 'Any' }, { id: 'range', label: props.language === 'zh' ? '区间' : 'Range' }]}
+              items={[{ id: 'any', label: t('any') }, { id: 'range', label: t('Range') }]}
               value={priceMode}
               onChange={(v) => {
                 setPriceMode(v as 'any' | 'range');
@@ -713,24 +719,24 @@ function RoutingItemEditorModal(props: {
           </ModalField>
 
           <div className="grid grid-cols-[1fr_16px_1fr] items-end gap-2">
-            <ModalField label={props.language === 'zh' ? '最低价' : 'MIN PRICE'}>
+            <ModalField label={t('MIN PRICE')}>
               <input
                 value={editor.minPrice}
                 inputMode="decimal"
                 onChange={(e) => props.onChange({ minPrice: e.target.value })}
                 className={priceInputClass}
-                placeholder={props.language === 'zh' ? '0.50' : '0.50'}
+                placeholder="0.50"
                 disabled={!isRangeMode}
               />
             </ModalField>
             <span className="pb-[11px] text-center text-[13px] text-ds-text-secondary opacity-50">—</span>
-            <ModalField label={props.language === 'zh' ? '最高价' : 'MAX PRICE'}>
+            <ModalField label={t('MAX PRICE')}>
               <input
                 value={editor.maxPrice}
                 inputMode="decimal"
                 onChange={(e) => props.onChange({ maxPrice: e.target.value })}
                 className={priceInputClass}
-                placeholder={props.language === 'zh' ? '1.20' : '1.20'}
+                placeholder="1.20"
                 disabled={!isRangeMode}
               />
             </ModalField>
@@ -739,9 +745,9 @@ function RoutingItemEditorModal(props: {
 
         <div className="border-t border-ds-border pt-4">
           <div className="mb-2 flex items-center justify-between">
-            <span className="text-[11px] font-semibold uppercase tracking-[0.08em] text-ds-text-secondary">{props.language === 'zh' ? '价格库存' : 'Price Inventory'}</span>
+            <span className="text-[11px] font-semibold uppercase tracking-[0.08em] text-ds-text-secondary">{t('Price Inventory')}</span>
             <AppButton variant="outline" onClick={props.onLoadPriceOptions} disabled={props.loading}>
-              {props.loading ? (props.language === 'zh' ? '加载中…' : 'Loading…') : (props.language === 'zh' ? '加载价格' : 'Load Prices')}
+              {props.loading ? t('Loading…') : t('Load Prices')}
             </AppButton>
           </div>
           <div className="max-h-[240px] overflow-y-auto rounded-xl border border-ds-border bg-ds-surface-subtle">
@@ -754,25 +760,25 @@ function RoutingItemEditorModal(props: {
                   <div className="truncate text-[13px] font-medium text-ds-text-primary">
                     {formatCountryLabel(item.country, props.language)} · {item.operator_label || formatOperatorLabel(item.operator || 'any', props.language)}
                   </div>
-                  <div className="mt-0.5 text-[11px] text-ds-text-secondary">{props.language === 'zh' ? '库存' : 'stock'}: {item.stock.toLocaleString()}</div>
+                  <div className="mt-0.5 text-[11px] text-ds-text-secondary">{t('stock')}: {item.stock.toLocaleString()}</div>
                 </div>
                 <div className="w-20 text-right font-mono text-[13px] text-ds-text-secondary">${item.price.toFixed(3)}</div>
                 <div className="flex items-center gap-2">
                   <AppButton variant="ghost" size="utility" onClick={() => {
                     props.onQuickFill('min', item.price);
                     setPriceMode('range');
-                  }}>{props.language === 'zh' ? '最小' : 'Min'}</AppButton>
+                  }}>{t('Min')}</AppButton>
                   <AppButton variant="ghost" size="utility" onClick={() => {
                     props.onQuickFill('max', item.price);
                     setPriceMode('range');
-                  }}>{props.language === 'zh' ? '最大' : 'Max'}</AppButton>
+                  }}>{t('Max')}</AppButton>
                 </div>
               </div>
             )) : (
               <div className="px-5 py-8 text-center text-[13px] text-ds-text-secondary">
                 {props.priceItems.length > 0
-                  ? (props.language === 'zh' ? '没有结果匹配当前筛选条件。' : 'No results match the current filters.')
-                  : (props.language === 'zh' ? '尚未加载价格列表。点击“加载价格”为这个 Provider 和服务获取价格。' : 'No price list loaded. Click Load Prices to fetch prices for this provider and service.')}
+                  ? t('No results match the current filters.')
+                  : t('No price list loaded. Click Load Prices to fetch prices for this provider and service.')}
               </div>
             )}
           </div>

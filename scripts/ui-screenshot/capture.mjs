@@ -47,10 +47,10 @@ async function waitForPreview(port) {
   throw new Error(`Preview server did not start on ${url}`);
 }
 
-async function captureTarget(page, target, port) {
+async function captureTarget(page, target, port, lang) {
   const spec = TARGETS[target];
-  await page.goto(`http://127.0.0.1:${port}/?target=${encodeURIComponent(target)}`, {
-    waitUntil: 'networkidle',
+  await page.goto(`http://127.0.0.1:${port}/?target=${encodeURIComponent(target)}&lang=${encodeURIComponent(lang)}`, {
+    waitUntil: 'load',
   });
 
   await page.evaluate(() => {
@@ -124,7 +124,7 @@ async function main() {
     });
 
     for (const target of targets) {
-      await captureTarget(page, target, args.port);
+      await captureTarget(page, target, args.port, args.lang);
       process.stdout.write(`captured ${target}\n`);
     }
 

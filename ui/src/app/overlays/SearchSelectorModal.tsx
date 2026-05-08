@@ -1,8 +1,8 @@
 import { AppButton, SearchField } from '../ui-bridge';
+import { useTranslation } from 'react-i18next';
 import { Modal } from '../../components/overlays';
 import type { OptionItem } from '../types';
 import { countryBadge, serviceBadge } from '../../lib/formatters';
-import { useLanguage } from '../language';
 
 export type SearchSelectorModalProps = {
   title: string;
@@ -14,7 +14,7 @@ export type SearchSelectorModalProps = {
 };
 
 export function SearchSelectorModal(props: SearchSelectorModalProps) {
-  const language = useLanguage();
+  const { t } = useTranslation();
   function optionBadge(option: OptionItem) {
     const hint = option.hint.toLowerCase();
     const value = option.value.toLowerCase();
@@ -35,16 +35,16 @@ export function SearchSelectorModal(props: SearchSelectorModalProps) {
       open
       variant="selector"
       title={props.title}
-      subtitle={language === 'zh' ? '搜索并选择一个兼容选项。' : 'Search and pick a compatible option.'}
+      subtitle={t('Search and pick a compatible option.')}
       onClose={props.onClose}
-      actions={<AppButton variant="ghost" size="utility" onClick={props.onClose}>{language === 'zh' ? '关闭' : 'Close'}</AppButton>}
+      actions={<AppButton variant="ghost" size="utility" onClick={props.onClose}>{t('Close')}</AppButton>}
     >
       <div className="pt-0">
         <SearchField
           compact
           value={props.search}
           onChange={(event) => props.onSearch(event.target.value)}
-          placeholder={language === 'zh' ? '搜索选项…' : 'Search options...'}
+          placeholder={t('Search options...')}
           autoFocus
         />
       </div>

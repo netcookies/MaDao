@@ -205,6 +205,34 @@ export function formatProviderLabel(provider: string, language?: LanguageCode) {
   return PROVIDER_LABELS[currentLanguage][normalized] ?? provider;
 }
 
+export function formatScopeLabel(scope: string, language?: LanguageCode) {
+  const normalized = scope.toLowerCase();
+  const currentLanguage = pickLanguage(language);
+  const labels: Record<LanguageCode, Record<string, string>> = {
+    en: {
+      provider: 'provider',
+      router: 'router',
+      routing: 'routing',
+      system: 'system',
+      wallet: 'wallet',
+      acquire: 'acquire',
+      poll: 'poll',
+      status: 'status',
+    },
+    zh: {
+      provider: '服务商',
+      router: '路由',
+      routing: '路由',
+      system: '系统',
+      wallet: '钱包',
+      acquire: '获取',
+      poll: '轮询',
+      status: '状态',
+    },
+  };
+  return labels[currentLanguage][normalized] ?? scope;
+}
+
 export function formatProviderProtocolLabel(protocol: string, language?: LanguageCode) {
   const normalized = protocol.toLowerCase();
   const currentLanguage = pickLanguage(language);

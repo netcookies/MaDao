@@ -1,6 +1,7 @@
 import {
   useEffect, useMemo, useRef, useState, type ReactNode,
 } from 'react';
+import { useTranslation } from 'react-i18next';
 import {
   Bell, Bot, ChevronLeft, Copy, LayoutDashboard,
   Loader2, MessageSquare, Plus, Search, Send, Server, Settings,
@@ -12,6 +13,7 @@ import {
   AppToolbar,
 } from './components/composites';
 import { NotificationPopover, Snackbar, type SnackbarTone } from './components/overlays';
+import type { NotificationItem } from './components/overlays/NotificationPopover/NotificationPopover';
 import { IconButton } from './components/primitives';
 import {
   AppButton,
@@ -62,6 +64,7 @@ import {
   formatCountryLabel,
   formatProviderLabel,
   formatRelativeTime,
+  formatScopeLabel,
   formatServiceLabel,
   getTicketPhase,
 } from './lib/formatters';
@@ -87,74 +90,9 @@ import {
 import { getAppConfigDirectory, openAppConfigDirectory } from './services/appConfigApi';
 import { windowAction } from './services/windowApi';
 import { listenMenuCommand } from './services/menuBarApi';
+import { i18n } from './app/i18n';
 
 type SidebarItem = { id: ScreenId; label: string; Icon: typeof LayoutDashboard };
-
-const NAV_ITEMS: SidebarItem[] = [
-  { id: 'overview', label: 'Overview', Icon: LayoutDashboard },
-  { id: 'providers', label: 'Providers', Icon: Server },
-  { id: 'routing', label: 'Routing', Icon: Shuffle },
-  { id: 'messages', label: 'Messages', Icon: MessageSquare },
-  { id: 'settings', label: 'Settings', Icon: Settings },
-  { id: 'logs', label: 'Logs', Icon: Terminal },
-];
-
-const MESSAGE_FILTERS: Array<{ id: MessageFilter; label: string }> = [
-  { id: 'all', label: 'All' },
-  { id: 'received', label: 'Received' },
-  { id: 'waiting', label: 'Waiting' },
-  { id: 'failed', label: 'Failed' },
-];
-
-const WORKSPACE_SECTIONS: Array<{ id: ProviderSectionId; label: string; Icon: typeof Sliders }> = [
-  { id: 'config', label: 'Configuration', Icon: Sliders },
-  { id: 'store', label: 'Store & Inventory', Icon: ShoppingCart },
-  { id: 'wallet', label: 'Wallet Balance', Icon: Wallet },
-];
-
-const ROUTING_STRATEGIES: Array<{ id: RoutingStrategy; label: string }> = [
-  { id: 'ordered_priority', label: 'Ordered Priority' },
-  { id: 'lowest_price', label: 'Lowest Price' },
-  { id: 'highest_stock', label: 'Highest Stock' },
-];
-
-const LOG_FILTERS: Array<{ id: LogFilter; label: string }> = [
-  { id: 'all', label: 'All' },
-  { id: 'info', label: 'Info' },
-  { id: 'warn', label: 'Warn' },
-  { id: 'error', label: 'Error' },
-];
-
-const ANY_ROUTE_COUNTRY_OPTION: OptionItem = {
-  value: '',
-  label: 'Any country',
-  hint: 'Allow the provider to auto pick country',
-};
-
-const ANY_ROUTE_OPERATOR_OPTION: OptionItem = {
-  value: '',
-  label: 'Any carrier',
-  hint: 'Allow any operator for this provider',
-};
-
-const ANY_PROVIDER_OPTION: OptionItem = {
-  value: ANY_PROVIDER_VALUE,
-  label: 'Any provider',
-  hint: 'Expand this candidate across all enabled providers',
-};
-
-function tNav(language: LanguageCode, id: ScreenId) {
-  const zh: Record<ScreenId, string> = {
-    overview: '总览',
-    providers: '服务商',
-    routing: '路由',
-    messages: '消息',
-    settings: '设置',
-    logs: '日志',
-  };
-  if (language === 'zh') return zh[id];
-  return NAV_ITEMS.find((item) => item.id === id)?.label ?? id;
-}
 
 const SUCCESS_STATUS_KEYWORDS = [
   'saved',
@@ -207,6 +145,7 @@ function getSnackbarTone(message: string): SnackbarTone {
 }
 
 export function App() {
+  const { t } = useTranslation();
   const [configDirectory, setConfigDirectory] = useState('Loading…');
   const [snackbarOpen, setSnackbarOpen] = useState(false);
   const [statusSequence, setStatusSequence] = useState(0);
@@ -288,6 +227,42 @@ export function App() {
     language,
     setLanguage,
   } = useConsoleUiState();
+  const translate = i18n.getFixedT(language);
+  const navItems: SidebarItem[] = [
+    { id: 'overview', label: t('Overview'), Icon: LayoutDashboard },
+    { id: 'providers', label: t('Providers'), Icon: Server },
+    { id: 'routing', label: t('Routing'), Icon: Shuffle },
+    { id: 'messages', label: t('Messages'), Icon: MessageSquare },
+    { id: 'settings', label: t('Settings'), Icon: Settings },
+    { id: 'logs', label: t('Logs'), Icon: Terminal },
+  ];
+  const messageFilters: Array<{ id: MessageFilter; label: string }> = [
+    { id: 'all', label: t('All') },
+    { id: 'received', label: t('Received') },
+    { id: 'waiting', label: t('Pending') },
+    { id: 'failed', label: t('Failed') },
+  ];
+  const logFilters: Array<{ id: LogFilter; label: string }> = [
+    { id: 'all', label: t('All') },
+    { id: 'info', label: t('Info') },
+    { id: 'warn', label: t('Warn') },
+    { id: 'error', label: t('Error') },
+  ];
+  const anyRouteCountryOption: OptionItem = {
+    value: '',
+    label: t('Any country'),
+    hint: t('Allow the provider to auto pick country'),
+  };
+  const anyRouteOperatorOption: OptionItem = {
+    value: '',
+    label: t('Any carrier'),
+    hint: t('Allow any operator for this provider'),
+  };
+  const anyProviderOption: OptionItem = {
+    value: ANY_PROVIDER_VALUE,
+    label: t('Any provider'),
+    hint: t('Expand this candidate across all enabled providers'),
+  };
 
   function pushStatusMessage(message: string) {
     setStatusMessageState(message);
@@ -607,7 +582,7 @@ export function App() {
         ? current
         : payload.plans[0]?.id || '');
     } catch (error) {
-      pushStatusMessage(t(language, 'failed_load_routing_plans', { error: String(error) }));
+      pushStatusMessage(translate('failed_load_routing_plans', { error: String(error) }));
     }
   }
 
@@ -636,19 +611,19 @@ export function App() {
 
   async function persistRoutingPlan(plan: RoutingPlan) {
     if (!plan.name.trim()) {
-      pushStatusMessage(t(language, 'routing_plan_name_required'));
+      pushStatusMessage(translate('routing_plan_name_required'));
       return;
     }
     if (!plan.service.trim()) {
-      pushStatusMessage(t(language, 'routing_plan_service_required'));
+      pushStatusMessage(translate('routing_plan_service_required'));
       return;
     }
     if (plan.items.length === 0) {
-      pushStatusMessage(t(language, 'routing_plan_items_required'));
+      pushStatusMessage(translate('routing_plan_items_required'));
       return;
     }
     if (plan.enabled && !plan.items.some((item) => item.enabled)) {
-      pushStatusMessage(t(language, 'routing_plan_enabled_items_required'));
+      pushStatusMessage(translate('routing_plan_enabled_items_required'));
       return;
     }
     try {
@@ -670,9 +645,9 @@ export function App() {
       setRoutingItemEditor(null);
       setRoutingItemPriceOptions([]);
       setRoutingItemPriceLoading(false);
-      pushStatusMessage(t(language, 'saved_routing_plan', { name: saved.name }));
+      pushStatusMessage(translate('saved_routing_plan', { name: saved.name }));
     } catch (error) {
-      pushStatusMessage(t(language, 'failed_save_routing_plan', { error: String(error) }));
+      pushStatusMessage(translate('failed_save_routing_plan', { error: String(error) }));
     } finally {
       setBusyAction('');
     }
@@ -687,9 +662,9 @@ export function App() {
       setSelectedRoutingPlanId(payload.plans[0]?.id ?? '');
       setRoutingView('matrix');
       setRoutingItemEditor(null);
-      pushStatusMessage(t(language, 'deleted_routing_plan', { plan: planId }));
+      pushStatusMessage(translate('deleted_routing_plan', { plan: planId }));
     } catch (error) {
-      pushStatusMessage(t(language, 'failed_delete_routing_plan', { error: String(error) }));
+      pushStatusMessage(translate('failed_delete_routing_plan', { error: String(error) }));
     } finally {
       setBusyAction('');
     }
@@ -824,18 +799,18 @@ export function App() {
   function applyRoutingItemEditor() {
     if (!routingItemEditor) return;
     if (!routingItemEditor.providerId.trim()) {
-      pushStatusMessage(t(language, 'provider_required_each_route_candidate'));
+      pushStatusMessage(translate('provider_required_each_route_candidate'));
       return;
     }
 
     const minPrice = routingItemEditor.minPrice.trim() === '' ? null : Number(routingItemEditor.minPrice);
     const maxPrice = routingItemEditor.maxPrice.trim() === '' ? null : Number(routingItemEditor.maxPrice);
     if ((minPrice != null && Number.isNaN(minPrice)) || (maxPrice != null && Number.isNaN(maxPrice))) {
-      pushStatusMessage(t(language, 'price_must_valid'));
+      pushStatusMessage(translate('price_must_valid'));
       return;
     }
     if (minPrice != null && maxPrice != null && minPrice > maxPrice) {
-      pushStatusMessage(t(language, 'min_price_cannot_gt_max'));
+      pushStatusMessage(translate('min_price_cannot_gt_max'));
       return;
     }
 
@@ -863,22 +838,22 @@ export function App() {
   async function loadRoutingItemPriceOptions() {
     if (!routingItemEditor) return;
     if (routingItemEditor.providerId === ANY_PROVIDER_VALUE) {
-      pushStatusMessage(t(language, 'choose_specific_provider_before_loading_candidate_prices'));
+      pushStatusMessage(translate('choose_specific_provider_before_loading_candidate_prices'));
       return;
     }
     const plan = routingPlans.find((item) => selectedRoutingPlanMatcher(item));
     const service = plan?.service || visibleProviders.find((provider) => provider.id === routingItemEditor.providerId)?.defaults.service;
     if (!service) {
-      pushStatusMessage(t(language, 'select_service_before_loading_prices'));
+      pushStatusMessage(translate('select_service_before_loading_prices'));
       return;
     }
     try {
       setRoutingItemPriceLoading(true);
       const prices = await fetchProviderPrices(routingItemEditor.providerId, service);
       setRoutingItemPriceOptions(prices.items);
-      pushStatusMessage(t(language, 'loaded_prices_for_provider', { provider: routingItemEditor.providerId }));
+      pushStatusMessage(translate('loaded_prices_for_provider', { provider: routingItemEditor.providerId }));
     } catch (error) {
-      pushStatusMessage(t(language, 'failed_load_prices_for_provider', { provider: routingItemEditor.providerId, error: String(error) }));
+      pushStatusMessage(translate('failed_load_prices_for_provider', { provider: routingItemEditor.providerId, error: String(error) }));
     } finally {
       setRoutingItemPriceLoading(false);
     }
@@ -909,9 +884,9 @@ export function App() {
     if (field === 'provider') {
       setSelectorState({
         kind: 'routing-item-provider',
-        title: language === 'zh' ? '选择候选 Provider' : 'Select Candidate Provider',
+        title: t('Select Candidate Provider'),
         options: [
-          ANY_PROVIDER_OPTION,
+          anyProviderOption,
           ...visibleProviders.map((provider) => ({
             value: provider.id,
             label: provider.name,
@@ -925,9 +900,9 @@ export function App() {
     if (field === 'country') {
       setSelectorState({
         kind: 'routing-item-country',
-        title: language === 'zh' ? '选择候选国家' : 'Select Candidate Country',
+        title: t('Select Candidate Country'),
         options: [
-          ANY_ROUTE_COUNTRY_OPTION,
+          anyRouteCountryOption,
           ...filterCatalogItems(optionCatalog.countries, providerId).map((option) => ({
             value: option.value,
             label: option.label,
@@ -940,9 +915,9 @@ export function App() {
 
     setSelectorState({
       kind: 'routing-item-operator',
-      title: language === 'zh' ? '选择候选运营商' : 'Select Candidate Carrier',
+      title: t('Select Candidate Carrier'),
       options: [
-        ANY_ROUTE_OPERATOR_OPTION,
+        anyRouteOperatorOption,
         ...filterCatalogItems(optionCatalog.operators, providerId).map((option) => ({
           value: option.value,
           label: option.label,
@@ -956,11 +931,11 @@ export function App() {
     setSelectorSearch('');
     setSelectorState({
       kind: 'routing-service',
-      title: language === 'zh' ? '选择路由服务' : 'Select Routing Service',
+      title: t('Select Routing Service'),
       options: optionCatalog.services.map((service) => ({
         value: service.value,
         label: service.label,
-        hint: 'Routing service',
+        hint: t('Routing service'),
       })),
     });
   }
@@ -1065,7 +1040,7 @@ export function App() {
     }
     setActivationError(
       visibleProviders.length === 0
-        ? t(language, 'no_enabled_providers_available')
+        ? translate('no_enabled_providers_available')
         : '',
     );
     setShowActivationModal(true);
@@ -1076,17 +1051,17 @@ export function App() {
     setActivationRoutingPlanPickerOpen(true);
     setSelectorState({
       kind: 'activation-routing-plan',
-      title: language === 'zh' ? '选择路由方案' : 'Select Routing Plan',
+      title: t('Select Routing Plan'),
       options: [
         {
           value: '',
-          label: language === 'zh' ? '不使用路由方案' : 'No routing plan',
-          hint: language === 'zh' ? '手动选择 Provider、服务和国家' : 'Use manual provider, service, and country controls',
+          label: t('No routing plan'),
+          hint: t('Use manual provider, service, and country controls'),
         },
         ...routingPlans.filter((plan) => plan.enabled).map((plan) => ({
           value: plan.id,
           label: plan.name,
-          hint: `${formatServiceLabel(plan.service, language)} · ${plan.execution_mode === 'random' ? (language === 'zh' ? '随机' : 'Random') : (language === 'zh' ? '顺序' : 'Sequential')}`,
+          hint: `${formatServiceLabel(plan.service, language)} · ${plan.execution_mode === 'random' ? t('Random') : t('Sequential')}`,
         })),
       ],
     });
@@ -1094,7 +1069,7 @@ export function App() {
 
   function handleSubmitActivation() {
     if (visibleProviders.length === 0) {
-      setActivationError(t(language, 'no_enabled_providers_available'));
+      setActivationError(translate('no_enabled_providers_available'));
       return;
     }
     if (
@@ -1106,7 +1081,7 @@ export function App() {
         ...current,
         provider: '',
       }));
-      setActivationError(t(language, 'provider_no_longer_enabled_pick_another', { provider: activationForm.provider }));
+      setActivationError(translate('provider_no_longer_enabled_pick_another', { provider: activationForm.provider }));
       return;
     }
     void submitActivation();
@@ -1120,54 +1095,40 @@ export function App() {
     try {
       await windowAction(action);
     } catch (error) {
-      pushStatusMessage(t(language, 'window_action_failed', { error: String(error) }));
+      pushStatusMessage(translate('window_action_failed', { error: String(error) }));
     }
   }
 
   const selectedRoutingPlan = routingPlans.find((item) => selectedRoutingPlanMatcher(item));
-  const messageFilters = language === 'zh'
-    ? [
-      { id: 'all' as const, label: '全部' },
-      { id: 'received' as const, label: '已收到' },
-      { id: 'waiting' as const, label: '等待中' },
-      { id: 'failed' as const, label: '失败' },
-    ]
-    : MESSAGE_FILTERS;
-  const logFilters = language === 'zh'
-    ? [
-      { id: 'all' as const, label: '全部' },
-      { id: 'info' as const, label: '信息' },
-      { id: 'warn' as const, label: '警告' },
-      { id: 'error' as const, label: '错误' },
-    ]
-    : LOG_FILTERS;
-
   const toolbarTitle = activeScreen === 'providers' && providerView === 'workspace'
-    ? `${language === 'zh' ? '服务商' : 'Providers'} › ${manifests[selectedProvider]?.name ?? selectedProvider}`
+    ? `${t('Providers')} › ${manifests[selectedProvider]?.name ?? selectedProvider}`
     : activeScreen === 'routing' && routingView === 'detail'
-      ? `${language === 'zh' ? '路由方案' : 'Routing Plans'} › ${selectedRoutingPlan?.name || (language === 'zh' ? '未命名方案' : 'Untitled Plan')}`
-    : tNav(language, activeScreen);
+      ? `${t('Routing Plans')} › ${selectedRoutingPlan?.name || t('Untitled Plan')}`
+      : navItems.find((item) => item.id === activeScreen)?.label ?? activeScreen;
 
-  const notificationItems = useMemo(() => (
+  const notificationItems = useMemo<NotificationItem[]>(() => (
     notifications
       .map((entry, index) => ({ entry, index }))
       .slice()
       .reverse()
-      .map(({ entry, index }) => ({
-        id: `${entry.timestamp}-${index}`,
-        title: entry.message,
-        meta: `${formatProviderLabel(entry.scope, language)} · ${index < notificationCursor ? (language === 'zh' ? '已读' : 'read') : formatRelativeTime(entry.timestamp, language)}`,
-        level: entry.level.toLowerCase() === 'error'
+      .map(({ entry, index }) => {
+        const level: NotificationItem['level'] = entry.level.toLowerCase() === 'error'
           ? 'danger'
           : entry.level.toLowerCase() === 'warn'
             ? 'warning'
-            : 'info',
-      }))
+            : 'info';
+        return {
+          id: `${entry.timestamp}-${index}`,
+          title: entry.message,
+          meta: `${formatScopeLabel(entry.scope, language)} · ${index < notificationCursor ? t('read') : formatRelativeTime(entry.timestamp, language)}`,
+          level,
+        };
+      })
   ), [language, notificationCursor, notifications]);
 
   const sidebar = (
     <AppSidebar
-      items={NAV_ITEMS.map(({ id, Icon }) => ({ id, label: tNav(language, id), icon: Icon }))}
+      items={navItems.map(({ id, label, Icon }) => ({ id, label, icon: Icon }))}
       activeId={activeScreen}
       collapsed={sidebarCollapsed}
       onToggleCollapsed={() => setSidebarCollapsed((current) => !current)}
@@ -1182,7 +1143,7 @@ export function App() {
     ? (
       <button
         type="button"
-        aria-label="Back to providers"
+        aria-label={t('Back to providers')}
         className="inline-flex h-7 w-7 items-center justify-center rounded-pill text-ds-text-secondary transition-colors duration-fast ease-[var(--ds-motion-transition-fast)] hover:bg-[var(--ds-color-interactive-hover)] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ds-accent-focus"
         onClick={() => setProviderView('list')}
       >
@@ -1193,7 +1154,7 @@ export function App() {
       ? (
         <button
           type="button"
-          aria-label="Back to routing plans"
+          aria-label={t('Back to routing plans')}
           className="inline-flex h-7 w-7 items-center justify-center rounded-pill text-ds-text-secondary transition-colors duration-fast ease-[var(--ds-motion-transition-fast)] hover:bg-[var(--ds-color-interactive-hover)] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ds-accent-focus"
           onClick={closeRoutingPlanDetail}
         >
@@ -1210,7 +1171,7 @@ export function App() {
           className="w-full min-[760px]:w-48"
           value={routingSearch}
           onChange={(event) => setRoutingSearch(event.target.value)}
-          placeholder={language === 'zh' ? '搜索方案…' : 'Search plans...'}
+          placeholder={t('Search plans...')}
         />
       ) : activeScreen === 'logs' ? (
         <SearchField
@@ -1218,7 +1179,7 @@ export function App() {
           className="w-full min-[760px]:w-[200px]"
           value={logsSearch}
           onChange={(event) => setLogsSearch(event.target.value)}
-          placeholder={language === 'zh' ? '搜索日志…' : 'Search logs...'}
+          placeholder={t('Search logs...')}
         />
       ) : null}
       <div className="relative">
@@ -1232,7 +1193,7 @@ export function App() {
               ) : null}
             </span>
           )}
-          aria-label="Toggle notifications"
+          aria-label={t('Toggle notifications')}
           aria-expanded={showNotifications}
           onClick={() => setShowNotifications((current) => !current)}
         />
@@ -1245,7 +1206,7 @@ export function App() {
                   className="font-text text-[13px] font-medium text-ds-accent-focus transition-opacity duration-fast ease-[var(--ds-motion-transition-fast)] hover:opacity-80 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ds-accent-focus"
                   onClick={markNotificationsRead}
                 >
-                  {language === 'zh' ? '全部标为已读' : 'Mark all read'}
+                  {t('Mark all read')}
                 </button>
               )}
               items={notificationItems}
@@ -1258,7 +1219,7 @@ export function App() {
                     setShowNotifications(false);
                   }}
                 >
-                  {language === 'zh' ? '在日志中查看全部 →' : 'View all in Logs →'}
+                  {t('View all in Logs →')}
                 </AppButton>
               )}
             />
@@ -1268,7 +1229,7 @@ export function App() {
       {activeScreen === 'routing' && routingView === 'matrix' ? (
         <AppButton variant="primary" size="utility" onClick={createRoutingPlan}>
           <Plus size={14} />
-          <span>{language === 'zh' ? '新建方案' : 'New Plan'}</span>
+          <span>{t('New Plan')}</span>
         </AppButton>
       ) : activeScreen === 'routing' && routingView === 'detail' ? (
         <AppButton
@@ -1280,7 +1241,7 @@ export function App() {
           }}
           disabled={busyAction === 'save-routing-plan'}
         >
-          {busyAction === 'save-routing-plan' ? (language === 'zh' ? '保存中…' : 'Saving...') : (language === 'zh' ? '保存修改' : 'Save Changes')}
+          {busyAction === 'save-routing-plan' ? t('Saving...') : t('Save Changes')}
         </AppButton>
       ) : activeScreen === 'providers' && providerView === 'workspace' && activeProviderSection === 'config' ? (
         <AppButton
@@ -1289,7 +1250,7 @@ export function App() {
           onClick={() => void saveProvider(selectedProvider)}
           disabled={busyAction.includes('save')}
         >
-          {busyAction.includes('save') ? (language === 'zh' ? '保存中…' : 'Saving…') : (language === 'zh' ? '保存' : 'Save')}
+          {busyAction.includes('save') ? t('Saving…') : t('Save')}
         </AppButton>
       ) : activeScreen === 'providers' && providerView === 'workspace' && activeProviderSection === 'store' ? (
         <AppButton
@@ -1298,7 +1259,7 @@ export function App() {
           onClick={() => void fetchPrices(selectedProvider)}
           disabled={busyAction.includes('prices')}
         >
-          {busyAction.includes('prices') ? (language === 'zh' ? '加载中…' : 'Loading…') : (language === 'zh' ? '加载价格' : 'Load Prices')}
+          {busyAction.includes('prices') ? t('Loading…') : t('Load Prices')}
         </AppButton>
       ) : activeScreen === 'providers' && providerView === 'list' ? (
         <AppButton
@@ -1307,11 +1268,11 @@ export function App() {
           onClick={() => void reloadProviders()}
           disabled={busyAction === 'reload'}
         >
-          {busyAction === 'reload' ? (language === 'zh' ? '重载中…' : 'Reloading…') : (language === 'zh' ? '重载 Providers' : 'Reload Providers')}
+          {busyAction === 'reload' ? t('Reloading…') : t('Reload Providers')}
         </AppButton>
       ) : activeScreen === 'settings' ? (
         <AppButton variant="primary" size="utility" onClick={() => void openAppConfigDirectory()}>
-          {language === 'zh' ? '打开目录' : 'Open Folder'}
+          {t('Open Folder')}
         </AppButton>
       ) : activeScreen === 'logs' ? (
         <AppButton
@@ -1319,12 +1280,12 @@ export function App() {
           size="utility"
           onClick={() => void loadSnapshot()}
         >
-          {language === 'zh' ? '刷新' : 'Refresh'}
+          {t('Refresh')}
         </AppButton>
       ) : activeScreen === 'providers' && providerView === 'workspace' ? null : (
         <AppButton variant="primary" size="utility" onClick={openActivationModal}>
           <Plus size={14} />
-          <span>{language === 'zh' ? '新建激活' : 'New Activation'}</span>
+          <span>{t('New Activation')}</span>
         </AppButton>
       )}
     </>

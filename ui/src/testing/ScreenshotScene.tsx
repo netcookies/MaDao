@@ -2,6 +2,7 @@ import {
   Bell,
   ChevronLeft,
   LayoutDashboard,
+  PanelLeft,
   MessageSquare,
   Plus,
   Shuffle,
@@ -12,6 +13,8 @@ import {
   Terminal,
   Wallet,
 } from 'lucide-react';
+import { useEffect } from 'react';
+import { useTranslation } from 'react-i18next';
 import {
   AppShell,
   AppSidebar,
@@ -19,6 +22,8 @@ import {
 } from '../components/composites';
 import { NotificationPopover } from '../components/overlays';
 import { IconButton } from '../components/primitives';
+import { i18n } from '../app/i18n';
+import { LanguageProvider } from '../app/language';
 import { LogsScreen } from '../app/logs/LogsScreen';
 import { MessagesScreen } from '../app/messages/MessagesScreen';
 import { NewActivationModal } from '../app/overlays/NewActivationModal';
@@ -28,6 +33,7 @@ import { ProvidersListScreen } from '../app/providers/ProvidersListScreen';
 import { RoutingScreen } from '../app/routing/RoutingScreen';
 import { SettingsScreen } from '../app/settings/SettingsScreen';
 import { AppButton } from '../app/ui-bridge';
+import { formatScopeLabel } from '../lib/formatters';
 import type {
   ActivationFormState,
   LogEntry,
@@ -44,6 +50,7 @@ import type {
   RoutingPlanFilter,
   ScreenId,
   TicketRecord,
+  LanguageCode,
 } from '../app/types';
 
 export type ScreenshotTarget =
@@ -59,6 +66,12 @@ export type ScreenshotTarget =
   | 'Notifications'
   | 'NewActivation';
 
+function getRequestedLanguage(): LanguageCode {
+  const params = new URLSearchParams(window.location.search);
+  const value = params.get('lang');
+  return value === 'zh' ? 'zh' : 'en';
+}
+
 type CanvasSpec = {
   width: number;
   height: number;
@@ -67,7 +80,6 @@ type CanvasSpec = {
 
 type SidebarItem = {
   id: ScreenId;
-  label: string;
   icon: typeof LayoutDashboard;
 };
 
@@ -86,26 +98,12 @@ const CANVAS_SPECS: Record<ScreenshotTarget, CanvasSpec> = {
 };
 
 const NAV_ITEMS: SidebarItem[] = [
-  { id: 'overview', label: 'Overview', icon: LayoutDashboard },
-  { id: 'providers', label: 'Providers', icon: Server },
-  { id: 'routing', label: 'Routing', icon: Shuffle },
-  { id: 'messages', label: 'Messages', icon: MessageSquare },
-  { id: 'settings', label: 'Settings', icon: Settings },
-  { id: 'logs', label: 'Logs', icon: Terminal },
-];
-
-const MESSAGE_FILTERS: Array<{ id: MessageFilter; label: string }> = [
-  { id: 'all', label: 'All' },
-  { id: 'received', label: 'Received' },
-  { id: 'waiting', label: 'Waiting' },
-  { id: 'failed', label: 'Failed' },
-];
-
-const LOG_FILTERS: Array<{ id: LogFilter; label: string }> = [
-  { id: 'all', label: 'All' },
-  { id: 'info', label: 'Info' },
-  { id: 'warn', label: 'Warn' },
-  { id: 'error', label: 'Error' },
+  { id: 'overview', icon: LayoutDashboard },
+  { id: 'providers', icon: Server },
+  { id: 'routing', icon: Shuffle },
+  { id: 'messages', icon: MessageSquare },
+  { id: 'settings', icon: Settings },
+  { id: 'logs', icon: Terminal },
 ];
 
 const PROVIDERS: ProviderManifest[] = [
@@ -493,14 +491,14 @@ function noop() {}
 function notificationMeta(scope: string, time: string) {
   return (
     <span className="inline-flex items-center gap-1">
-      <span>{scope}</span>
+      <span>{formatScopeLabel(scope, getRequestedLanguage())}</span>
       <span>·</span>
       <span>{time}</span>
     </span>
   );
 }
 
-function buildToolbarActions() {
+function buildToolbarActions(t: (key: string, options?: Record<string, unknown>) => string) {
   return (
     <>
       <div className="relative">
@@ -512,18 +510,19 @@ function buildToolbarActions() {
               <span className="absolute right-0 top-0 h-2 w-2 rounded-pill border border-white bg-[#e0443e]" />
             </span>
           )}
-          aria-label="Notifications"
+          aria-label={t('Notifications')}
         />
       </div>
       <AppButton variant="primary" size="utility">
         <Plus size={14} />
-        <span>New Activation</span>
+        <span>{t('New Activation')}</span>
       </AppButton>
     </>
   );
 }
 
 function buildShell(
+  t: (key: string, options?: Record<string, unknown>) => string,
   screen: ScreenId,
   title: string,
   content: React.ReactNode,
@@ -537,7 +536,7 @@ function buildShell(
       fillViewport={false}
       sidebar={(
         <AppSidebar
-          items={NAV_ITEMS}
+          items={NAV_ITEMS.map(({ id, icon }) => ({ id, label: t(id === 'overview' ? 'Overview' : id === 'providers' ? 'Providers' : id === 'routing' ? 'Routing' : id === 'messages' ? 'Messages' : id === 'settings' ? 'Settings' : 'Logs'), icon }))}
           activeId={screen}
           onToggleCollapsed={noop}
           onSelect={noop}
@@ -548,7 +547,7 @@ function buildShell(
         <AppToolbar
           title={title}
           navigation={options?.navigation ?? <PanelLeft size={16} className="opacity-60" />}
-          actions={buildToolbarActions()}
+          actions={buildToolbarActions(t)}
         />
       )}
       compact={options?.compact}
@@ -558,11 +557,12 @@ function buildShell(
   );
 }
 
-function renderPageTarget(target: ScreenshotTarget) {
+function renderPageTarget(target: ScreenshotTarget, t: (key: string, options?: Record<string, unknown>) => string) {
   if (target === 'Overview') {
     return buildShell(
+      t,
       'overview',
-      'Overview',
+      t('Overview'),
       <OverviewScreen
         stats={{
           totalMessages: '0',
@@ -577,12 +577,14 @@ function renderPageTarget(target: ScreenshotTarget) {
 
   if (target === 'Providers') {
     return buildShell(
+      t,
       'providers',
-      'Providers',
+      t('Providers'),
       <ProvidersListScreen
         providers={PROVIDERS}
         summaries={PROVIDER_SUMMARIES}
         onConfigure={noop}
+        onRefreshBalance={noop}
         onReorder={noop}
         onToggleEnabled={noop}
       />,
@@ -591,8 +593,9 @@ function renderPageTarget(target: ScreenshotTarget) {
 
   if (target === 'ProviderWorkspace_Config') {
     return buildShell(
+      t,
       'providers',
-      'Providers › SMSBower',
+      `${t('Providers')} › SMSBower`,
       <ProviderWorkspaceScreen
         manifest={PROVIDERS[2]}
         summary={PROVIDER_SUMMARIES[2]}
@@ -608,7 +611,7 @@ function renderPageTarget(target: ScreenshotTarget) {
         onManifestFieldChange={noop}
         onApiKeyChange={noop}
         onToggleEnabled={noop}
-        onFetchBalance={noop}
+        onRefresh={noop}
         onFetchPrices={noop}
         onSave={noop}
         onOpenRawJson={noop}
@@ -624,7 +627,7 @@ function renderPageTarget(target: ScreenshotTarget) {
             <PanelLeft size={16} className="opacity-60" />
             <button
               type="button"
-              aria-label="Back to providers"
+              aria-label={t('Back to providers')}
               className="inline-flex h-7 w-7 items-center justify-center rounded-pill text-ds-text-secondary"
             >
               <ChevronLeft size={16} />
@@ -637,8 +640,9 @@ function renderPageTarget(target: ScreenshotTarget) {
 
   if (target === 'ProviderWorkspace_Store') {
     return buildShell(
+      t,
       'providers',
-      'Providers › SMSBower',
+      `${t('Providers')} › SMSBower`,
       <ProviderWorkspaceScreen
         manifest={PROVIDERS[2]}
         summary={PROVIDER_SUMMARIES[2]}
@@ -654,7 +658,7 @@ function renderPageTarget(target: ScreenshotTarget) {
         onManifestFieldChange={noop}
         onApiKeyChange={noop}
         onToggleEnabled={noop}
-        onFetchBalance={noop}
+        onRefresh={noop}
         onFetchPrices={noop}
         onSave={noop}
         onOpenRawJson={noop}
@@ -670,7 +674,7 @@ function renderPageTarget(target: ScreenshotTarget) {
             <PanelLeft size={16} className="opacity-60" />
             <button
               type="button"
-              aria-label="Back to providers"
+              aria-label={t('Back to providers')}
               className="inline-flex h-7 w-7 items-center justify-center rounded-pill text-ds-text-secondary"
             >
               <ChevronLeft size={16} />
@@ -683,8 +687,9 @@ function renderPageTarget(target: ScreenshotTarget) {
 
   if (target === 'ProviderWorkspace_Wallet') {
     return buildShell(
+      t,
       'providers',
-      'Providers › SMSBower',
+      `${t('Providers')} › SMSBower`,
       <ProviderWorkspaceScreen
         manifest={PROVIDERS[2]}
         summary={PROVIDER_SUMMARIES[2]}
@@ -699,7 +704,7 @@ function renderPageTarget(target: ScreenshotTarget) {
         onManifestFieldChange={noop}
         onApiKeyChange={noop}
         onToggleEnabled={noop}
-        onFetchBalance={noop}
+        onRefresh={noop}
         onFetchPrices={noop}
         onSave={noop}
         onOpenRawJson={noop}
@@ -715,7 +720,7 @@ function renderPageTarget(target: ScreenshotTarget) {
             <PanelLeft size={16} className="opacity-60" />
             <button
               type="button"
-              aria-label="Back to providers"
+              aria-label={t('Back to providers')}
               className="inline-flex h-7 w-7 items-center justify-center rounded-pill text-ds-text-secondary"
             >
               <ChevronLeft size={16} />
@@ -728,13 +733,19 @@ function renderPageTarget(target: ScreenshotTarget) {
 
   if (target === 'Messages') {
     return buildShell(
+      t,
       'messages',
-      'Messages',
+      t('Messages'),
       <MessagesScreen
         tickets={TICKETS}
         filter="all"
         setFilter={noop}
-        filters={MESSAGE_FILTERS}
+        filters={[
+          { id: 'all', label: t('All') },
+          { id: 'received', label: t('Received') },
+          { id: 'waiting', label: t('Pending') },
+          { id: 'failed', label: t('Failed') },
+        ]}
         busyAction=""
         onCopy={noop}
         onRelease={noop}
@@ -745,13 +756,13 @@ function renderPageTarget(target: ScreenshotTarget) {
 
   if (target === 'Routing') {
     return buildShell(
+      t,
       'routing',
-      'Routing Plans › OpenGPT Plan 1',
+      `${t('Routing Plans')} › OpenGPT Plan 1`,
       <RoutingScreen
         view="detail"
         plans={ROUTING_PLANS}
         providers={PROVIDERS}
-        providerOptions={PROVIDER_OPTIONS}
         serviceOptions={[{ id: 'openai', label: 'OpenAI (ChatGPT)' }, { id: 'telegram', label: 'Telegram' }]}
         selectedPlanId="openai-plan"
         routingFilter={ROUTING_FILTER}
@@ -784,7 +795,7 @@ function renderPageTarget(target: ScreenshotTarget) {
         navigation: (
           <button
             type="button"
-            aria-label="Back to routing plans"
+            aria-label={t('Back to routing plans')}
             className="inline-flex h-7 w-7 items-center justify-center rounded-pill text-ds-text-secondary"
           >
             <ChevronLeft size={16} />
@@ -796,8 +807,9 @@ function renderPageTarget(target: ScreenshotTarget) {
 
   if (target === 'Settings') {
     return buildShell(
+      t,
       'settings',
-      'Settings',
+      t('Settings'),
       <SettingsScreen
         autoRefresh
         setAutoRefresh={noop}
@@ -805,7 +817,7 @@ function renderPageTarget(target: ScreenshotTarget) {
         setShowAdvancedEditor={noop}
         compactTables={false}
         setCompactTables={noop}
-        language="en"
+        language={getRequestedLanguage()}
         setLanguage={noop}
         appearanceTheme="light"
         setAppearanceTheme={noop}
@@ -814,26 +826,28 @@ function renderPageTarget(target: ScreenshotTarget) {
         optionCacheOverview={{ fresh_providers: 2, stale_providers: 1, missing_providers: 0, last_refresh_at: null }}
         onOptionCacheEnabledChange={noop}
         onOptionCachePollIntervalChange={noop}
-        onReload={noop}
-        reloadBusy={false}
         apiBase="http://127.0.0.1:7822"
         socketPath="/tmp/madao-sms.sock"
         configDirectory="~/Library/Application Support/com.madao.sms"
-        onOpenConfigDirectory={noop}
       />,
     );
   }
 
   if (target === 'Logs') {
     return buildShell(
+      t,
       'logs',
-      'Logs',
+      t('Logs'),
       <LogsScreen
         logs={LOGS}
         filter="all"
         setFilter={noop}
-        filters={LOG_FILTERS}
-        onRefresh={noop}
+        filters={[
+          { id: 'all', label: t('All') },
+          { id: 'info', label: t('Info') },
+          { id: 'warn', label: t('Warn') },
+          { id: 'error', label: t('Error') },
+        ]}
         search=""
         onSearch={noop}
       />,
@@ -843,12 +857,12 @@ function renderPageTarget(target: ScreenshotTarget) {
   return null;
 }
 
-function renderComponentTarget(target: ScreenshotTarget) {
+function renderComponentTarget(target: ScreenshotTarget, t: (key: string, options?: Record<string, unknown>) => string) {
   if (target === 'Notifications') {
     return (
       <NotificationPopover
-        title="Notifications"
-        markAllAction={<span className="text-[13px] font-normal text-ds-accent-focus">Mark all read</span>}
+        title={t('Notifications')}
+        markAllAction={<span className="text-[13px] font-normal text-ds-accent-focus">{t('Mark all read')}</span>}
         items={[
           {
             id: 'n1',
@@ -875,7 +889,7 @@ function renderComponentTarget(target: ScreenshotTarget) {
             level: 'info',
           },
         ]}
-        footer={<span className="text-[13px] font-normal text-ds-accent-focus">View all in Logs →</span>}
+        footer={<span className="text-[13px] font-normal text-ds-accent-focus">{t('View all in Logs →')}</span>}
       />
     );
   }
@@ -935,20 +949,36 @@ export function getScreenshotTarget(): ScreenshotTarget | null {
   return null;
 }
 
+export function getScreenshotLanguage(): LanguageCode {
+  return getRequestedLanguage();
+}
+
 export function ScreenshotScene() {
+  const language = getRequestedLanguage();
+  const { t } = useTranslation();
   const target = getScreenshotTarget();
+
+  useEffect(() => {
+    if (i18n.language !== language) {
+      void i18n.changeLanguage(language);
+    }
+  }, [language]);
 
   if (!target) {
     return null;
   }
 
   const content = target === 'Notifications' || target === 'NewActivation'
-    ? renderComponentTarget(target)
-    : renderPageTarget(target);
+    ? renderComponentTarget(target, t)
+    : renderPageTarget(target, t);
 
   if (!content) {
     return null;
   }
 
-  return <Canvas target={target}>{content}</Canvas>;
+  return (
+    <LanguageProvider language={language}>
+      <Canvas target={target}>{content}</Canvas>
+    </LanguageProvider>
+  );
 }

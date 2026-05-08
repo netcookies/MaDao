@@ -1,6 +1,6 @@
 import { AppButton } from '../ui-bridge';
+import { useTranslation } from 'react-i18next';
 import { Modal } from '../../components/overlays';
-import { useLanguage } from '../language';
 
 export type ManifestModalProps = {
   providerName: string;
@@ -12,18 +12,18 @@ export type ManifestModalProps = {
 };
 
 export function ManifestModal(props: ManifestModalProps) {
-  const language = useLanguage();
+  const { t } = useTranslation();
   return (
     <Modal
       open
       variant="wide"
-      title={language === 'zh' ? '高级 Manifest' : 'Advanced Manifest'}
-      subtitle={`${props.providerName} · ${language === 'zh' ? 'JSON 真值源' : 'JSON source of truth'}`}
+      title={t('Advanced Manifest')}
+      subtitle={`${props.providerName} · ${t('JSON source of truth')}`}
       onClose={props.onClose}
       actions={(
         <div className="inline-flex items-center gap-3">
-          <AppButton variant="ghost" size="utility" onClick={props.onClose}>{language === 'zh' ? '关闭' : 'Close'}</AppButton>
-          <AppButton variant="primary" size="utility" onClick={props.onSave} disabled={props.busy}>{language === 'zh' ? '保存' : 'Save'}</AppButton>
+          <AppButton variant="ghost" size="utility" onClick={props.onClose}>{t('Close')}</AppButton>
+          <AppButton variant="primary" size="utility" onClick={props.onSave} disabled={props.busy}>{t('Save')}</AppButton>
         </div>
       )}
     >
