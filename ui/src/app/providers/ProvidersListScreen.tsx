@@ -1,7 +1,7 @@
 import { ChevronRight, Server } from 'lucide-react';
 import { PageHeader, StatusBadge } from '../ui-bridge';
 import type { ProviderManifest, ProviderSummary } from '../types';
-import { formatProviderLabel } from '../../lib/formatters';
+import { formatProviderLabel, formatProviderProtocolLabel } from '../../lib/formatters';
 
 export type ProvidersListScreenProps = {
   providers: ProviderManifest[];
@@ -26,7 +26,8 @@ export function ProvidersListScreen(props: ProvidersListScreenProps) {
           const summary = props.summaries?.find((item) => item.id === provider.id);
           const enableLocked = !provider.enabled && summary?.can_enable === false;
           const endpoint = summary?.primary_endpoint ?? provider.homepage ?? 'No endpoint';
-          const protocolTag = provider.kind;
+          const protocolTag = summary?.protocol
+            ?? (provider.id === 'herosms' || provider.id === 'smsbower' ? provider.id : provider.kind);
           const balanceLabel = props.balances?.[provider.id] ?? '—';
 
           return (
@@ -50,7 +51,7 @@ export function ProvidersListScreen(props: ProvidersListScreenProps) {
 
               <div>
                 <StatusBadge tone="blue">
-                  {protocolTag.toUpperCase()}
+                  {formatProviderProtocolLabel(protocolTag)}
                 </StatusBadge>
               </div>
 
@@ -78,4 +79,3 @@ export function ProvidersListScreen(props: ProvidersListScreenProps) {
     </div>
   );
 }
-

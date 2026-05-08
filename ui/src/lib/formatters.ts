@@ -123,6 +123,20 @@ export function formatProviderLabel(provider: string) {
   return labels[normalized] ?? provider;
 }
 
+export function formatProviderProtocolLabel(protocol: string) {
+  const normalized = protocol.toLowerCase();
+  const labels: Record<string, string> = {
+    five_sim: 'FiveSim',
+    '5sim rest': 'FiveSim',
+    fivesim: 'FiveSim',
+    herosms: 'HeroSMS',
+    smsbower: 'SMSBower',
+    handler_api: 'Handler API',
+    mock: 'Mock',
+  };
+  return labels[normalized] ?? titleCaseToken(protocol);
+}
+
 export function formatCountryLabel(country: string) {
   const normalized = country.toLowerCase();
   return COUNTRY_LABELS[normalized] ?? titleCaseToken(country);
