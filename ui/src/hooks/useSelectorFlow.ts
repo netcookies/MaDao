@@ -14,6 +14,11 @@ import { i18n } from '../app/i18n';
 import { filterCatalogItems } from '../app/utils';
 import { formatCountryLabel, formatProviderLabel, formatServiceLabel } from '../lib/formatters';
 import { formatOperatorLabel } from '../app/utils';
+import {
+  selectorOptionFromCatalogItem,
+  selectorOptionFromOptionItem,
+  selectorOptionFromProvider,
+} from '../app/selectorViewModel';
 
 type SelectorUiState = {
   selectorState: SelectorState | null;
@@ -49,14 +54,14 @@ export function useSelectorFlow(
   function localizedServiceOption(option: OptionItem): OptionItem {
     return {
       ...option,
-      label: formatServiceLabel(option.value, language),
+      label: option.label || formatServiceLabel(option.value, language),
     };
   }
 
   function localizedCountryOption(option: OptionItem): OptionItem {
     return {
       ...option,
-      label: formatCountryLabel(option.value, language),
+      label: option.label || formatCountryLabel(option.value, language),
     };
   }
 
@@ -72,94 +77,126 @@ export function useSelectorFlow(
     const allOperatorsOption: OptionItem = { value: '', label: translate('All operators'), hint: translate('Clear operator filter') };
     const autoCountryOption: OptionItem = { value: '', label: translate('Any country'), hint: translate('Auto select country') };
     const anyProviderOption: OptionItem = { value: ANY_PROVIDER_VALUE, label: translate('Any provider'), hint: translate('Try enabled providers automatically') };
-    let options: OptionItem[] = [];
+    let options: SelectorState['options'] = [];
     let title = '';
     let resourceKind: ResourceKind | undefined;
     if (kind === 'service') {
-      options = (runtime.selectedOptions?.services ?? []).map(localizedServiceOption);
+      options = (runtime.selectedOptions?.services ?? []).map((option) => selectorOptionFromOptionItem({
+        option: localizedServiceOption(option),
+        language,
+        resourceKind: 'service',
+        providerId: ui.selectedProvider,
+      }));
       title = translate('Select Default Service');
       resourceKind = 'service';
     } else if (kind === 'country') {
-      options = (runtime.selectedOptions?.countries ?? []).map(localizedCountryOption);
+      options = (runtime.selectedOptions?.countries ?? []).map((option) => selectorOptionFromOptionItem({
+        option: localizedCountryOption(option),
+        language,
+        resourceKind: 'country',
+        providerId: ui.selectedProvider,
+      }));
       title = translate('Select Default Country');
       resourceKind = 'country';
     } else if (kind === 'provider') {
-      options = runtime.visibleProviders.map((provider) => ({
-        value: provider.id,
-        label: formatProviderLabel(provider.name, language),
-        hint: provider.kind,
-      }));
+      options = runtime.visibleProviders.map((provider) => selectorOptionFromProvider(provider, language));
       title = translate('Select Provider');
       resourceKind = 'provider';
     } else if (kind === 'activation-provider') {
       options = [
-        anyProviderOption,
-        ...runtime.visibleProviders.map((provider) => ({
-          value: provider.id,
-          label: formatProviderLabel(provider.name, language),
-          hint: provider.kind,
-        })),
+        selectorOptionFromOptionItem({
+          option: anyProviderOption,
+          language,
+          resourceKind: 'provider',
+          source: 'synthetic',
+          scope: 'cross_provider',
+          isSynthetic: true,
+          syntheticKind: 'any_provider',
+        }),
+        ...runtime.visibleProviders.map((provider) => selectorOptionFromProvider(provider, language)),
       ];
       title = translate('Select Activation Provider');
       resourceKind = 'provider';
     } else if (kind === 'store-service') {
-      options = filterCatalogItems(runtime.optionCatalog.services, ui.selectedProvider).map((item) => ({
-        value: item.value,
-        label: formatServiceLabel(item.value, language),
-        hint: item.hint,
-        provider_value: item.provider_values[ui.selectedProvider] ?? item.provider_values[item.providers[0]],
-        icon_url: item.provider_icon_urls?.[ui.selectedProvider] ?? item.icon_url,
-        provider_icon_url: item.provider_icon_urls?.[ui.selectedProvider] ?? item.icon_url,
+      options = filterCatalogItems(runtime.optionCatalog.services, ui.selectedProvider).map((item) => selectorOptionFromCatalogItem({
+        item,
+        language,
+        resourceKind: 'service',
+        providerId: ui.selectedProvider,
       }));
       title = translate('Select Store Service');
       resourceKind = 'service';
     } else if (kind === 'store-country') {
-      options = [allCountriesOption, ...filterCatalogItems(runtime.optionCatalog.countries, ui.selectedProvider).map((item) => ({
-        value: item.value,
-        label: formatCountryLabel(item.value, language),
-        hint: item.hint,
-        provider_value: item.provider_values[ui.selectedProvider] ?? item.provider_values[item.providers[0]],
-        icon_url: item.provider_icon_urls?.[ui.selectedProvider] ?? item.icon_url,
-        provider_icon_url: item.provider_icon_urls?.[ui.selectedProvider] ?? item.icon_url,
-      }))];
+      options = [
+        selectorOptionFromOptionItem({
+          option: allCountriesOption,
+          language,
+          resourceKind: 'country',
+          source: 'synthetic',
+          scope: 'single_provider',
+          isSynthetic: true,
+          syntheticKind: 'all_countries',
+        }),
+        ...filterCatalogItems(runtime.optionCatalog.countries, ui.selectedProvider).map((item) => selectorOptionFromCatalogItem({
+          item,
+          language,
+          resourceKind: 'country',
+          providerId: ui.selectedProvider,
+        })),
+      ];
       title = translate('Select Store Country');
       resourceKind = 'country';
     } else if (kind === 'store-operator') {
-      options = [allOperatorsOption, ...filterCatalogItems(runtime.optionCatalog.operators, ui.selectedProvider).map((item) => ({
-        value: item.value,
-        label: formatOperatorLabel(item.value, language),
-        hint: item.hint,
-      }))];
+      options = [
+        selectorOptionFromOptionItem({
+          option: allOperatorsOption,
+          language,
+          source: 'synthetic',
+          scope: 'single_provider',
+          isSynthetic: true,
+          syntheticKind: 'all_operators',
+        }),
+        ...filterCatalogItems(runtime.optionCatalog.operators, ui.selectedProvider).map((item) => selectorOptionFromCatalogItem({
+          item,
+          language,
+          providerId: ui.selectedProvider,
+        })),
+      ];
       title = translate('Select Store Operator');
     } else if (kind === 'activation-service') {
-      options = filterCatalogItems(runtime.optionCatalog.services, ui.activationForm.provider).map((item) => ({
-        value: item.value,
-        label: formatServiceLabel(item.value, language),
-        hint: item.hint,
-        provider_value: item.provider_values[ui.activationForm.provider] ?? item.provider_values[item.providers[0]],
-        icon_url: item.provider_icon_urls?.[ui.activationForm.provider] ?? item.icon_url,
-        provider_icon_url: item.provider_icon_urls?.[ui.activationForm.provider] ?? item.icon_url,
+      options = filterCatalogItems(runtime.optionCatalog.services, ui.activationForm.provider).map((item) => selectorOptionFromCatalogItem({
+        item,
+        language,
+        resourceKind: 'service',
+        providerId: ui.activationForm.provider,
       }));
       title = translate('Select Activation Service');
       resourceKind = 'service';
     } else if (kind === 'activation-country') {
-      options = [autoCountryOption,
-        ...filterCatalogItems(runtime.optionCatalog.countries, ui.activationForm.provider).map((item) => ({
-          value: item.value,
-          label: formatCountryLabel(item.value, language),
-          hint: item.hint,
-          provider_value: item.provider_values[ui.activationForm.provider] ?? item.provider_values[item.providers[0]],
-          icon_url: item.provider_icon_urls?.[ui.activationForm.provider] ?? item.icon_url,
-          provider_icon_url: item.provider_icon_urls?.[ui.activationForm.provider] ?? item.icon_url,
+      options = [
+        selectorOptionFromOptionItem({
+          option: autoCountryOption,
+          language,
+          resourceKind: 'country',
+          source: 'synthetic',
+          scope: 'single_provider',
+          isSynthetic: true,
+          syntheticKind: 'any_country',
+        }),
+        ...filterCatalogItems(runtime.optionCatalog.countries, ui.activationForm.provider).map((item) => selectorOptionFromCatalogItem({
+          item,
+          language,
+          resourceKind: 'country',
+          providerId: ui.activationForm.provider,
         })),
       ];
       title = translate('Select Activation Country');
       resourceKind = 'country';
     } else if (kind === 'activation-operator') {
-      options = filterCatalogItems(runtime.optionCatalog.operators, ui.activationForm.provider).map((item) => ({
-        value: item.value,
-        label: formatOperatorLabel(item.value, language),
-        hint: item.hint,
+      options = filterCatalogItems(runtime.optionCatalog.operators, ui.activationForm.provider).map((item) => selectorOptionFromCatalogItem({
+        item,
+        language,
+        providerId: ui.activationForm.provider,
       }));
       title = translate('Select Activation Operator');
     } else if (kind === 'routing-service') {
@@ -173,22 +210,23 @@ export function useSelectorFlow(
     ui.setSelectorState({ kind, title, options, resourceKind });
   }
 
-  function applySelectorOption(option: OptionItem) {
+  function applySelectorOption(option: SelectorState['options'][number]) {
     if (!ui.selectorState) return;
+    const commitValue = option.commitValue;
     if (ui.selectorState.kind === 'service' || ui.selectorState.kind === 'country') {
-      runtime.updateManifestField(ui.selectedProvider, 'defaults', ui.selectorState.kind, option.value);
+      runtime.updateManifestField(ui.selectedProvider, 'defaults', ui.selectorState.kind, commitValue);
     } else if (ui.selectorState.kind === 'store-service') {
-      runtime.updateStoreQuery(ui.selectedProvider, { service: option.value });
+      runtime.updateStoreQuery(ui.selectedProvider, { service: commitValue });
     } else if (ui.selectorState.kind === 'store-country') {
-      runtime.updateStoreQuery(ui.selectedProvider, { country: option.value });
+      runtime.updateStoreQuery(ui.selectedProvider, { country: commitValue });
     } else if (ui.selectorState.kind === 'store-operator') {
-      runtime.updateStoreQuery(ui.selectedProvider, { operator: option.value });
+      runtime.updateStoreQuery(ui.selectedProvider, { operator: commitValue });
     } else if (ui.selectorState.kind === 'provider') {
-      const options = runtime.providerOptions[option.value];
+      const options = runtime.providerOptions[commitValue];
       ui.setActivationForm((current) => ({
         ...current,
         routing_plan_id: '',
-        provider: option.value,
+        provider: commitValue,
         service: options?.services[0]?.value ?? current.service,
         country: options?.countries[0]?.value ?? current.country,
         operator: options?.operators[0]?.value ?? current.operator,
@@ -196,23 +234,23 @@ export function useSelectorFlow(
     } else if (ui.selectorState.kind === 'activation-provider') {
       ui.setActivationForm((current) => ({
         ...current,
-        provider: option.value,
+        provider: commitValue,
         service: current.service,
         country: '',
         operator: '',
       }));
     } else if (ui.selectorState.kind === 'activation-service') {
-      ui.setActivationForm((current) => ({ ...current, service: option.value }));
+      ui.setActivationForm((current) => ({ ...current, service: commitValue }));
     } else if (ui.selectorState.kind === 'activation-country') {
-      ui.setActivationForm((current) => ({ ...current, country: option.value }));
+      ui.setActivationForm((current) => ({ ...current, country: commitValue }));
     } else if (ui.selectorState.kind === 'activation-operator') {
-      ui.setActivationForm((current) => ({ ...current, operator: option.value }));
+      ui.setActivationForm((current) => ({ ...current, operator: commitValue }));
     }
     ui.setSelectorState(null);
   }
 
-  return {
-    openSelector,
-    applySelectorOption,
-  };
-}
+    return {
+      openSelector,
+      applySelectorOption,
+    };
+  }

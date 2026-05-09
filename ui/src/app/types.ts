@@ -72,6 +72,11 @@ export type Snapshot = {
   logs: LogEntry[];
 };
 
+export type TicketDecoration = {
+  service_icon_url?: string | null;
+  country_icon_url?: string | null;
+};
+
 export type ProviderManifest = {
   id: string;
   name: string;
@@ -131,7 +136,33 @@ export type OptionCatalogItem = {
   icon_url?: string | null;
   provider_icon_urls?: Record<string, string>;
 };
-export type SelectorState = { kind: SelectorKind; title: string; options: OptionItem[]; resourceKind?: ResourceKind };
+export type SelectorOptionSource = 'manifest' | 'provider_options' | 'option_catalog' | 'synthetic';
+export type SelectorOptionScope = 'single_provider' | 'cross_provider';
+export type SelectorOptionSyntheticKind = 'any_provider' | 'any_country' | 'all_countries' | 'all_operators';
+export type SelectorOptionViewModel = {
+  id: string;
+  resourceKind?: ResourceKind;
+  source: SelectorOptionSource;
+  scope: SelectorOptionScope;
+  commitValue: string;
+  canonicalValue: string;
+  providerId?: string;
+  providerValue?: string | null;
+  primaryText: string;
+  secondaryText?: string;
+  iconUrl?: string | null;
+  searchableText: string[];
+  providers?: string[];
+  option: OptionItem;
+  isSynthetic?: boolean;
+  syntheticKind?: SelectorOptionSyntheticKind;
+};
+export type SelectorState = {
+  kind: SelectorKind;
+  title: string;
+  options: SelectorOptionViewModel[];
+  resourceKind?: ResourceKind;
+};
 export type NotificationFeed = { items: LogEntry[] };
 export type RuntimeSettings = {
   routing_strategy: RoutingStrategy;

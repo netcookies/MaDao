@@ -4,6 +4,7 @@ import type {
   OptionListResponse,
   OptionCacheOverview,
   ProviderBalance,
+  ProviderDynamicOptions,
   ProviderManifest,
   ProviderManifestSaveResponse,
   ProviderManifestList,
@@ -92,6 +93,16 @@ export async function fetchProviderServices(
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(query ?? {}),
   }));
+}
+
+export async function refreshProviderOptions(providerId: string): Promise<ProviderDynamicOptions> {
+  return readJson<ProviderDynamicOptions>(await fetch(`${API_BASE}/api/providers/${providerId}/refresh-options`, {
+    method: 'POST',
+  }));
+}
+
+export async function fetchProviderOptionsCache(providerId: string): Promise<ProviderDynamicOptions> {
+  return readJson<ProviderDynamicOptions>(await fetch(`${API_BASE}/api/providers/${providerId}/options-cache`));
 }
 
 export async function fetchProviderOperators(

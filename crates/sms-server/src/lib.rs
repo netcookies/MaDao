@@ -65,6 +65,14 @@ pub fn build_router(service: Arc<SmsService>) -> Router {
         .route("/api/providers/{provider}/balance", get(get_balance))
         .route("/api/providers/{provider}/prices", post(get_prices))
         .route(
+            "/api/providers/{provider}/refresh-options",
+            post(refresh_provider_options),
+        )
+        .route(
+            "/api/providers/{provider}/options-cache",
+            get(get_provider_options_cache),
+        )
+        .route(
             "/api/providers/{provider}/countries",
             get(get_provider_countries),
         )
@@ -453,6 +461,41 @@ async fn get_provider_services(
     result
 }
 
+async fn refresh_provider_options(
+    State(state): State<ApiState>,
+    Path(provider): Path<String>,
+) -> Result<Json<serde_json::Value>, (StatusCode, Json<ApiError>)> {
+    let result = state
+        .service
+        .refresh_provider_options(&provider)
+        .await
+        .map(|value| Json(serde_json::json!(value)))
+        .map_err(to_api_error);
+    state.service.log_http_access(
+        "POST",
+        format!("/api/providers/{provider}/refresh-options"),
+        if result.is_ok() { "200" } else { "400" },
+    );
+    result
+}
+
+async fn get_provider_options_cache(
+    State(state): State<ApiState>,
+    Path(provider): Path<String>,
+) -> Result<Json<serde_json::Value>, (StatusCode, Json<ApiError>)> {
+    let result = state
+        .service
+        .provider_cached_options(&provider)
+        .map(|value| Json(serde_json::json!(value)))
+        .map_err(to_api_error);
+    state.service.log_http_access(
+        "GET",
+        format!("/api/providers/{provider}/options-cache"),
+        if result.is_ok() { "200" } else { "400" },
+    );
+    result
+}
+
 async fn get_provider_operators(
     State(state): State<ApiState>,
     Path(provider): Path<String>,
@@ -828,6 +871,7 @@ mod tests {
         assert_eq!(services_response.status(), StatusCode::OK);
 
         let operators_response = app
+            .clone()
             .oneshot(
                 Request::builder()
                     .method(Method::POST)
@@ -839,6 +883,48 @@ mod tests {
             .await
             .unwrap();
         assert_eq!(operators_response.status(), StatusCode::OK);
+
+        let options_cache_response = app
+            .oneshot(
+                Request::builder()
+                    .method(Method::GET)
+                    .uri("/api/providers/mock/options-cache")
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(options_cache_response.status(), StatusCode::BAD_REQUEST);
+    }
+
+    #[tokio::test]
+    async fn provider_options_cache_endpoint_returns_cached_options_after_refresh() {
+        let app = test_router();
+
+        let refresh_response = app
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .method(Method::POST)
+                    .uri("/api/providers/mock/refresh-options")
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(refresh_response.status(), StatusCode::OK);
+
+        let options_cache_response = app
+            .oneshot(
+                Request::builder()
+                    .method(Method::GET)
+                    .uri("/api/providers/mock/options-cache")
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(options_cache_response.status(), StatusCode::OK);
     }
 
     #[tokio::test]

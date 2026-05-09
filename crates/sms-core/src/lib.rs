@@ -1,3 +1,4 @@
+pub mod canonical_data;
 pub mod config;
 pub mod error;
 pub mod models;

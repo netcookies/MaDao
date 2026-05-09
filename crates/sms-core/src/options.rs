@@ -1,3 +1,7 @@
+use crate::canonical_data::{
+    CANONICAL_COUNTRY_LABELS, CANONICAL_COUNTRY_TEXT_ALIASES, CANONICAL_SERVICE_LABELS,
+    CANONICAL_SERVICE_PATTERNS,
+};
 use crate::error::SmsError;
 use crate::models::{
     OptionCacheOverview, OptionCacheState, OptionItem, ProviderDynamicOptions,
@@ -340,8 +344,46 @@ fn build_operator_reverse_map(options: &ProviderDynamicOptions) -> BTreeMap<Stri
         .collect()
 }
 
+fn find_canonical_alias<'a>(signals: &[&'a str], aliases: &[(&str, &[&str])]) -> Option<String> {
+    for (candidate, candidates_aliases) in aliases {
+        if signals
+            .iter()
+            .filter(|signal| !signal.is_empty())
+            .any(|signal| candidates_aliases.iter().any(|alias| signal == alias))
+        {
+            return Some((*candidate).to_string());
+        }
+    }
+    None
+}
+
+fn pattern_matches(raw_normalized: &str, label_normalized: &str, pattern: &str) -> bool {
+    let combined = format!("{raw_normalized} {label_normalized}");
+    if pattern.contains(' ') {
+        return combined.contains(pattern);
+    }
+    let raw_tokens = raw_normalized.split_whitespace().collect::<Vec<_>>();
+    let label_tokens = label_normalized.split_whitespace().collect::<Vec<_>>();
+    if pattern.len() <= 3 {
+        return raw_tokens.iter().any(|token| *token == pattern)
+            || label_tokens.iter().any(|token| *token == pattern);
+    }
+    raw_normalized == pattern
+        || label_normalized == pattern
+        || raw_tokens.iter().any(|token| *token == pattern)
+        || label_tokens.iter().any(|token| *token == pattern)
+        || combined.contains(pattern)
+}
+
+fn is_numeric_like(value: &str) -> bool {
+    let trimmed = value.trim().trim_start_matches('+');
+    !trimmed.is_empty() && trimmed.chars().all(|char| char.is_ascii_digit())
+}
+
 fn canonical_service_value(manifest: &ProviderManifest, raw: &str, label: Option<&str>) -> String {
     let raw_normalized = normalize_token(raw);
+    let label = label.unwrap_or(raw);
+    let label_normalized = normalize_token(label);
     let mut reverse_aliases = manifest
         .service_aliases
         .iter()
@@ -360,22 +402,15 @@ fn canonical_service_value(manifest: &ProviderManifest, raw: &str, label: Option
         return found.clone();
     }
 
-    let label = label.unwrap_or(raw);
-    let probe = format!("{} {}", raw, label).to_ascii_lowercase();
-    if probe.contains("openai") || probe.contains("chatgpt") || probe.contains("gpt") {
-        return "openai".to_string();
+    if let Some((candidate, _)) = CANONICAL_SERVICE_PATTERNS.iter().find(|(_, patterns)| {
+        patterns
+            .iter()
+            .any(|pattern| pattern_matches(&raw_normalized, &label_normalized, pattern))
+    }) {
+        return (*candidate).to_string();
     }
-    if probe.contains("telegram") || probe == "tg" {
-        return "telegram".to_string();
-    }
-    if probe.contains("whatsapp") || probe == "wa" {
-        return "whatsapp".to_string();
-    }
-    if probe.contains("paypal") {
-        return "paypal".to_string();
-    }
-    if probe.contains("discord") {
-        return "discord".to_string();
+    if !label_normalized.is_empty() && label_normalized != raw_normalized {
+        return label_normalized;
     }
     raw_normalized
 }
@@ -384,34 +419,10 @@ fn canonical_country_value(raw: &str, label: Option<&str>, hint: Option<&str>) -
     let raw_normalized = normalize_token(raw);
     let label_normalized = normalize_token(label.unwrap_or(""));
     let hint_normalized = normalize_token(hint.unwrap_or(""));
-    let signals = [
-        raw_normalized.as_str(),
-        label_normalized.as_str(),
-        hint_normalized.as_str(),
-    ];
+    let textual_signals = [label_normalized.as_str(), hint_normalized.as_str()];
 
-    for (candidate, aliases) in [
-        ("any", &["any", "all countries", "auto select"][..]),
-        ("local", &["local"][..]),
-        ("usa", &["usa", "united states", "50", "america"][..]),
-        (
-            "uk",
-            &["england", "uk", "united kingdom", "44", "britain"][..],
-        ),
-        ("germany", &["germany", "deutschland"][..]),
-        ("japan", &["japan"][..]),
-        ("canada", &["canada"][..]),
-        ("australia", &["australia", "61"][..]),
-        ("russia", &["russia", "0", "россия"][..]),
-        ("argentina", &["argentina", "阿根廷"][..]),
-    ] {
-        if signals
-            .iter()
-            .filter(|signal| !signal.is_empty())
-            .any(|signal| aliases.iter().any(|alias| signal == alias))
-        {
-            return candidate.to_string();
-        }
+    if let Some(found) = find_canonical_alias(&textual_signals, CANONICAL_COUNTRY_TEXT_ALIASES) {
+        return found;
     }
 
     if raw_normalized == "us" {
@@ -419,6 +430,26 @@ fn canonical_country_value(raw: &str, label: Option<&str>, hint: Option<&str>) -
     }
     if raw_normalized == "ar" {
         return "argentina".to_string();
+    }
+    if raw_normalized.chars().all(|char| char.is_ascii_digit()) {
+        if !hint_normalized.is_empty()
+            && hint_normalized != raw_normalized
+            && !is_numeric_like(&hint_normalized)
+        {
+            return hint_normalized;
+        }
+        if !label_normalized.is_empty()
+            && label_normalized != raw_normalized
+            && !label_normalized.chars().all(|char| char.is_ascii_digit())
+        {
+            return label_normalized;
+        }
+    }
+    if !label_normalized.is_empty() && label_normalized != raw_normalized && !is_numeric_like(&label_normalized) {
+        return label_normalized;
+    }
+    if !hint_normalized.is_empty() && hint_normalized != raw_normalized && !is_numeric_like(&hint_normalized) {
+        return hint_normalized;
     }
 
     raw_normalized
@@ -433,39 +464,28 @@ fn canonical_operator_value(raw: &str, label: Option<&str>) -> String {
 }
 
 fn service_label(canonical: &str) -> String {
-    match canonical {
-        "openai" => "OpenAI (GPT)".to_string(),
-        "telegram" => "Telegram".to_string(),
-        "whatsapp" => "WhatsApp".to_string(),
-        "paypal" => "PayPal".to_string(),
-        "discord" => "Discord".to_string(),
-        other => title_case_token(other),
-    }
+    CANONICAL_SERVICE_LABELS
+        .iter()
+        .find(|(key, _)| *key == canonical)
+        .map(|(_, value)| (*value).to_string())
+        .unwrap_or_else(|| title_case_token(canonical))
 }
 
 fn resolved_service_label(canonical: &str, source_label: &str) -> String {
     let fallback = source_label.trim();
     match canonical {
-        "openai" | "telegram" | "whatsapp" | "paypal" | "discord" => service_label(canonical),
+        "openai" | "claude" | "telegram" | "whatsapp" | "paypal" | "discord" => service_label(canonical),
         _ if !fallback.is_empty() => fallback.to_string(),
         _ => service_label(canonical),
     }
 }
 
 fn country_label(canonical: &str) -> String {
-    match canonical {
-        "any" => "All countries".to_string(),
-        "local" => "Local".to_string(),
-        "usa" => "United States".to_string(),
-        "uk" => "United Kingdom".to_string(),
-        "germany" => "Germany".to_string(),
-        "japan" => "Japan".to_string(),
-        "canada" => "Canada".to_string(),
-        "australia" => "Australia".to_string(),
-        "russia" => "Russia".to_string(),
-        "argentina" => "Argentina".to_string(),
-        other => title_case_token(other),
-    }
+    CANONICAL_COUNTRY_LABELS
+        .iter()
+        .find(|(key, _)| *key == canonical)
+        .map(|(_, value)| (*value).to_string())
+        .unwrap_or_else(|| title_case_token(canonical))
 }
 
 fn resolved_country_label(canonical: &str, source_label: &str, source_hint: &str) -> String {
@@ -473,7 +493,9 @@ fn resolved_country_label(canonical: &str, source_label: &str, source_hint: &str
     let fallback_hint = source_hint.trim();
     match canonical {
         "any" | "local" | "usa" | "uk" | "germany" | "japan" | "canada" | "australia"
-        | "russia" | "argentina" => country_label(canonical),
+        | "russia" | "argentina" | "vietnam" | "southafrica" | "bosnia and herzegovina"
+        | "trinidad and tobago" | "czech republic" | "north macedonia" | "south korea"
+        | "north korea" | "jordan" => country_label(canonical),
         _ if !fallback_label.is_empty() && fallback_label != canonical => {
             fallback_label.to_string()
         }
@@ -536,7 +558,30 @@ fn title_case_token(input: &str) -> String {
 
 #[cfg(test)]
 mod tests {
-    use super::canonical_country_value;
+    use super::{canonical_country_value, canonical_service_value};
+    use crate::models::ProviderRawOptionAuditEntry;
+    use plugin_sdk::{ProviderDefaults, ProviderKind, ProviderManifest};
+    use serde::Deserialize;
+    use std::collections::{BTreeMap, BTreeSet};
+    use std::fs;
+    use std::path::PathBuf;
+
+    fn test_manifest() -> ProviderManifest {
+        ProviderManifest {
+            id: "test".to_string(),
+            name: "Test".to_string(),
+            kind: ProviderKind::HandlerApi,
+            enabled: true,
+            priority: 10,
+            homepage: None,
+            description: None,
+            service_aliases: BTreeMap::new(),
+            defaults: ProviderDefaults::default(),
+            handler_api: None,
+            five_sim: None,
+            mock: None,
+        }
+    }
 
     #[test]
     fn canonical_country_value_keeps_russia_distinct_from_usa() {
@@ -546,15 +591,240 @@ mod tests {
         );
         assert_eq!(
             canonical_country_value("50", Some("Austria"), Some("Austria")),
-            "usa"
+            "austria"
         );
         assert_eq!(
             canonical_country_value("31", Some("South Africa"), Some("South Africa")),
-            "31"
+            "southafrica"
         );
         assert_eq!(
             canonical_country_value("us", Some("United States"), Some("United States")),
             "usa"
+        );
+    }
+
+    #[test]
+    fn canonical_country_value_falls_back_to_label_for_numeric_ids() {
+        assert_eq!(
+            canonical_country_value("116", Some("約旦"), Some("Jordan")),
+            "jordan"
+        );
+        assert_eq!(
+            canonical_country_value("18", Some("Viet nam"), Some("18")),
+            "vietnam"
+        );
+    }
+
+    #[test]
+    fn canonical_service_value_uses_label_for_provider_short_codes() {
+        let manifest = test_manifest();
+        assert_eq!(
+            canonical_service_value(&manifest, "acz", Some("Claude")),
+            "claude"
+        );
+        assert_eq!(
+            canonical_service_value(&manifest, "tg", Some("Telegram")),
+            "telegram"
+        );
+    }
+
+    #[derive(Deserialize)]
+    struct RawAuditStore {
+        entries: BTreeMap<String, ProviderRawOptionAuditEntry>,
+    }
+
+    fn repo_root() -> PathBuf {
+        PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../..")
+    }
+
+    fn load_manifest(provider_id: &str) -> ProviderManifest {
+        let root = repo_root();
+        let path = root.join("plugins/providers").join(format!("{provider_id}.toml"));
+        let content = fs::read_to_string(path).expect("read provider manifest");
+        toml::from_str(&content).expect("parse provider manifest")
+    }
+
+    fn englishish(value: &str) -> bool {
+        !value
+            .chars()
+            .any(|char| ('\u{4e00}'..='\u{9fff}').contains(&char) || ('\u{3040}'..='\u{30ff}').contains(&char) || ('\u{0400}'..='\u{04ff}').contains(&char))
+    }
+
+    fn normalize_label_key(value: &str) -> String {
+        value
+            .trim()
+            .to_ascii_lowercase()
+            .replace(['/', '_', '-'], " ")
+            .replace(['(', ')', ','], " ")
+            .split_whitespace()
+            .collect::<Vec<_>>()
+            .join(" ")
+    }
+
+    #[test]
+    fn audit_cross_provider_service_aliases_do_not_diverge() {
+        let root = repo_root();
+        let path = root.join("config/provider-options-raw.json");
+        let content = fs::read_to_string(path).expect("read raw option audit");
+        let store: RawAuditStore = serde_json::from_str(&content).expect("parse raw option audit");
+
+        let target_groups = [
+            ("openai", &["OpenAI", "OpenAI (ChatGPT)", "OpenAI/ChatGPT"][..]),
+            ("claude", &["Claude", "ClaudeAI/Anthropic"][..]),
+            ("telegram", &["Telegram"][..]),
+            ("discord", &["Discord"][..]),
+            ("wechat", &["WeChat"][..]),
+            ("google chat", &["Google Chat"][..]),
+            ("uber", &["Uber"][..]),
+            ("apple", &["Apple"][..]),
+            ("aol", &["AOL"][..]),
+            ("microsoft", &["Microsoft"][..]),
+            ("twitter", &["Twitter/X"][..]),
+            ("yahoo", &["Yahoo"][..]),
+        ];
+
+        for (expected, labels) in target_groups {
+            let mut observed = BTreeMap::<String, String>::new();
+            for (provider_id, entry) in &store.entries {
+                let manifest = load_manifest(provider_id);
+                for item in &entry.raw_services {
+                    let label = item.label.trim();
+                    if labels.iter().any(|candidate| label.eq_ignore_ascii_case(candidate)) {
+                        observed.insert(
+                            provider_id.clone(),
+                            canonical_service_value(&manifest, &item.value, Some(&item.label)),
+                        );
+                    }
+                }
+            }
+            assert!(
+                !observed.is_empty(),
+                "expected at least one observed service mapping for {expected}"
+            );
+            assert!(
+                observed.values().all(|value| value == expected),
+                "service canonical mismatch for {expected}: {observed:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn audit_all_cross_provider_service_groups_are_canonicalized() {
+        let root = repo_root();
+        let path = root.join("config/provider-options-raw.json");
+        let content = fs::read_to_string(path).expect("read raw option audit");
+        let store: RawAuditStore = serde_json::from_str(&content).expect("parse raw option audit");
+        let generic_manifest = test_manifest();
+
+        let mut groups = BTreeMap::<String, Vec<(String, String, String)>>::new();
+        for (provider_id, entry) in &store.entries {
+            let manifest = load_manifest(provider_id);
+            for item in &entry.raw_services {
+                let label = item.label.trim();
+                let hint = item.hint.trim();
+                let chosen = if !label.is_empty() && englishish(label) {
+                    label
+                } else if !hint.is_empty() && englishish(hint) {
+                    hint
+                } else {
+                    continue;
+                };
+                let group_key =
+                    canonical_service_value(&generic_manifest, chosen, Some(chosen));
+                let actual =
+                    canonical_service_value(&manifest, &item.value, Some(&item.label));
+                groups.entry(group_key).or_default().push((
+                    provider_id.clone(),
+                    item.value.clone(),
+                    actual,
+                ));
+            }
+        }
+
+        let mut mismatches = Vec::new();
+        for (group, rows) in groups {
+            let providers = rows
+                .iter()
+                .map(|(provider, _, _)| provider.clone())
+                .collect::<BTreeSet<_>>();
+            if providers.len() < 2 {
+                continue;
+            }
+            let canonicals = rows
+                .iter()
+                .map(|(_, _, canonical)| canonical.clone())
+                .collect::<BTreeSet<_>>();
+            if canonicals.len() > 1 {
+                mismatches.push((group, rows));
+            }
+        }
+
+        assert!(
+            mismatches.is_empty(),
+            "service audit mismatches: {:?}",
+            mismatches
+                .into_iter()
+                .take(20)
+                .collect::<Vec<_>>()
+        );
+    }
+
+    #[test]
+    fn audit_all_cross_provider_country_groups_are_canonicalized() {
+        let root = repo_root();
+        let path = root.join("config/provider-options-raw.json");
+        let content = fs::read_to_string(path).expect("read raw option audit");
+        let store: RawAuditStore = serde_json::from_str(&content).expect("parse raw option audit");
+
+        let mut groups = BTreeMap::<String, Vec<(String, String, String)>>::new();
+        for (provider_id, entry) in &store.entries {
+            for item in &entry.raw_countries {
+                let label = item.label.trim();
+                let hint = item.hint.trim();
+                let chosen = if !label.is_empty() && englishish(label) {
+                    label
+                } else if !hint.is_empty() && englishish(hint) {
+                    hint
+                } else {
+                    continue;
+                };
+                let group_seed = normalize_label_key(chosen);
+                let group_key =
+                    canonical_country_value(&group_seed, Some(chosen), Some(chosen));
+                let actual = canonical_country_value(&item.value, Some(&item.label), Some(&item.hint));
+                groups.entry(group_key).or_default().push((
+                    provider_id.clone(),
+                    item.value.clone(),
+                    actual,
+                ));
+            }
+        }
+
+        let mut mismatches = Vec::new();
+        for (group, rows) in groups {
+            let providers = rows
+                .iter()
+                .map(|(provider, _, _)| provider.clone())
+                .collect::<BTreeSet<_>>();
+            if providers.len() < 2 {
+                continue;
+            }
+            let canonicals = rows
+                .iter()
+                .map(|(_, _, canonical)| canonical.clone())
+                .collect::<BTreeSet<_>>();
+            if canonicals.len() > 1 {
+                mismatches.push((group, rows));
+            }
+        }
+
+        assert!(
+            mismatches.is_empty(),
+            "country audit mismatches: {:?}",
+            mismatches
+                .into_iter()
+                .take(20)
+                .collect::<Vec<_>>()
         );
     }
 }

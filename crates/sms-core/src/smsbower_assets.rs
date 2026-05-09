@@ -14,6 +14,8 @@ pub struct SmsBowerFaqService {
 #[derive(Debug, Clone)]
 pub struct SmsBowerFaqCountry {
     pub id: String,
+    pub activate_org_code: String,
+    pub iso_code: Option<String>,
     pub label: String,
     pub hint: String,
     pub icon_url: String,
@@ -80,8 +82,8 @@ async fn fetch_faq_html(client: &Client) -> Result<String, SmsError> {
     Ok(html)
 }
 
-pub fn country_icon_url(country_id: &str) -> String {
-    format!("https://smsbower.app/img/svg/countries/{country_id}.svg?v=2")
+pub fn country_icon_url(country_key: &str) -> String {
+    format!("https://smsbower.app/img/svg/countries/{country_key}.svg?v=2")
 }
 
 pub fn fallback_service_icon_url(service_id: &str) -> String {
@@ -132,20 +134,33 @@ pub async fn fetch_faq_countries_map(
         let Some(id) = item.get("id").and_then(coerce_str_value) else {
             continue;
         };
+        let Some(code) = item
+            .get("activate_org_code")
+            .and_then(coerce_str_value)
+            .or_else(|| Some(id.clone()))
+        else {
+            continue;
+        };
         let label = item
             .get("title")
             .and_then(Value::as_str)
             .or_else(|| item.get("eng").and_then(Value::as_str))
             .unwrap_or(id.as_str())
             .to_string();
+        let iso_code = item
+            .get("iso")
+            .and_then(coerce_str_value)
+            .map(|value| value.trim().to_ascii_lowercase());
         let hint = item
-            .get("eng")
-            .and_then(Value::as_str)
-            .unwrap_or(id.as_str())
-            .to_string();
-        let icon_url = country_icon_url(&id);
-        map.insert(id.clone(), SmsBowerFaqCountry {
+            .get("prefix")
+            .and_then(coerce_str_value)
+            .or_else(|| item.get("eng").and_then(coerce_str_value))
+            .unwrap_or_else(|| code.clone());
+        let icon_url = country_icon_url(iso_code.as_deref().unwrap_or(&id));
+        map.insert(code.clone(), SmsBowerFaqCountry {
             id,
+            activate_org_code: code,
+            iso_code,
             label,
             hint,
             icon_url,

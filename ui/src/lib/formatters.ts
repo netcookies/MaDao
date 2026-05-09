@@ -1,71 +1,59 @@
 import type { LanguageCode } from '../app/types';
+import { i18n } from '../app/i18n';
 
 export type TicketPhase = 'received' | 'waiting' | 'failed';
 
-const SERVICE_LABELS: Record<LanguageCode, Record<string, string>> = {
-  en: {
-    openai: 'OpenAI (GPT)',
-    dr: 'OpenAI (GPT)',
-    telegram: 'Telegram',
-    tg: 'Telegram',
-    whatsapp: 'WhatsApp',
-    wa: 'WhatsApp',
-    paypal: 'PayPal',
-    discord: 'Discord',
-  },
-  zh: {
-    openai: 'OpenAI（GPT）',
-    dr: 'OpenAI（GPT）',
-    telegram: 'Telegram',
-    tg: 'Telegram',
-    whatsapp: 'WhatsApp',
-    wa: 'WhatsApp',
-    paypal: 'PayPal',
-    discord: 'Discord',
-  },
+const SERVICE_LABELS_EN: Record<string, string> = {
+  apple: 'Apple',
+  aol: 'AOL',
+  openai: 'OpenAI (GPT)',
+  dr: 'OpenAI (GPT)',
+  claude: 'Claude',
+  claudeai: 'Claude',
+  'google chat': 'Google Chat',
+  microsoft: 'Microsoft',
+  telegram: 'Telegram',
+  tg: 'Telegram',
+  twitter: 'Twitter/X',
+  uber: 'Uber',
+  wechat: 'WeChat',
+  whatsapp: 'WhatsApp',
+  wa: 'WhatsApp',
+  paypal: 'PayPal',
+  discord: 'Discord',
+  yahoo: 'Yahoo',
 };
 
-const COUNTRY_LABELS: Record<LanguageCode, Record<string, string>> = {
-  en: {
-    any: 'All countries',
-    local: 'Local',
-    usa: 'United States',
-    us: 'United States',
-    '50': 'United States',
-    england: 'United Kingdom',
-    uk: 'United Kingdom',
-    '44': 'United Kingdom',
-    germany: 'Germany',
-    japan: 'Japan',
-    canada: 'Canada',
-    australia: 'Australia',
-    '61': 'Australia',
-    russia: 'Russia',
-    '0': 'Russia',
-    argentina: 'Argentina',
-    ar: 'Argentina',
-    vietnam: 'Vietnam',
-  },
-  zh: {
-    any: '全部国家',
-    local: '本地',
-    usa: '美国',
-    us: '美国',
-    '50': '美国',
-    england: '英国',
-    uk: '英国',
-    '44': '英国',
-    germany: '德国',
-    japan: '日本',
-    canada: '加拿大',
-    australia: '澳大利亚',
-    '61': '澳大利亚',
-    russia: '俄罗斯',
-    '0': '俄罗斯',
-    argentina: '阿根廷',
-    ar: '阿根廷',
-    vietnam: '越南',
-  },
+const COUNTRY_LABELS_EN: Record<string, string> = {
+  any: 'All countries',
+  local: 'Local',
+  usa: 'United States',
+  us: 'United States',
+  '50': 'United States',
+  england: 'United Kingdom',
+  uk: 'United Kingdom',
+  '44': 'United Kingdom',
+  germany: 'Germany',
+  japan: 'Japan',
+  canada: 'Canada',
+  australia: 'Australia',
+  '61': 'Australia',
+  russia: 'Russia',
+  '0': 'Russia',
+  argentina: 'Argentina',
+  ar: 'Argentina',
+  vietnam: 'Vietnam',
+  southafrica: 'South Africa',
+  'south africa': 'South Africa',
+  'bosnia and herzegovina': 'Bosnia and Herzegovina',
+  bih: 'Bosnia and Herzegovina',
+  'trinidad and tobago': 'Trinidad and Tobago',
+  'czech republic': 'Czech Republic',
+  czechia: 'Czech Republic',
+  'north macedonia': 'North Macedonia',
+  'south korea': 'South Korea',
+  'north korea': 'North Korea',
+  jordan: 'Jordan',
 };
 
 const PROVIDER_LABELS: Record<LanguageCode, Record<string, string>> = {
@@ -108,6 +96,10 @@ const PROVIDER_PROTOCOL_LABELS: Record<LanguageCode, Record<string, string>> = {
 
 function pickLanguage(language: LanguageCode | undefined) {
   return language ?? 'en';
+}
+
+function i18nTokenKey(value: string) {
+  return value.toLowerCase().replace(/[^a-z0-9]+/g, '_').replace(/^_+|_+$/g, '');
 }
 
 export function normalizeTicketStatus(status: string) {
@@ -160,7 +152,8 @@ export function formatDurationMmSs(durationMs: number) {
 export function formatServiceLabel(service: string, language?: LanguageCode) {
   const normalized = service.toLowerCase();
   const currentLanguage = pickLanguage(language);
-  return SERVICE_LABELS[currentLanguage][normalized] ?? titleCaseToken(service);
+  const englishLabel = SERVICE_LABELS_EN[normalized] ?? titleCaseToken(service);
+  return i18n.getFixedT(currentLanguage)(`service_label_${i18nTokenKey(normalized)}`, { defaultValue: englishLabel });
 }
 
 export function formatProviderLabel(provider: string, language?: LanguageCode) {
@@ -206,11 +199,12 @@ export function formatProviderProtocolLabel(protocol: string, language?: Languag
 export function formatCountryLabel(country: string, language?: LanguageCode) {
   const normalized = country.toLowerCase();
   const currentLanguage = pickLanguage(language);
-  return COUNTRY_LABELS[currentLanguage][normalized] ?? titleCaseToken(country);
+  const englishLabel = COUNTRY_LABELS_EN[normalized] ?? titleCaseToken(country);
+  return i18n.getFixedT(currentLanguage)(`country_label_${i18nTokenKey(normalized)}`, { defaultValue: englishLabel });
 }
 
 export function canonicalCountryValue(country: string) {
-  const normalized = country.trim().toLowerCase();
+  const normalized = country.trim().toLowerCase().replace(/[_/-]+/g, ' ').replace(/\s+/g, ' ');
   const aliases: Record<string, string> = {
     ar: 'argentina',
     argentina: 'argentina',
@@ -218,9 +212,13 @@ export function canonicalCountryValue(country: string) {
     usa: 'usa',
     us: 'usa',
     '50': 'usa',
+    'united states': 'usa',
+    america: 'usa',
     england: 'uk',
     uk: 'uk',
     '44': 'uk',
+    'united kingdom': 'uk',
+    britain: 'uk',
     local: 'local',
     germany: 'germany',
     japan: 'japan',
@@ -229,6 +227,11 @@ export function canonicalCountryValue(country: string) {
     '61': 'australia',
     russia: 'russia',
     '0': 'russia',
+    'russian federation': 'russia',
+    vietnam: 'vietnam',
+    'viet nam': 'vietnam',
+    'south africa': 'southafrica',
+    southafrica: 'southafrica',
   };
   return aliases[normalized] ?? normalized;
 }

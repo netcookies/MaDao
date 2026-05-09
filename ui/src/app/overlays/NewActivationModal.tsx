@@ -1,7 +1,7 @@
 import { X } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import { AppButton, ModalField, SelectTrigger } from '../ui-bridge';
-import { ANY_PROVIDER_VALUE, type ActivationFormState, type LanguageCode, type ProviderManifest, type RoutingPlan, type SelectorKind } from '../types';
+import { ANY_PROVIDER_VALUE, type ActivationFormState, type LanguageCode, type OptionItem, type ProviderManifest, type RoutingPlan, type SelectorKind } from '../types';
 import { formatCountryLabel, formatServiceLabel } from '../../lib/formatters';
 import { formatOperatorLabel } from '../utils';
 import { ResourceBadge } from '../../components/primitives';
@@ -14,6 +14,8 @@ export type NewActivationModalProps = {
   error: string;
   presentation?: 'overlay' | 'inline';
   operatorHint?: string;
+  serviceOptions?: OptionItem[];
+  countryOptions?: OptionItem[];
   onChange: (field: keyof ActivationFormState, value: string) => void;
   onClose: () => void;
   onSubmit: () => void;
@@ -29,6 +31,8 @@ export function NewActivationModal(props: NewActivationModalProps) {
   const providerLabel = props.form.provider === ANY_PROVIDER_VALUE
     ? t('Any provider')
     : props.providers.find((provider) => provider.id === props.form.provider)?.name ?? props.form.provider;
+  const selectedServiceOption = props.serviceOptions?.find((item) => item.value === props.form.service);
+  const selectedCountryOption = props.countryOptions?.find((item) => item.value === props.form.country);
 
   const card = (
     <div
@@ -92,8 +96,13 @@ export function NewActivationModal(props: NewActivationModalProps) {
             value={props.form.service ? formatServiceLabel(props.form.service, language) : ''}
             valueContent={props.form.service ? (
               <span className="inline-flex min-w-0 items-center gap-2">
-                <ResourceBadge kind="service" value={props.form.service} size="sm" />
-                <span className="truncate">{formatServiceLabel(props.form.service, language)}</span>
+                <ResourceBadge
+                  kind="service"
+                  value={props.form.service}
+                  size="sm"
+                  iconUrl={selectedServiceOption?.icon_url ?? selectedServiceOption?.provider_icon_url}
+                />
+                <span className="truncate">{selectedServiceOption?.label || formatServiceLabel(props.form.service, language)}</span>
               </span>
             ) : undefined}
             placeholder={usesRoutingPlan ? t('controlled by routing plan') : t('e.g. telegram, openai, whatsapp')}
@@ -107,8 +116,13 @@ export function NewActivationModal(props: NewActivationModalProps) {
             value={props.form.country ? formatCountryLabel(props.form.country, language) : ''}
             valueContent={props.form.country ? (
               <span className="inline-flex min-w-0 items-center gap-2">
-                <ResourceBadge kind="country" value={props.form.country} size="sm" />
-                <span className="truncate">{formatCountryLabel(props.form.country, language)}</span>
+                <ResourceBadge
+                  kind="country"
+                  value={props.form.country}
+                  size="sm"
+                  iconUrl={selectedCountryOption?.icon_url ?? selectedCountryOption?.provider_icon_url}
+                />
+                <span className="truncate">{formatCountryLabel(props.form.country, language) || selectedCountryOption?.label}</span>
               </span>
             ) : undefined}
             placeholder={usesRoutingPlan ? t('controlled by routing plan') : t('any — auto select')}

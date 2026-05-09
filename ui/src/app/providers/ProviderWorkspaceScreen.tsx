@@ -15,6 +15,7 @@ import {
   ToggleSwitch,
 } from '../ui-bridge';
 import type {
+  OptionItem,
   PriceSortKey,
   ProviderManifest,
   ProviderPriceItem,
@@ -66,6 +67,8 @@ export type ProviderWorkspaceScreenProps = {
   onOpenRawJson: () => void;
   onOpenSelector: (kind: SelectorKind) => void;
   storeQuery: StoreQueryState;
+  serviceOptions?: OptionItem[];
+  countryOptions?: OptionItem[];
   onStoreQueryChange: (patch: Partial<StoreQueryState>) => void;
   onSortPrices: (key: PriceSortKey) => void;
   priceSort: { key: PriceSortKey; dir: 'asc' | 'desc' };
@@ -141,6 +144,8 @@ export function ProviderWorkspaceScreen(props: ProviderWorkspaceScreenProps) {
             onFetchPrices={props.onFetchPrices}
             onOpenSelector={props.onOpenSelector}
             storeQuery={props.storeQuery}
+            serviceOptions={props.serviceOptions}
+            countryOptions={props.countryOptions}
             onStoreQueryChange={props.onStoreQueryChange}
             onSortPrices={props.onSortPrices}
             priceSort={props.priceSort}
@@ -274,12 +279,16 @@ function WorkspaceStore(props: {
   onFetchPrices: () => void;
   onOpenSelector: (kind: SelectorKind) => void;
   storeQuery: StoreQueryState;
+  serviceOptions?: OptionItem[];
+  countryOptions?: OptionItem[];
   onStoreQueryChange: (patch: Partial<StoreQueryState>) => void;
   onSortPrices: (key: PriceSortKey) => void;
   priceSort: { key: PriceSortKey; dir: 'asc' | 'desc' };
 }) {
   const { t, i18n } = useTranslation();
   const language = (i18n.resolvedLanguage ?? i18n.language ?? 'en') as LanguageCode;
+  const selectedServiceOption = props.serviceOptions?.find((item) => item.value === (props.storeQuery.service || props.manifest.defaults.service));
+  const selectedCountryOption = props.countryOptions?.find((item) => item.value === props.storeQuery.country);
   return (
     <div className={cx('flex flex-col gap-5', props.compact && 'gap-4')}>
       <div className={cx('flex items-start justify-between gap-6', props.compact && 'gap-4')}>
@@ -297,8 +306,13 @@ function WorkspaceStore(props: {
             value={formatServiceLabel(props.storeQuery.service || props.manifest.defaults.service, language)}
             valueContent={(
               <span className="inline-flex min-w-0 items-center gap-2">
-                <ResourceBadge kind="service" value={props.storeQuery.service || props.manifest.defaults.service} size="sm" />
-                <span className="truncate">{formatServiceLabel(props.storeQuery.service || props.manifest.defaults.service, language)}</span>
+                <ResourceBadge
+                  kind="service"
+                  value={props.storeQuery.service || props.manifest.defaults.service}
+                  size="sm"
+                  iconUrl={selectedServiceOption?.icon_url ?? selectedServiceOption?.provider_icon_url}
+                />
+                <span className="truncate">{selectedServiceOption?.label || formatServiceLabel(props.storeQuery.service || props.manifest.defaults.service, language)}</span>
               </span>
             )}
             onClick={() => props.onOpenSelector('store-service')}
@@ -308,8 +322,13 @@ function WorkspaceStore(props: {
             value={props.storeQuery.country ? formatCountryLabel(props.storeQuery.country, language) : ''}
             valueContent={props.storeQuery.country ? (
               <span className="inline-flex min-w-0 items-center gap-2">
-                <ResourceBadge kind="country" value={props.storeQuery.country} size="sm" />
-                <span className="truncate">{formatCountryLabel(props.storeQuery.country, language)}</span>
+                <ResourceBadge
+                  kind="country"
+                  value={props.storeQuery.country}
+                  size="sm"
+                  iconUrl={selectedCountryOption?.icon_url ?? selectedCountryOption?.provider_icon_url}
+                />
+                <span className="truncate">{formatCountryLabel(props.storeQuery.country, language) || selectedCountryOption?.label}</span>
               </span>
             ) : undefined}
             placeholder={t('All countries')}

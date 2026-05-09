@@ -1029,6 +1029,25 @@ impl SmsService {
         }
     }
 
+    pub fn provider_cached_options(
+        &self,
+        provider_id: &str,
+    ) -> Result<ProviderDynamicOptions, SmsError> {
+        let settings = self.runtime_settings();
+        let entry = self
+            .provider_option_cache
+            .read()
+            .entries
+            .get(provider_id)
+            .cloned()
+            .ok_or_else(|| {
+                SmsError::InvalidRequest(format!(
+                    "provider `{provider_id}` has no cached options yet"
+                ))
+            })?;
+        Ok(with_cache_state(entry.options, &settings))
+    }
+
     pub async fn refresh_provider_options(
         &self,
         provider_id: &str,

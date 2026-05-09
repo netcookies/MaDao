@@ -1,8 +1,8 @@
-import { Copy, Loader2, Smartphone } from 'lucide-react';
+import { Copy, Loader2 } from 'lucide-react';
 import { useEffect, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { AppButton, PageHeader, SegmentedControl } from '../ui-bridge';
-import type { LanguageCode, MessageFilter, TicketRecord } from '../types';
+import type { LanguageCode, MessageFilter, TicketDecoration, TicketRecord } from '../types';
 import {
   formatDurationMmSs,
   formatProviderLabel,
@@ -14,6 +14,7 @@ import { ResourceBadge } from '../../components/primitives';
 
 export type MessagesScreenProps = {
   tickets: TicketRecord[];
+  decorations?: Record<string, TicketDecoration>;
   filter: MessageFilter;
   setFilter: (value: MessageFilter) => void;
   filters: Array<{ id: MessageFilter; label: string }>;
@@ -72,7 +73,12 @@ export function MessagesScreen(props: MessagesScreenProps) {
             <div className="flex flex-col gap-5 rounded-[16px] border border-ds-border bg-ds-surface px-6 py-6 shadow-ds backdrop-blur-ds" key={ticket.id}>
               <div className="flex flex-col gap-4 min-[760px]:flex-row min-[760px]:items-center min-[760px]:justify-between">
                 <div className="flex items-center gap-3">
-                  <ResourceBadge kind="service" value={ticket.service} className="h-8 w-8 rounded-[10px] p-[6px]" />
+                  <ResourceBadge
+                    kind="service"
+                    value={ticket.service}
+                    className="h-8 w-8 rounded-[10px] p-[6px]"
+                    iconUrl={props.decorations?.[ticket.id]?.service_icon_url}
+                  />
                   <strong className="text-body-strong tracking-[var(--ds-type-body-strong-tracking)] text-ds-text-primary">
                     {formatServiceLabel(ticket.service, language)}
                   </strong>
@@ -80,7 +86,12 @@ export function MessagesScreen(props: MessagesScreenProps) {
                 <div className="flex flex-wrap items-center justify-start gap-3 min-[760px]:justify-end">
                   <div className="inline-flex items-center gap-2 rounded-md bg-ds-surface-subtle px-3 py-1.5">
                     <span className="inline-flex items-center gap-1.5 text-body-strong tracking-[var(--ds-type-body-strong-tracking)] text-ds-text-primary">
-                      <Smartphone size={14} className="opacity-60" />
+                      <ResourceBadge
+                        kind="country"
+                        value={ticket.country}
+                        size="sm"
+                        iconUrl={props.decorations?.[ticket.id]?.country_icon_url}
+                      />
                       {ticket.phone_number}
                     </span>
                     <button className="inline-flex h-[24px] w-[24px] items-center justify-center rounded-pill bg-ds-surface shadow-[0_1px_2px_rgba(0,0,0,0.08)]" onClick={() => props.onCopy(ticket.phone_number, t('Phone number'))} aria-label={t('Copy phone number')}>

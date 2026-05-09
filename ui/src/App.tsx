@@ -44,14 +44,16 @@ import {
   type ProviderSummary,
   type RoutingPlan,
   type RoutingPlanItem,
-  type RoutingPlanFilter,
-  type RoutingStrategy,
-  type ScreenId,
-  type SelectorKind,
-  type SelectorState,
-  type Snapshot,
-  type StoreQueryState,
-  type TicketRecord,
+    type RoutingPlanFilter,
+    type RoutingStrategy,
+    type ScreenId,
+    type SelectorKind,
+    type SelectorOptionViewModel,
+    type SelectorState,
+    type Snapshot,
+    type StoreQueryState,
+    type TicketDecoration,
+    type TicketRecord,
   type AppearanceTheme,
   type LanguageCode,
   type LogFilter,
@@ -73,6 +75,11 @@ import {
   filterCatalogItems,
   formatOperatorLabel,
 } from './app/utils';
+import {
+  selectorOptionFromCatalogItem,
+  selectorOptionFromOptionItem,
+  selectorOptionFromProvider,
+} from './app/selectorViewModel';
 import { cx } from './lib/cx';
 import { useActivationFlow } from './hooks/useActivationFlow';
 import { useConsoleDataState } from './hooks/useConsoleDataState';
@@ -538,12 +545,39 @@ export function App() {
     return tickets.slice(0, 6);
   }, [snapshot]);
 
+  const ticketDecorations = useMemo<Record<string, TicketDecoration>>(() => {
+    const next: Record<string, TicketDecoration> = {};
+    const sharedServiceIcons = new Map<string, string>();
+    for (const item of optionCatalog.services) {
+      const firstProviderWithIcon = item.providers.find((providerId) => item.provider_icon_urls?.[providerId]);
+      const iconUrl = firstProviderWithIcon
+        ? item.provider_icon_urls?.[firstProviderWithIcon]
+        : item.icon_url;
+      if (iconUrl && !sharedServiceIcons.has(item.value)) {
+        sharedServiceIcons.set(item.value, iconUrl);
+      }
+    }
+    for (const ticket of snapshot?.tickets ?? []) {
+      const providerOptionSet = providerOptions[ticket.provider];
+      const serviceOption = providerOptionSet?.services.find((item) => item.value === ticket.service);
+      const countryOption = providerOptionSet?.countries.find((item) => item.value === ticket.country);
+      next[ticket.id] = {
+        service_icon_url: serviceOption?.icon_url
+          ?? serviceOption?.provider_icon_url
+          ?? sharedServiceIcons.get(ticket.service)
+          ?? null,
+        country_icon_url: countryOption?.icon_url ?? countryOption?.provider_icon_url ?? null,
+      };
+    }
+    return next;
+  }, [optionCatalog.services, providerOptions, snapshot?.tickets]);
+
   const filteredSelectorOptions = useMemo(() => {
     if (!selectorState) return [];
     if (!selectorSearch.trim()) return selectorState.options;
     const term = selectorSearch.toLowerCase();
     return selectorState.options.filter((option) =>
-      [option.label, option.value, option.hint].some((value) => value.toLowerCase().includes(term)),
+      option.searchableText.some((value) => value.toLowerCase().includes(term)),
     );
   }, [selectorSearch, selectorState]);
 
@@ -885,13 +919,18 @@ export function App() {
       setSelectorState({
         kind: 'routing-item-provider',
         title: t('Select Candidate Provider'),
+        resourceKind: 'provider',
         options: [
-          anyProviderOption,
-          ...visibleProviders.map((provider) => ({
-            value: provider.id,
-            label: provider.name,
-            hint: provider.kind,
-          })),
+          selectorOptionFromOptionItem({
+            option: anyProviderOption,
+            language,
+            resourceKind: 'provider',
+            source: 'synthetic',
+            scope: 'cross_provider',
+            isSynthetic: true,
+            syntheticKind: 'any_provider',
+          }),
+          ...visibleProviders.map((provider) => selectorOptionFromProvider(provider, language)),
         ],
       });
       return;
@@ -901,12 +940,22 @@ export function App() {
       setSelectorState({
         kind: 'routing-item-country',
         title: t('Select Candidate Country'),
+        resourceKind: 'country',
         options: [
-          anyRouteCountryOption,
-          ...filterCatalogItems(optionCatalog.countries, providerId).map((option) => ({
-            value: option.value,
-            label: option.label,
-            hint: option.hint,
+          selectorOptionFromOptionItem({
+            option: anyRouteCountryOption,
+            language,
+            resourceKind: 'country',
+            source: 'synthetic',
+            scope: 'single_provider',
+            isSynthetic: true,
+            syntheticKind: 'any_country',
+          }),
+          ...filterCatalogItems(optionCatalog.countries, providerId).map((option) => selectorOptionFromCatalogItem({
+            item: option,
+            language,
+            resourceKind: 'country',
+            providerId,
           })),
         ],
       });
@@ -917,11 +966,18 @@ export function App() {
       kind: 'routing-item-operator',
       title: t('Select Candidate Carrier'),
       options: [
-        anyRouteOperatorOption,
-        ...filterCatalogItems(optionCatalog.operators, providerId).map((option) => ({
-          value: option.value,
-          label: option.label,
-          hint: option.hint,
+        selectorOptionFromOptionItem({
+          option: anyRouteOperatorOption,
+          language,
+          source: 'synthetic',
+          scope: 'single_provider',
+          isSynthetic: true,
+          syntheticKind: 'all_operators',
+        }),
+        ...filterCatalogItems(optionCatalog.operators, providerId).map((option) => selectorOptionFromCatalogItem({
+          item: option,
+          language,
+          providerId,
         })),
       ],
     });
@@ -932,24 +988,29 @@ export function App() {
     setSelectorState({
       kind: 'routing-service',
       title: t('Select Routing Service'),
-      options: optionCatalog.services.map((service) => ({
-        value: service.value,
-        label: service.label,
-        hint: t('Routing service'),
+      resourceKind: 'service',
+      options: optionCatalog.services.map((service) => selectorOptionFromCatalogItem({
+        item: {
+          ...service,
+          hint: t('Routing service'),
+        },
+        language,
+        resourceKind: 'service',
       })),
     });
   }
 
-  function applyRoutingSelectorOption(option: OptionItem) {
+  function applyRoutingSelectorOption(option: SelectorOptionViewModel) {
     if (!routingEditorState) return;
     const { itemId, field, source } = routingEditorState;
+    const commitValue = option.commitValue;
 
     if (field === 'provider') {
       if (source === 'editor') {
         setRoutingItemEditor((current) => current && current.itemId === itemId
           ? {
             ...current,
-            providerId: option.value,
+            providerId: commitValue,
             country: '',
             operator: '',
             minPrice: '',
@@ -959,7 +1020,7 @@ export function App() {
       } else {
         updateRoutingPlanItem(itemId, (item) => ({
           ...item,
-          provider: option.value,
+          provider: commitValue,
           country: '',
           operator: '',
           price_mode: 'any',
@@ -970,7 +1031,7 @@ export function App() {
         setRoutingItemEditor((current) => current && current.itemId === itemId
           ? {
             ...current,
-            providerId: option.value,
+            providerId: commitValue,
             country: '',
             operator: '',
             minPrice: '',
@@ -984,13 +1045,13 @@ export function App() {
         setRoutingItemEditor((current) => current && current.itemId === itemId
           ? {
             ...current,
-            country: option.value,
+            country: commitValue,
           }
           : current);
       } else {
         updateRoutingPlanItem(itemId, (item) => ({
           ...item,
-          country: option.value,
+          country: commitValue,
         }));
       }
     } else if (field === 'operator') {
@@ -998,13 +1059,13 @@ export function App() {
         setRoutingItemEditor((current) => current && current.itemId === itemId
           ? {
             ...current,
-            operator: option.value,
+            operator: commitValue,
           }
           : current);
       } else {
         updateRoutingPlanItem(itemId, (item) => ({
           ...item,
-          operator: option.value,
+          operator: commitValue,
         }));
       }
     }
@@ -1053,15 +1114,25 @@ export function App() {
       kind: 'activation-routing-plan',
       title: t('Select Routing Plan'),
       options: [
-        {
-          value: '',
-          label: t('No routing plan'),
-          hint: t('Use manual provider, service, and country controls'),
-        },
-        ...routingPlans.filter((plan) => plan.enabled).map((plan) => ({
-          value: plan.id,
-          label: plan.name,
-          hint: `${formatServiceLabel(plan.service, language)} · ${plan.execution_mode === 'random' ? t('Random') : t('Sequential')}`,
+        selectorOptionFromOptionItem({
+          option: {
+            value: '',
+            label: t('No routing plan'),
+            hint: t('Use manual provider, service, and country controls'),
+          },
+          language,
+          source: 'synthetic',
+          scope: 'cross_provider',
+        }),
+        ...routingPlans.filter((plan) => plan.enabled).map((plan) => selectorOptionFromOptionItem({
+          option: {
+            value: plan.id,
+            label: plan.name,
+            hint: `${formatServiceLabel(plan.service, language)} · ${plan.execution_mode === 'random' ? t('Random') : t('Sequential')}`,
+          },
+          language,
+          source: 'synthetic',
+          scope: 'cross_provider',
         })),
       ],
     });
@@ -1312,6 +1383,7 @@ export function App() {
               <OverviewScreen
                 stats={overviewStats}
                 activity={recentActivity}
+                decorations={ticketDecorations}
                 onViewAll={() => setActiveScreen('messages')}
               />
             )}
@@ -1399,6 +1471,22 @@ export function App() {
                 onOpenRawJson={() => setShowManifestModal(true)}
                 onOpenSelector={openSelector}
                 storeQuery={selectedStoreQuery}
+                serviceOptions={filterCatalogItems(optionCatalog.services, selectedProvider).map((item) => ({
+                  value: item.value,
+                  label: item.label,
+                  hint: item.hint,
+                  provider_value: item.provider_values[selectedProvider] ?? item.provider_values[item.providers[0]],
+                  icon_url: item.provider_icon_urls?.[selectedProvider] ?? item.icon_url,
+                  provider_icon_url: item.provider_icon_urls?.[selectedProvider] ?? item.icon_url,
+                }))}
+                countryOptions={filterCatalogItems(optionCatalog.countries, selectedProvider).map((item) => ({
+                  value: item.value,
+                  label: item.label,
+                  hint: item.hint,
+                  provider_value: item.provider_values[selectedProvider] ?? item.provider_values[item.providers[0]],
+                  icon_url: item.provider_icon_urls?.[selectedProvider] ?? item.icon_url,
+                  provider_icon_url: item.provider_icon_urls?.[selectedProvider] ?? item.icon_url,
+                }))}
                 onStoreQueryChange={(patch) => updateStoreQuery(selectedProvider, patch)}
                 onSortPrices={(key) => {
                   setPriceSort((current) => {
@@ -1417,6 +1505,7 @@ export function App() {
             {activeScreen === 'messages' && (
                 <MessagesScreen
                   tickets={filteredMessages}
+                  decorations={ticketDecorations}
                   filter={messageFilter}
                   setFilter={setMessageFilter}
                   filters={messageFilters}
@@ -1483,6 +1572,22 @@ export function App() {
           form={activationForm}
           busy={activationBusy}
           error={activationError}
+          serviceOptions={filterCatalogItems(optionCatalog.services, activationForm.provider).map((item) => ({
+            value: item.value,
+            label: item.label,
+            hint: item.hint,
+            provider_value: item.provider_values[activationForm.provider] ?? item.provider_values[item.providers[0]],
+            icon_url: item.provider_icon_urls?.[activationForm.provider] ?? item.icon_url,
+            provider_icon_url: item.provider_icon_urls?.[activationForm.provider] ?? item.icon_url,
+          }))}
+          countryOptions={filterCatalogItems(optionCatalog.countries, activationForm.provider).map((item) => ({
+            value: item.value,
+            label: item.label,
+            hint: item.hint,
+            provider_value: item.provider_values[activationForm.provider] ?? item.provider_values[item.providers[0]],
+            icon_url: item.provider_icon_urls?.[activationForm.provider] ?? item.icon_url,
+            provider_icon_url: item.provider_icon_urls?.[activationForm.provider] ?? item.icon_url,
+          }))}
           onChange={updateActivationField}
           onClose={closeActivationModal}
           onSubmit={handleSubmitActivation}
@@ -1512,6 +1617,7 @@ export function App() {
           title={selectorState.title}
           search={selectorSearch}
           options={filteredSelectorOptions}
+          language={language}
           resourceKind={selectorState.resourceKind}
           onClose={() => setSelectorState(null)}
           onSearch={setSelectorSearch}
@@ -1522,16 +1628,16 @@ export function App() {
             }
             if (selectorState.kind === 'routing-service') {
               const plan = routingPlans.find((item) => selectedRoutingPlanMatcher(item));
-              if (plan) updateRoutingPlanDraft({ ...plan, service: option.value });
+              if (plan) updateRoutingPlanDraft({ ...plan, service: option.commitValue });
               setSelectorState(null);
               return;
             }
             if (activationRoutingPlanPickerOpen && selectorState.kind === 'activation-routing-plan') {
               setActivationForm((current) => ({
                 ...current,
-                routing_plan_id: option.value,
-                service: option.value
-                  ? routingPlans.find((plan) => plan.id === option.value)?.service ?? current.service
+                routing_plan_id: option.commitValue,
+                service: option.commitValue
+                  ? routingPlans.find((plan) => plan.id === option.commitValue)?.service ?? current.service
                   : current.service,
               }));
               setActivationRoutingPlanPickerOpen(false);

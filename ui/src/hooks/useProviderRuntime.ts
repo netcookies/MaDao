@@ -2,7 +2,6 @@ import { startTransition, useMemo } from 'react';
 import type {
   ActivationFormState,
   LanguageCode,
-  OptionItem,
   PriceSortKey,
   ProviderDynamicOptions,
   ProviderManifest,
@@ -16,13 +15,12 @@ import type {
   StoreQueryState,
 } from '../app/types';
 import {
+  fetchProviderOptionsCache,
   fetchOptionCacheOverview,
   fetchProviderBalance,
-  fetchProviderCountries,
   fetchProviderManifests,
-  fetchProviderOperators,
   fetchProviderPrices,
-  fetchProviderServices,
+  refreshProviderOptions,
   fetchRuntimeSettings,
   fetchRuntimeSnapshot,
   reloadProviderRegistry,
@@ -32,16 +30,6 @@ import {
 } from '../services/runtimeApi';
 import { refreshMenuBar } from '../services/menuBarApi';
 import { i18n } from '../app/i18n';
-import {
-  mergeOptionItems,
-  normalizeCountryOptions,
-  normalizeOperatorOptions,
-  normalizeServiceOptions,
-} from '../app/utils';
-
-function optionRequestValue(option?: { value?: string; provider_value?: string | null }) {
-  return option?.provider_value?.trim() || option?.value?.trim() || '';
-}
 
 type DataState = {
   snapshot: Snapshot | null;
@@ -121,6 +109,17 @@ export function useProviderRuntime(
     search: '',
   };
 
+  async function resolveProviderOptions(providerId: string, mode: 'cache-first' | 'refresh-only' = 'cache-first') {
+    if (mode === 'refresh-only') {
+      return refreshProviderOptions(providerId);
+    }
+    try {
+      return await fetchProviderOptionsCache(providerId);
+    } catch {
+      return refreshProviderOptions(providerId);
+    }
+  }
+
   const sortedPrices = useMemo(() => {
     const panel = selectedPrices;
     if (!panel) return [];
@@ -156,62 +155,6 @@ export function useProviderRuntime(
     }
   }
 
-  async function discoverProviderOptions(provider: ProviderManifest): Promise<ProviderDynamicOptions> {
-    const providerId = provider.id;
-    const countriesPayload = await fetchProviderCountries(providerId);
-    const rawCountries = countriesPayload.items;
-    const countries = normalizeCountryOptions(rawCountries);
-
-    const countrySeed = optionRequestValue(countries[0])
-      || provider.defaults.country
-      || '';
-    const operatorsPayload = await fetchProviderOperators(
-      providerId,
-      countrySeed ? { country: countrySeed } : {},
-    );
-    const rawOperators = operatorsPayload.items;
-    const operators = normalizeOperatorOptions(rawOperators);
-
-    let rawServices: OptionItem[] = [];
-    let services: OptionItem[] = [];
-    if (provider.kind === 'five_sim') {
-      if (countrySeed) {
-        const operatorSeeds = operators.map((item) => optionRequestValue(item)).filter(Boolean);
-        const serviceGroups = await Promise.all(
-          operatorSeeds.map(async (operator) => {
-            try {
-              const servicesPayload = await fetchProviderServices(providerId, {
-                country: countrySeed,
-                operator,
-              });
-              return servicesPayload.items;
-            } catch {
-              return [];
-            }
-          }),
-        );
-        rawServices = mergeOptionItems(serviceGroups);
-        services = normalizeServiceOptions(rawServices);
-      }
-    } else {
-      const servicesPayload = await fetchProviderServices(providerId);
-      rawServices = servicesPayload.items;
-      services = normalizeServiceOptions(rawServices);
-    }
-
-    return {
-      provider: providerId,
-      raw_services: rawServices,
-      raw_countries: rawCountries,
-      raw_operators: rawOperators,
-      services,
-      countries,
-      operators,
-      cache_state: 'fresh',
-      fetched_at: new Date().toISOString(),
-    };
-  }
-
   async function loadManifests() {
     try {
       const list = await fetchProviderManifests();
@@ -236,7 +179,7 @@ export function useProviderRuntime(
             .filter((manifest) => manifest.kind !== 'mock' && manifest.enabled)
             .map(async (manifest) => {
               try {
-                return await discoverProviderOptions(manifest);
+                return await resolveProviderOptions(manifest.id, 'cache-first');
               } catch {
                 return null;
               }
@@ -277,7 +220,7 @@ export function useProviderRuntime(
         });
         return;
       }
-      const next = await discoverProviderOptions(manifest);
+      const next = await resolveProviderOptions(providerId, 'cache-first');
       data.setProviderOptions((current) => ({
         ...current,
         [providerId]: next,
@@ -461,8 +404,12 @@ export function useProviderRuntime(
   async function refreshProvider(providerId: string) {
     try {
       ui.setBusyAction(`refresh-${providerId}`);
-      await Promise.all([loadProviderOptions(providerId), fetchBalance(providerId)]);
-      await Promise.all([loadManifests(), loadSnapshot()]);
+      const [nextOptions] = await Promise.all([resolveProviderOptions(providerId, 'refresh-only'), fetchBalance(providerId)]);
+      data.setProviderOptions((current) => ({
+        ...current,
+        [providerId]: nextOptions,
+      }));
+      await Promise.all([loadManifests(), loadSnapshot(), loadRuntimeSettings()]);
       ui.setStatusMessage(translate('refreshed_cache_and_balance_for_provider', { provider: providerId }));
     } catch (error) {
       ui.setStatusMessage(translate('failed_refresh_provider', { provider: providerId, error: String(error) }));

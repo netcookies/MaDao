@@ -247,7 +247,32 @@ impl HeroSmsProvider {
     }
 
     async fn request_services(&self) -> Result<Vec<OptionItem>, SmsError> {
-        self.as_shared().request_services().await
+        let faq_map = smsbower_fetch_faq_services_map(&self.client).await.ok();
+        let services = self.as_shared().request_services().await?;
+        Ok(services
+            .into_iter()
+            .map(|item| {
+                let code = item.value.clone();
+                if let Some(faq) = faq_map.as_ref().and_then(|items| items.get(&code)) {
+                    OptionItem {
+                        provider_value: item.provider_value,
+                        icon_url: faq
+                            .img_path
+                            .clone()
+                            .or_else(|| Some(SmsBowerProvider::service_icon_url(&faq.id))),
+                        provider_icon_url: faq
+                            .img_path
+                            .clone()
+                            .or_else(|| Some(SmsBowerProvider::service_icon_url(&faq.id))),
+                        value: item.value,
+                        label: faq.title.clone(),
+                        hint: item.hint,
+                    }
+                } else {
+                    item
+                }
+            })
+            .collect())
     }
 
     fn parse_balance(&self, text: &str, json: Option<&Value>) -> Result<f64, SmsError> {
@@ -400,6 +425,10 @@ impl SharedHandlerApiProvider {
             .into_iter()
             .filter_map(|item| {
                 let value = item.pointer("/id").and_then(coerce_str_value)?;
+                let iso_code = item
+                    .pointer("/iso")
+                    .and_then(coerce_str_value)
+                    .map(|code| code.trim().to_ascii_lowercase());
                 let label = item
                     .pointer("/chn")
                     .and_then(Value::as_str)
@@ -413,10 +442,20 @@ impl SharedHandlerApiProvider {
                     .unwrap_or(&value)
                     .to_string();
                 let faq = faq_map.as_ref().and_then(|items| items.get(&value));
+                let fallback_icon_key = faq
+                    .and_then(|item| item.iso_code.as_deref())
+                    .or(iso_code.as_deref())
+                    .unwrap_or(&value);
                 Some(OptionItem {
                     provider_value: Some(value.clone()),
-                    icon_url: Some(faq.map(|item| item.icon_url.clone()).unwrap_or_else(|| SmsBowerProvider::country_icon_url(&value))),
-                    provider_icon_url: Some(faq.map(|item| item.icon_url.clone()).unwrap_or_else(|| SmsBowerProvider::country_icon_url(&value))),
+                    icon_url: Some(
+                        faq.map(|item| item.icon_url.clone())
+                            .unwrap_or_else(|| SmsBowerProvider::country_icon_url(fallback_icon_key)),
+                    ),
+                    provider_icon_url: Some(
+                        faq.map(|item| item.icon_url.clone())
+                            .unwrap_or_else(|| SmsBowerProvider::country_icon_url(fallback_icon_key)),
+                    ),
                     value,
                     label: faq.map(|item| item.label.clone()).unwrap_or(label),
                     hint: faq.map(|item| item.hint.clone()).unwrap_or(hint),

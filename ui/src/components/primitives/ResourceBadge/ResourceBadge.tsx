@@ -1,4 +1,4 @@
-import type { CSSProperties, ReactNode } from 'react';
+import { useState, type CSSProperties, type ReactNode } from 'react';
 import { Bot, MessageCircleMore, Puzzle, Server, Send } from 'lucide-react';
 import * as flags from 'country-flag-icons/react/3x2';
 import {
@@ -19,6 +19,8 @@ const COUNTRY_CODE_MAP: Record<string, keyof typeof flags> = {
   argentina: 'AR',
   au: 'AU',
   australia: 'AU',
+  'bosnia and herzegovina': 'BA',
+  bih: 'BA',
   br: 'BR',
   brazil: 'BR',
   ca: 'CA',
@@ -38,8 +40,12 @@ const COUNTRY_CODE_MAP: Record<string, keyof typeof flags> = {
   india: 'IN',
   jp: 'JP',
   japan: 'JP',
+  jo: 'JO',
+  jordan: 'JO',
   kz: 'KZ',
   kazakhstan: 'KZ',
+  mk: 'MK',
+  'north macedonia': 'MK',
   mx: 'MX',
   mexico: 'MX',
   my: 'MY',
@@ -48,15 +54,24 @@ const COUNTRY_CODE_MAP: Record<string, keyof typeof flags> = {
   netherlands: 'NL',
   ph: 'PH',
   philippines: 'PH',
+  kr: 'KR',
+  'south korea': 'KR',
+  kp: 'KP',
+  'north korea': 'KP',
   ru: 'RU',
   russia: 'RU',
   '0': 'RU',
+  za: 'ZA',
+  southafrica: 'ZA',
+  'south africa': 'ZA',
   sg: 'SG',
   singapore: 'SG',
   th: 'TH',
   thailand: 'TH',
   tr: 'TR',
   turkey: 'TR',
+  tt: 'TT',
+  'trinidad and tobago': 'TT',
   us: 'US',
   usa: 'US',
   '50': 'US',
@@ -140,12 +155,13 @@ function ProviderGlyph(props: { provider: string }) {
   );
 }
 
-function ExternalImageGlyph(props: { src: string }) {
+function ExternalImageGlyph(props: { src: string; onError?: () => void }) {
   return (
     <img
       src={props.src}
       alt=""
       className="h-full w-full rounded-[inherit] object-contain"
+      onError={props.onError}
     />
   );
 }
@@ -202,12 +218,15 @@ export function ResourceBadge(props: {
   className?: string;
   iconUrl?: string | null;
 }) {
+  const [externalImageFailed, setExternalImageFailed] = useState(false);
   const sizeClass = props.size === 'sm'
     ? 'h-4 w-4 rounded-[4px]'
     : 'h-5 w-5 rounded-[5px]';
 
   let glyph: ReactNode = null;
-  if (props.iconUrl) glyph = <ExternalImageGlyph src={props.iconUrl} />;
+  if (props.iconUrl && !externalImageFailed) {
+    glyph = <ExternalImageGlyph src={props.iconUrl} onError={() => setExternalImageFailed(true)} />;
+  }
   else if (props.kind === 'provider') glyph = <ProviderGlyph provider={props.value} />;
   else if (props.kind === 'service') glyph = <ServiceGlyph service={props.value} />;
   else if (props.kind === 'country') glyph = <CountryGlyph country={props.value} />;
