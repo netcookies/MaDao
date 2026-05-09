@@ -5,3 +5,4 @@ pub mod options;
 pub mod provider;
 pub mod registry;
 pub mod service;
+pub mod smsbower_assets;

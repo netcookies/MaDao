@@ -3,6 +3,12 @@ use crate::models::{
     AcquireCodeRequest, OptionItem, PollCodeResponse, ProviderBalance, ProviderOperatorsQuery,
     ProviderPriceItem, ProviderServicesQuery, ReleaseAction, TicketRecord,
 };
+use crate::smsbower_assets::{
+    country_icon_url as smsbower_country_icon_url,
+    fallback_service_icon_url as smsbower_fallback_service_icon_url,
+    fetch_faq_countries_map as smsbower_fetch_faq_countries_map,
+    fetch_faq_services_map as smsbower_fetch_faq_services_map,
+};
 use async_trait::async_trait;
 use plugin_sdk::{FiveSimConfig, HandlerApiConfig, MockConfig, ProviderKind, ProviderManifest};
 use reqwest::Client;
@@ -278,11 +284,48 @@ impl SmsBowerProvider {
     }
 
     fn country_icon_url(country_id: &str) -> String {
-        format!("https://smsbower.app/img/svg/countries/{country_id}.svg?v=2")
+        smsbower_country_icon_url(country_id)
     }
 
     fn service_icon_url(service_id: &str) -> String {
-        format!("https://smsbower.app/img/services/{service_id}.svg?timestamp=1748774536")
+        smsbower_fallback_service_icon_url(service_id)
+    }
+
+    fn as_shared(&self) -> SharedHandlerApiProvider {
+        SharedHandlerApiProvider {
+            manifest: self.manifest.clone(),
+            client: self.client.clone(),
+            config: self.config.clone(),
+        }
+    }
+
+    async fn request_services(&self) -> Result<Vec<OptionItem>, SmsError> {
+        let faq_map = smsbower_fetch_faq_services_map(&self.client).await?;
+        let services = self.as_shared().request_services().await?;
+        Ok(services
+            .into_iter()
+            .map(|item| {
+                let code = item.value.clone();
+                if let Some(faq) = faq_map.get(&code) {
+                    OptionItem {
+                        provider_value: Some(faq.id.clone()),
+                        icon_url: faq
+                            .img_path
+                            .clone()
+                            .or_else(|| Some(Self::service_icon_url(&faq.id))),
+                        provider_icon_url: faq
+                            .img_path
+                            .clone()
+                            .or_else(|| Some(Self::service_icon_url(&faq.id))),
+                        value: code,
+                        label: faq.title.clone(),
+                        hint: faq.activate_org_code.clone(),
+                    }
+                } else {
+                    item
+                }
+            })
+            .collect())
     }
 }
 
@@ -345,6 +388,7 @@ impl SharedHandlerApiProvider {
         let Some(json) = json else {
             return Ok(Vec::new());
         };
+        let faq_map = smsbower_fetch_faq_countries_map(&self.client).await.ok();
         let values: Vec<Value> = if let Some(array) = json.as_array() {
             array.clone()
         } else if let Some(object) = json.as_object() {
@@ -368,13 +412,14 @@ impl SharedHandlerApiProvider {
                     .and_then(Value::as_str)
                     .unwrap_or(&value)
                     .to_string();
+                let faq = faq_map.as_ref().and_then(|items| items.get(&value));
                 Some(OptionItem {
                     provider_value: Some(value.clone()),
-                    icon_url: Some(SmsBowerProvider::country_icon_url(&value)),
-                    provider_icon_url: Some(SmsBowerProvider::country_icon_url(&value)),
+                    icon_url: Some(faq.map(|item| item.icon_url.clone()).unwrap_or_else(|| SmsBowerProvider::country_icon_url(&value))),
+                    provider_icon_url: Some(faq.map(|item| item.icon_url.clone()).unwrap_or_else(|| SmsBowerProvider::country_icon_url(&value))),
                     value,
-                    label,
-                    hint,
+                    label: faq.map(|item| item.label.clone()).unwrap_or(label),
+                    hint: faq.map(|item| item.hint.clone()).unwrap_or(hint),
                 })
             })
             .collect())
@@ -393,25 +438,23 @@ impl SharedHandlerApiProvider {
                     let services = items
                         .into_iter()
                         .filter_map(|item| {
-                            let provider_id = item
-                                .pointer("/id")
-                                .and_then(coerce_str_value)?;
                             let value = item
                                 .pointer("/code")
-                                .and_then(Value::as_str)
-                                .unwrap_or(provider_id.as_str());
+                                .and_then(coerce_str_value)
+                                .or_else(|| item.pointer("/id").and_then(coerce_str_value))?;
                             let label = item
                                 .pointer("/name")
                                 .and_then(Value::as_str)
                                 .or_else(|| item.pointer("/title").and_then(Value::as_str))
-                                .unwrap_or(value);
+                                .map(ToOwned::to_owned)
+                                .unwrap_or_else(|| value.clone());
                             Some(OptionItem {
-                                provider_value: Some(provider_id.clone()),
-                                icon_url: Some(SmsBowerProvider::service_icon_url(&provider_id)),
-                                provider_icon_url: Some(SmsBowerProvider::service_icon_url(&provider_id)),
-                                value: value.to_string(),
-                                label: label.to_string(),
-                                hint: value.to_string(),
+                                provider_value: Some(value.clone()),
+                                icon_url: None,
+                                provider_icon_url: None,
+                                value,
+                                label: label.clone(),
+                                hint: label,
                             })
                         })
                         .collect::<Vec<_>>();
@@ -830,14 +873,9 @@ impl SmsProvider for SmsBowerProvider {
 
     async fn list_services(
         &self,
-        query: ProviderServicesQuery,
+        _query: ProviderServicesQuery,
     ) -> Result<Vec<OptionItem>, SmsError> {
-        let hero = HeroSmsProvider::from_shared(SharedHandlerApiProvider {
-            manifest: self.manifest.clone(),
-            client: self.client.clone(),
-            config: self.config.clone(),
-        });
-        hero.list_services(query).await
+        self.request_services().await
     }
 
     async fn list_operators(
