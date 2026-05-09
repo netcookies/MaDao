@@ -6,6 +6,7 @@ import {
   type OptionItem,
   type ProviderDynamicOptions,
   type ProviderManifest,
+  type ResourceKind,
   type SelectorKind,
   type SelectorState,
 } from '../app/types';
@@ -73,12 +74,15 @@ export function useSelectorFlow(
     const anyProviderOption: OptionItem = { value: ANY_PROVIDER_VALUE, label: translate('Any provider'), hint: translate('Try enabled providers automatically') };
     let options: OptionItem[] = [];
     let title = '';
+    let resourceKind: ResourceKind | undefined;
     if (kind === 'service') {
       options = (runtime.selectedOptions?.services ?? []).map(localizedServiceOption);
       title = translate('Select Default Service');
+      resourceKind = 'service';
     } else if (kind === 'country') {
       options = (runtime.selectedOptions?.countries ?? []).map(localizedCountryOption);
       title = translate('Select Default Country');
+      resourceKind = 'country';
     } else if (kind === 'provider') {
       options = runtime.visibleProviders.map((provider) => ({
         value: provider.id,
@@ -86,6 +90,7 @@ export function useSelectorFlow(
         hint: provider.kind,
       }));
       title = translate('Select Provider');
+      resourceKind = 'provider';
     } else if (kind === 'activation-provider') {
       options = [
         anyProviderOption,
@@ -96,20 +101,29 @@ export function useSelectorFlow(
         })),
       ];
       title = translate('Select Activation Provider');
+      resourceKind = 'provider';
     } else if (kind === 'store-service') {
       options = filterCatalogItems(runtime.optionCatalog.services, ui.selectedProvider).map((item) => ({
         value: item.value,
         label: formatServiceLabel(item.value, language),
         hint: item.hint,
+        provider_value: item.provider_values[ui.selectedProvider] ?? item.provider_values[item.providers[0]],
+        icon_url: item.provider_icon_urls?.[ui.selectedProvider] ?? item.icon_url,
+        provider_icon_url: item.provider_icon_urls?.[ui.selectedProvider] ?? item.icon_url,
       }));
       title = translate('Select Store Service');
+      resourceKind = 'service';
     } else if (kind === 'store-country') {
       options = [allCountriesOption, ...filterCatalogItems(runtime.optionCatalog.countries, ui.selectedProvider).map((item) => ({
         value: item.value,
         label: formatCountryLabel(item.value, language),
         hint: item.hint,
+        provider_value: item.provider_values[ui.selectedProvider] ?? item.provider_values[item.providers[0]],
+        icon_url: item.provider_icon_urls?.[ui.selectedProvider] ?? item.icon_url,
+        provider_icon_url: item.provider_icon_urls?.[ui.selectedProvider] ?? item.icon_url,
       }))];
       title = translate('Select Store Country');
+      resourceKind = 'country';
     } else if (kind === 'store-operator') {
       options = [allOperatorsOption, ...filterCatalogItems(runtime.optionCatalog.operators, ui.selectedProvider).map((item) => ({
         value: item.value,
@@ -122,17 +136,25 @@ export function useSelectorFlow(
         value: item.value,
         label: formatServiceLabel(item.value, language),
         hint: item.hint,
+        provider_value: item.provider_values[ui.activationForm.provider] ?? item.provider_values[item.providers[0]],
+        icon_url: item.provider_icon_urls?.[ui.activationForm.provider] ?? item.icon_url,
+        provider_icon_url: item.provider_icon_urls?.[ui.activationForm.provider] ?? item.icon_url,
       }));
       title = translate('Select Activation Service');
+      resourceKind = 'service';
     } else if (kind === 'activation-country') {
       options = [autoCountryOption,
         ...filterCatalogItems(runtime.optionCatalog.countries, ui.activationForm.provider).map((item) => ({
           value: item.value,
           label: formatCountryLabel(item.value, language),
           hint: item.hint,
+          provider_value: item.provider_values[ui.activationForm.provider] ?? item.provider_values[item.providers[0]],
+          icon_url: item.provider_icon_urls?.[ui.activationForm.provider] ?? item.icon_url,
+          provider_icon_url: item.provider_icon_urls?.[ui.activationForm.provider] ?? item.icon_url,
         })),
       ];
       title = translate('Select Activation Country');
+      resourceKind = 'country';
     } else if (kind === 'activation-operator') {
       options = filterCatalogItems(runtime.optionCatalog.operators, ui.activationForm.provider).map((item) => ({
         value: item.value,
@@ -140,9 +162,15 @@ export function useSelectorFlow(
         hint: item.hint,
       }));
       title = translate('Select Activation Operator');
+    } else if (kind === 'routing-service') {
+      resourceKind = 'service';
+    } else if (kind === 'routing-item-provider') {
+      resourceKind = 'provider';
+    } else if (kind === 'routing-item-country') {
+      resourceKind = 'country';
     }
     ui.setSelectorSearch('');
-    ui.setSelectorState({ kind, title, options });
+    ui.setSelectorState({ kind, title, options, resourceKind });
   }
 
   function applySelectorOption(option: OptionItem) {

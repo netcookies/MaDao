@@ -4,6 +4,7 @@ import { useTranslation } from 'react-i18next';
 import { AppButton, PageHeader } from '../ui-bridge';
 import type { LanguageCode, TicketRecord } from '../types';
 import { formatProviderLabel, formatServiceLabel } from '../../lib/formatters';
+import { ResourceBadge } from '../../components/primitives';
 
 export type OverviewStats = {
   totalMessages: string;
@@ -51,10 +52,16 @@ export function OverviewScreen(props: OverviewScreenProps) {
             <div className="overflow-hidden rounded-b-[8px] bg-transparent">
               {props.activity.map((item) => (
                 <div className="grid grid-cols-[130px_136px_minmax(0,1fr)_124px] items-center gap-3 border-b border-[var(--ds-color-divider-soft)] px-4 py-2 last:border-b-0" key={item.id}>
-                  <span className="min-w-0 overflow-hidden text-ellipsis whitespace-nowrap text-[13px] font-medium text-ds-text-primary/80">{formatProviderLabel(item.provider, language)}</span>
+                  <span className="inline-flex min-w-0 items-center gap-2 overflow-hidden text-ellipsis whitespace-nowrap text-[13px] font-medium text-ds-text-primary/80">
+                    <ResourceBadge kind="provider" value={item.provider} size="sm" />
+                    <span className="truncate">{formatProviderLabel(item.provider, language)}</span>
+                  </span>
                   <span className="min-w-0"><OverviewStatusTag status={item.status} language={language} /></span>
                   <span className="min-w-0 overflow-hidden text-ellipsis whitespace-nowrap text-[13px] font-normal text-ds-text-primary/80">{item.phone_number}</span>
-                  <span className="min-w-0 overflow-hidden text-ellipsis whitespace-nowrap text-[13px] font-normal text-ds-text-secondary/80">{formatServiceLabel(item.service, language)}</span>
+                  <span className="inline-flex min-w-0 items-center gap-2 overflow-hidden text-ellipsis whitespace-nowrap text-[13px] font-normal text-ds-text-secondary/80">
+                    <ResourceBadge kind="service" value={item.service} size="sm" />
+                    <span className="truncate">{formatServiceLabel(item.service, language)}</span>
+                  </span>
                 </div>
               ))}
             </div>

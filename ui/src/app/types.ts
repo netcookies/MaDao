@@ -113,15 +113,25 @@ export type ProviderPriceItem = {
 };
 export type ProviderPriceResponse = { provider: string; service: string; items: ProviderPriceItem[] };
 export type OptionCacheState = 'missing' | 'fresh' | 'stale';
-export type OptionItem = { value: string; label: string; hint: string; provider_value?: string | null };
+export type OptionItem = {
+  value: string;
+  label: string;
+  hint: string;
+  provider_value?: string | null;
+  icon_url?: string | null;
+  provider_icon_url?: string | null;
+};
+export type ResourceKind = 'provider' | 'service' | 'country';
 export type OptionCatalogItem = {
   value: string;
   label: string;
   hint: string;
   providers: string[];
   provider_values: Record<string, string>;
+  icon_url?: string | null;
+  provider_icon_urls?: Record<string, string>;
 };
-export type SelectorState = { kind: SelectorKind; title: string; options: OptionItem[] };
+export type SelectorState = { kind: SelectorKind; title: string; options: OptionItem[]; resourceKind?: ResourceKind };
 export type NotificationFeed = { items: LogEntry[] };
 export type RuntimeSettings = {
   routing_strategy: RoutingStrategy;

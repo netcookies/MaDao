@@ -131,6 +131,8 @@ pub fn normalize_provider_options(
                     label: resolved_service_label(&canonical, &item.label),
                     hint: item.hint,
                     provider_value: Some(raw_value),
+                    icon_url: item.icon_url,
+                    provider_icon_url: item.provider_icon_url,
                 }
             })
             .collect(),
@@ -152,6 +154,8 @@ pub fn normalize_provider_options(
                     label: resolved_country_label(&canonical, &item.label, &item.hint),
                     hint: item.hint,
                     provider_value: Some(raw_value),
+                    icon_url: item.icon_url,
+                    provider_icon_url: item.provider_icon_url,
                 }
             })
             .collect(),
@@ -172,6 +176,8 @@ pub fn normalize_provider_options(
                     label: resolved_operator_label(&canonical, &item.label),
                     hint: item.hint,
                     provider_value: Some(raw_value),
+                    icon_url: item.icon_url,
+                    provider_icon_url: item.provider_icon_url,
                 }
             })
             .collect(),

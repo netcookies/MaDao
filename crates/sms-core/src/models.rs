@@ -150,6 +150,10 @@ pub struct OptionItem {
     pub hint: String,
     #[serde(default)]
     pub provider_value: Option<String>,
+    #[serde(default)]
+    pub icon_url: Option<String>,
+    #[serde(default)]
+    pub provider_icon_url: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

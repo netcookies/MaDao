@@ -25,17 +25,6 @@ const SERVICE_LABELS: Record<LanguageCode, Record<string, string>> = {
   },
 };
 
-const SERVICE_EMOJIS: Record<string, string> = {
-  openai: '🤖',
-  dr: '🤖',
-  telegram: '✈️',
-  tg: '✈️',
-  whatsapp: '💬',
-  wa: '💬',
-  paypal: '💳',
-  discord: '🎮',
-};
-
 const COUNTRY_LABELS: Record<LanguageCode, Record<string, string>> = {
   en: {
     any: 'All countries',
@@ -168,35 +157,10 @@ export function formatDurationMmSs(durationMs: number) {
   return `${minutes}:${seconds.toString().padStart(2, '0')}`;
 }
 
-export function countryBadge(country: string) {
-  const normalized = country.toLowerCase();
-  const map: Record<string, string> = {
-    usa: '🇺🇸',
-    us: '🇺🇸',
-    '50': '🇺🇸',
-    england: '🇬🇧',
-    uk: '🇬🇧',
-    '44': '🇬🇧',
-    germany: '🇩🇪',
-    japan: '🇯🇵',
-    canada: '🇨🇦',
-    australia: '🇦🇺',
-    '61': '🇦🇺',
-    russia: '🇷🇺',
-    '0': '🇷🇺',
-  };
-  return map[normalized] ?? '🌐';
-}
-
 export function formatServiceLabel(service: string, language?: LanguageCode) {
   const normalized = service.toLowerCase();
   const currentLanguage = pickLanguage(language);
   return SERVICE_LABELS[currentLanguage][normalized] ?? titleCaseToken(service);
-}
-
-export function serviceBadge(service: string) {
-  const normalized = service.toLowerCase();
-  return SERVICE_EMOJIS[normalized] ?? '🧩';
 }
 
 export function formatProviderLabel(provider: string, language?: LanguageCode) {

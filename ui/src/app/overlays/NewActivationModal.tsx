@@ -2,8 +2,9 @@ import { X } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import { AppButton, ModalField, SelectTrigger } from '../ui-bridge';
 import { ANY_PROVIDER_VALUE, type ActivationFormState, type LanguageCode, type ProviderManifest, type RoutingPlan, type SelectorKind } from '../types';
-import { countryBadge, formatCountryLabel, formatServiceLabel, serviceBadge } from '../../lib/formatters';
+import { formatCountryLabel, formatServiceLabel } from '../../lib/formatters';
 import { formatOperatorLabel } from '../utils';
+import { ResourceBadge } from '../../components/primitives';
 
 export type NewActivationModalProps = {
   providers: ProviderManifest[];
@@ -74,6 +75,12 @@ export function NewActivationModal(props: NewActivationModalProps) {
           <SelectTrigger
             compact
             value={providerLabel}
+            valueContent={providerLabel ? (
+              <span className="inline-flex min-w-0 items-center gap-2">
+                <ResourceBadge kind="provider" value={props.form.provider || ANY_PROVIDER_VALUE} size="sm" />
+                <span className="truncate">{providerLabel}</span>
+              </span>
+            ) : undefined}
             placeholder={usesRoutingPlan ? t('controlled by routing plan') : t('select provider')}
             onClick={() => props.onOpenSelector('activation-provider')}
             disabled={usesRoutingPlan}
@@ -82,7 +89,13 @@ export function NewActivationModal(props: NewActivationModalProps) {
         <ModalField label={t('SERVICE')}>
           <SelectTrigger
             compact
-            value={props.form.service ? `${serviceBadge(props.form.service)} ${formatServiceLabel(props.form.service, language)}` : ''}
+            value={props.form.service ? formatServiceLabel(props.form.service, language) : ''}
+            valueContent={props.form.service ? (
+              <span className="inline-flex min-w-0 items-center gap-2">
+                <ResourceBadge kind="service" value={props.form.service} size="sm" />
+                <span className="truncate">{formatServiceLabel(props.form.service, language)}</span>
+              </span>
+            ) : undefined}
             placeholder={usesRoutingPlan ? t('controlled by routing plan') : t('e.g. telegram, openai, whatsapp')}
             onClick={() => props.onOpenSelector('activation-service')}
             disabled={usesRoutingPlan}
@@ -91,7 +104,13 @@ export function NewActivationModal(props: NewActivationModalProps) {
         <ModalField label={t('COUNTRY')}>
           <SelectTrigger
             compact
-            value={props.form.country ? `${countryBadge(props.form.country)} ${formatCountryLabel(props.form.country, language)}` : ''}
+            value={props.form.country ? formatCountryLabel(props.form.country, language) : ''}
+            valueContent={props.form.country ? (
+              <span className="inline-flex min-w-0 items-center gap-2">
+                <ResourceBadge kind="country" value={props.form.country} size="sm" />
+                <span className="truncate">{formatCountryLabel(props.form.country, language)}</span>
+              </span>
+            ) : undefined}
             placeholder={usesRoutingPlan ? t('controlled by routing plan') : t('any — auto select')}
             onClick={() => props.onOpenSelector('activation-country')}
             disabled={usesRoutingPlan}

@@ -1,5 +1,6 @@
 export * from './Button';
 export * from './IconButton';
+export * from './ResourceBadge';
 export * from './SearchField';
 export * from './SegmentedControl';
 export * from './SelectTrigger';

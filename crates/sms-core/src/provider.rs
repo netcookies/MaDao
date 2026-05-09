@@ -153,6 +153,8 @@ impl SmsProvider for MockProvider {
             label: "Local".into(),
             hint: "local".into(),
             provider_value: Some("local".into()),
+            icon_url: None,
+            provider_icon_url: None,
         }])
     }
 
@@ -165,6 +167,8 @@ impl SmsProvider for MockProvider {
             label: "OpenAI".into(),
             hint: "openai".into(),
             provider_value: Some("openai".into()),
+            icon_url: None,
+            provider_icon_url: None,
         }])
     }
 
@@ -177,6 +181,8 @@ impl SmsProvider for MockProvider {
             label: "Mock".into(),
             hint: "mock".into(),
             provider_value: Some("mock".into()),
+            icon_url: None,
+            provider_icon_url: None,
         }])
     }
 }
@@ -270,6 +276,14 @@ impl SmsBowerProvider {
             config: shared.config,
         })
     }
+
+    fn country_icon_url(country_id: &str) -> String {
+        format!("https://smsbower.app/img/svg/countries/{country_id}.svg?v=2")
+    }
+
+    fn service_icon_url(service_id: &str) -> String {
+        format!("https://smsbower.app/img/services/{service_id}.svg?timestamp=1748774536")
+    }
 }
 
 struct SharedHandlerApiProvider {
@@ -356,6 +370,8 @@ impl SharedHandlerApiProvider {
                     .to_string();
                 Some(OptionItem {
                     provider_value: Some(value.clone()),
+                    icon_url: Some(SmsBowerProvider::country_icon_url(&value)),
+                    provider_icon_url: Some(SmsBowerProvider::country_icon_url(&value)),
                     value,
                     label,
                     hint,
@@ -377,17 +393,22 @@ impl SharedHandlerApiProvider {
                     let services = items
                         .into_iter()
                         .filter_map(|item| {
+                            let provider_id = item
+                                .pointer("/id")
+                                .and_then(coerce_str_value)?;
                             let value = item
                                 .pointer("/code")
                                 .and_then(Value::as_str)
-                                .or_else(|| item.pointer("/id").and_then(Value::as_str))?;
+                                .unwrap_or(provider_id.as_str());
                             let label = item
                                 .pointer("/name")
                                 .and_then(Value::as_str)
                                 .or_else(|| item.pointer("/title").and_then(Value::as_str))
                                 .unwrap_or(value);
                             Some(OptionItem {
-                                provider_value: Some(value.to_string()),
+                                provider_value: Some(provider_id.clone()),
+                                icon_url: Some(SmsBowerProvider::service_icon_url(&provider_id)),
+                                provider_icon_url: Some(SmsBowerProvider::service_icon_url(&provider_id)),
                                 value: value.to_string(),
                                 label: label.to_string(),
                                 hint: value.to_string(),
@@ -428,6 +449,8 @@ impl SharedHandlerApiProvider {
                         label: operator.to_string(),
                         hint: format!("country={country_id}"),
                         provider_value: Some(operator.to_string()),
+                        icon_url: None,
+                        provider_icon_url: None,
                     });
             }
         }
@@ -733,6 +756,8 @@ impl SmsProvider for HeroSmsProvider {
                 label: "Any Operator".into(),
                 hint: "any".into(),
                 provider_value: Some("any".into()),
+                icon_url: None,
+                provider_icon_url: None,
             }]);
         }
         Ok(operators)
@@ -921,6 +946,8 @@ impl FiveSimProvider {
                     value: value.clone(),
                     label: value,
                     hint: format!("qty={qty}, price={price:.3}"),
+                    icon_url: None,
+                    provider_icon_url: None,
                 }
             })
             .collect())
@@ -995,6 +1022,8 @@ impl FiveSimProvider {
                 label,
                 hint: "5SIM static products list".to_string(),
                 provider_value: Some(provider_value),
+                icon_url: None,
+                provider_icon_url: None,
             });
         }
 
@@ -1254,6 +1283,8 @@ impl SmsProvider for FiveSimProvider {
                     label,
                     hint,
                     provider_value: Some(country),
+                    icon_url: None,
+                    provider_icon_url: None,
                 }
             })
             .collect())
@@ -1286,6 +1317,8 @@ impl SmsProvider for FiveSimProvider {
                 label: operator.clone(),
                 hint: "5SIM operator".to_string(),
                 provider_value: Some(operator),
+                icon_url: None,
+                provider_icon_url: None,
             })
             .collect())
     }

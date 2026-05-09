@@ -15,11 +15,13 @@
   },
   "dependencies": {
     "@tauri-apps/api": "^2.10.1",
+    "country-flag-icons": "^1.6.17",
     "i18next": "^26.0.10",
     "lucide-react": "^1.12.0",
     "react": "^19.2.0",
     "react-dom": "^19.2.0",
-    "react-i18next": "^17.0.7"
+    "react-i18next": "^17.0.7",
+    "simple-icons": "^16.18.1"
   },
   "devDependencies": {
     "@types/react": "^19.2.2",

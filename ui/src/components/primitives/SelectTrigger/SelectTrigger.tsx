@@ -1,10 +1,12 @@
-import type { ButtonHTMLAttributes } from 'react';
+import type { ButtonHTMLAttributes, ReactNode } from 'react';
 import { ChevronsUpDown } from 'lucide-react';
 import { cx } from '../../../lib/cx';
 
 export type SelectTriggerProps = Omit<ButtonHTMLAttributes<HTMLButtonElement>, 'children'> & {
   value: string;
+  valueContent?: ReactNode;
   placeholder?: string;
+  placeholderContent?: ReactNode;
   compact?: boolean;
   prominent?: boolean;
   muted?: boolean;
@@ -19,7 +21,9 @@ const DISABLED_LOOK_CLASS = 'bg-ds-window';
 export function SelectTrigger(props: SelectTriggerProps) {
   const {
     value,
+    valueContent,
     placeholder,
+    placeholderContent,
     compact = false,
     prominent = false,
     muted = false,
@@ -29,6 +33,9 @@ export function SelectTrigger(props: SelectTriggerProps) {
   } = props;
 
   const displayValue = value || placeholder || '';
+  const displayContent = value
+    ? (valueContent ?? value)
+    : (placeholderContent ?? placeholder ?? '');
   const isPlaceholder = !value || muted;
   const disabledLook = className?.split(/\s+/).includes('is-disabled-look');
 
@@ -44,8 +51,8 @@ export function SelectTrigger(props: SelectTriggerProps) {
       )}
       {...rest}
     >
-      <span className={cx('overflow-hidden text-ellipsis whitespace-nowrap', isPlaceholder && 'text-ds-text-secondary')}>
-        {displayValue}
+      <span className={cx('min-w-0 overflow-hidden text-ellipsis whitespace-nowrap', isPlaceholder && 'text-ds-text-secondary')}>
+        {displayContent || displayValue}
       </span>
       <span className="inline-flex shrink-0 items-center justify-center text-ds-text-secondary opacity-40">
         <ChevronsUpDown size={12} />

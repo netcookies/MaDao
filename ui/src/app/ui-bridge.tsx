@@ -141,7 +141,9 @@ export function TextField(props: InputHTMLAttributes<HTMLInputElement> & {
 
 export function SelectTrigger(props: {
   value: string;
+  valueContent?: ReactNode;
   placeholder?: string;
+  placeholderContent?: ReactNode;
   onClick: () => void;
   compact?: boolean;
   prominent?: boolean;
@@ -152,7 +154,9 @@ export function SelectTrigger(props: {
   return (
     <DsSelectTrigger
       value={props.value}
+      valueContent={props.valueContent}
       placeholder={props.placeholder}
+      placeholderContent={props.placeholderContent}
       onClick={props.onClick}
       compact={props.compact}
       prominent={props.prominent}

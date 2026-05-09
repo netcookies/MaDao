@@ -2,7 +2,7 @@ import { useState, useEffect } from 'react';
 import { ChevronRight, GripVertical, Plus } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import { Modal } from '../../components/overlays';
-import { countryBadge, formatCountryLabel, formatProviderLabel, formatServiceLabel, serviceBadge } from '../../lib/formatters';
+import { formatCountryLabel, formatProviderLabel, formatServiceLabel } from '../../lib/formatters';
 import { formatOperatorLabel } from '../utils';
 import { cx } from '../../lib/cx';
 import {
@@ -14,6 +14,7 @@ import {
   StatusBadge,
   ToggleSwitch,
 } from '../ui-bridge';
+import { ResourceBadge } from '../../components/primitives';
 import type {
   ProviderManifest,
   ProviderPriceItem,
@@ -234,7 +235,12 @@ function RoutingPlanMatrixScreen(props: {
                       : 'bg-ds-surface-subtle text-ds-text-secondary'
                   }`}
                 >
-                  {plan.service ? `${serviceBadge(plan.service)} ${formatServiceLabel(plan.service, props.language)}` : t('No Service')}
+                  {plan.service ? (
+                    <span className="inline-flex items-center gap-2">
+                      <ResourceBadge kind="service" value={plan.service} size="sm" />
+                      <span>{formatServiceLabel(plan.service, props.language)}</span>
+                    </span>
+                  ) : t('No Service')}
                 </span>
               </div>
 
@@ -358,7 +364,13 @@ function RoutingPlanDetailScreen(props: {
                 {t('Service')}
               </span>
               <SelectTrigger
-                value={props.plan.service ? `${serviceBadge(props.plan.service)} ${formatServiceLabel(props.plan.service, props.language)}` : ''}
+                value={props.plan.service ? formatServiceLabel(props.plan.service, props.language) : ''}
+                valueContent={props.plan.service ? (
+                  <span className="inline-flex min-w-0 items-center gap-2">
+                    <ResourceBadge kind="service" value={props.plan.service} size="sm" />
+                    <span className="truncate">{formatServiceLabel(props.plan.service, props.language)}</span>
+                  </span>
+                ) : undefined}
                 placeholder={t('Choose service')}
                 onClick={props.onOpenServicePicker}
                 className="w-full"
@@ -495,9 +507,10 @@ function RoutingPlanDetailScreen(props: {
                   <button
                     type="button"
                     onClick={() => props.onOpenProviderPicker(item.id)}
-                    className="w-full truncate bg-transparent p-0 text-left text-[13px] font-medium text-ds-text-primary transition-colors duration-fast ease-[var(--ds-motion-transition-fast)] hover:text-ds-accent-blue"
+                    className="inline-flex w-full min-w-0 items-center gap-2 bg-transparent p-0 text-left text-[13px] font-medium text-ds-text-primary transition-colors duration-fast ease-[var(--ds-motion-transition-fast)] hover:text-ds-accent-blue"
                   >
-                    {providerLabel}
+                    <ResourceBadge kind="provider" value={item.provider} size="sm" />
+                    <span className="truncate">{providerLabel}</span>
                   </button>
                   <div className="mt-1 flex flex-wrap gap-3 text-[12px] text-ds-text-secondary min-[900px]:hidden">
                     <span>#{index + 1}</span>
@@ -678,6 +691,12 @@ function RoutingItemEditorModal(props: {
             <SelectTrigger
               compact
               value={providerLabel ? formatProviderLabel(providerLabel, props.language) : ''}
+              valueContent={providerLabel ? (
+                <span className="inline-flex min-w-0 items-center gap-2">
+                  <ResourceBadge kind="provider" value={editor.providerId} size="sm" />
+                  <span className="truncate">{formatProviderLabel(providerLabel, props.language)}</span>
+                </span>
+              ) : undefined}
               placeholder={t('Select provider')}
               onClick={() => props.onOpenSelector('provider')}
               className="w-full"
@@ -686,7 +705,13 @@ function RoutingItemEditorModal(props: {
           <ModalField label={t('COUNTRY')}>
             <SelectTrigger
               compact
-              value={editor.country ? `${countryBadge(editor.country)} ${formatCountryLabel(editor.country, props.language)}` : ''}
+              value={editor.country ? formatCountryLabel(editor.country, props.language) : ''}
+              valueContent={editor.country ? (
+                <span className="inline-flex min-w-0 items-center gap-2">
+                  <ResourceBadge kind="country" value={editor.country} size="sm" />
+                  <span className="truncate">{formatCountryLabel(editor.country, props.language)}</span>
+                </span>
+              ) : undefined}
               placeholder={t('Any country')}
               onClick={() => props.onOpenSelector('country')}
               className="w-full"

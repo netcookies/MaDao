@@ -1512,6 +1512,7 @@ export function App() {
           title={selectorState.title}
           search={selectorSearch}
           options={filteredSelectorOptions}
+          resourceKind={selectorState.resourceKind}
           onClose={() => setSelectorState(null)}
           onSearch={setSelectorSearch}
           onSelect={(option) => {

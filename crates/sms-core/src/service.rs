@@ -1690,6 +1690,8 @@ fn default_service_option(manifest: &ProviderManifest) -> OptionItem {
         label: manifest.defaults.service.clone(),
         hint: manifest.defaults.service.clone(),
         provider_value: Some(manifest.defaults.service.clone()),
+        icon_url: None,
+        provider_icon_url: None,
     }
 }
 
@@ -1699,6 +1701,8 @@ fn default_country_option(manifest: &ProviderManifest) -> OptionItem {
         label: manifest.defaults.country.clone(),
         hint: manifest.defaults.country.clone(),
         provider_value: Some(manifest.defaults.country.clone()),
+        icon_url: None,
+        provider_icon_url: None,
     }
 }
 
@@ -1724,6 +1728,8 @@ fn default_operator_option(manifest: &ProviderManifest) -> OptionItem {
         label,
         hint: value.clone(),
         provider_value: Some(value),
+        icon_url: None,
+        provider_icon_url: None,
     }
 }
 

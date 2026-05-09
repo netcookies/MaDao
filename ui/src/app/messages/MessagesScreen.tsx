@@ -1,4 +1,4 @@
-import { Bot, Copy, Loader2, Send, Shield, Smartphone } from 'lucide-react';
+import { Copy, Loader2, Smartphone } from 'lucide-react';
 import { useEffect, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { AppButton, PageHeader, SegmentedControl } from '../ui-bridge';
@@ -10,6 +10,7 @@ import {
   getHeroCancelRemainingMs,
   getTicketPhase,
 } from '../../lib/formatters';
+import { ResourceBadge } from '../../components/primitives';
 
 export type MessagesScreenProps = {
   tickets: TicketRecord[];
@@ -21,13 +22,6 @@ export type MessagesScreenProps = {
   onRelease: (ticket: TicketRecord, action: 'finish' | 'cancel' | 'retry') => void;
   onBuyAnother: (ticket: TicketRecord) => void;
 };
-
-function serviceIcon(service: string) {
-  const value = service.toLowerCase();
-  if (value.includes('telegram')) return <Send size={24} />;
-  if (value.includes('paypal') || value.includes('shield')) return <Shield size={24} className="opacity-60" />;
-  return <Bot size={24} />;
-}
 
 export function MessagesScreen(props: MessagesScreenProps) {
   const { t, i18n } = useTranslation();
@@ -78,7 +72,7 @@ export function MessagesScreen(props: MessagesScreenProps) {
             <div className="flex flex-col gap-5 rounded-[16px] border border-ds-border bg-ds-surface px-6 py-6 shadow-ds backdrop-blur-ds" key={ticket.id}>
               <div className="flex flex-col gap-4 min-[760px]:flex-row min-[760px]:items-center min-[760px]:justify-between">
                 <div className="flex items-center gap-3">
-                  {serviceIcon(ticket.service)}
+                  <ResourceBadge kind="service" value={ticket.service} className="h-8 w-8 rounded-[10px] p-[6px]" />
                   <strong className="text-body-strong tracking-[var(--ds-type-body-strong-tracking)] text-ds-text-primary">
                     {formatServiceLabel(ticket.service, language)}
                   </strong>
@@ -140,7 +134,10 @@ export function MessagesScreen(props: MessagesScreenProps) {
 
               <div className="flex flex-col gap-3 pt-1 min-[760px]:flex-row min-[760px]:items-center min-[760px]:justify-between">
                 <div className="flex flex-col gap-1">
-                  <span className="text-[13px] leading-[1.43] text-ds-text-secondary">{t('Provider: {{provider}}', { provider: formatProviderLabel(ticket.provider, language) })}</span>
+                  <span className="inline-flex items-center gap-2 text-[13px] leading-[1.43] text-ds-text-secondary">
+                    <ResourceBadge kind="provider" value={ticket.provider} size="sm" />
+                    <span>{t('Provider: {{provider}}', { provider: formatProviderLabel(ticket.provider, language) })}</span>
+                  </span>
                   {usesRoutingPlan && (
                     <span className="text-[12px] leading-[1.4] text-ds-text-secondary">
                       {t('Routing: {{route}}', { route: ticket.routing_plan_name ?? ticket.routing_plan_id ?? '' })}

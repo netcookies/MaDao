@@ -6,7 +6,25 @@ export default defineConfig({
   root: 'ui',
   build: {
     outDir: '../dist',
-    emptyOutDir: true
+    emptyOutDir: true,
+    rollupOptions: {
+      output: {
+        manualChunks(id) {
+          if (id.includes('node_modules/react-dom') || id.includes('node_modules/react/')) {
+            return 'react-vendor';
+          }
+          if (id.includes('node_modules/i18next') || id.includes('node_modules/react-i18next')) {
+            return 'i18n-vendor';
+          }
+          if (id.includes('node_modules/lucide-react')) {
+            return 'icons-vendor';
+          }
+          if (id.includes('node_modules/simple-icons') || id.includes('node_modules/country-flag-icons')) {
+            return 'badge-vendor';
+          }
+        },
+      },
+    },
   },
   server: {
     port: 1420,

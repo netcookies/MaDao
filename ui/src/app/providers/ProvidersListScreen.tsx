@@ -1,8 +1,9 @@
-import { ChevronRight, Server } from 'lucide-react';
+import { ChevronRight } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import { PageHeader, StatusBadge } from '../ui-bridge';
 import type { LanguageCode, ProviderManifest, ProviderSummary } from '../types';
 import { formatProviderLabel, formatProviderProtocolLabel } from '../../lib/formatters';
+import { ResourceBadge } from '../../components/primitives';
 
 export type ProvidersListScreenProps = {
   providers: ProviderManifest[];
@@ -42,7 +43,7 @@ export function ProvidersListScreen(props: ProvidersListScreenProps) {
             >
               <div className="flex items-center justify-between">
                 <div className="flex items-center gap-2">
-                  <Server size={16} className="text-ds-accent-blue" />
+                  <ResourceBadge kind="provider" value={provider.id} />
                   <span className="text-[14px] font-semibold text-ds-text-primary">
                     {formatProviderLabel(provider.name, language)}
                   </span>

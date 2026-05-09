@@ -23,6 +23,8 @@ export function normalizeServiceOptions(options: OptionItem[]) {
         label: label || formatServiceLabel(value),
         hint: option.hint,
         provider_value: option.provider_value ?? option.value,
+        icon_url: option.icon_url,
+        provider_icon_url: option.provider_icon_url,
       });
     }
   }
@@ -40,6 +42,8 @@ export function normalizeCountryOptions(options: OptionItem[]) {
         label: label || formatCountryLabel(key),
         hint: option.hint,
         provider_value: option.provider_value ?? option.value,
+        icon_url: option.icon_url,
+        provider_icon_url: option.provider_icon_url,
       });
     }
   }
@@ -57,6 +61,8 @@ export function normalizeOperatorOptions(options: OptionItem[]) {
         label: label || formatOperatorLabel(value),
         hint: option.hint,
         provider_value: option.provider_value ?? option.value,
+        icon_url: option.icon_url,
+        provider_icon_url: option.provider_icon_url,
       });
     }
   }
@@ -78,10 +84,16 @@ function mergeCatalogItems(source: Map<string, OptionCatalogItem>, providerId: s
   items.forEach((item) => {
     const key = item.value;
     const providerValue = item.provider_value ?? item.value;
+    const providerIconUrl = item.provider_icon_url ?? item.icon_url ?? undefined;
     const existing = source.get(key);
     if (existing) {
       if (!existing.providers.includes(providerId)) existing.providers.push(providerId);
       existing.provider_values[providerId] = providerValue;
+      if (providerIconUrl) {
+        existing.provider_icon_urls ??= {};
+        existing.provider_icon_urls[providerId] = providerIconUrl;
+      }
+      if (!existing.icon_url && item.icon_url) existing.icon_url = item.icon_url;
       if (!existing.label && item.label) existing.label = item.label;
       if (!existing.hint && item.hint) existing.hint = item.hint;
       return;
@@ -92,6 +104,8 @@ function mergeCatalogItems(source: Map<string, OptionCatalogItem>, providerId: s
       hint: item.hint,
       providers: [providerId],
       provider_values: { [providerId]: providerValue },
+      icon_url: item.icon_url,
+      provider_icon_urls: providerIconUrl ? { [providerId]: providerIconUrl } : {},
     });
   });
 }

@@ -24,14 +24,13 @@ import type {
   StoreQueryState,
 } from '../types';
 import {
-  countryBadge,
   formatCountryLabel,
   formatServiceLabel,
-  serviceBadge,
 } from '../../lib/formatters';
 import { formatOperatorLabel } from '../utils';
 import { cx } from '../../lib/cx';
 import type { LanguageCode } from '../types';
+import { ResourceBadge } from '../../components/primitives';
 
 const WORKSPACE_SECTIONS: Array<{
   id: ProviderSectionId;
@@ -75,7 +74,8 @@ export type ProviderWorkspaceScreenProps = {
 export function ProviderWorkspaceScreen(props: ProviderWorkspaceScreenProps) {
   const { t, i18n } = useTranslation();
   const language = (i18n.resolvedLanguage ?? i18n.language ?? 'en') as LanguageCode;
-  const { manifest, section } = props;
+  const { manifest } = props;
+  const section = props.section === 'wallet' ? 'config' : props.section;
   const isConnected = manifest.enabled;
   const compact = props.compact ?? false;
   const workspaceSections: Array<{
@@ -294,12 +294,24 @@ function WorkspaceStore(props: {
         <div className="flex shrink-0 items-center gap-2">
           <SelectTrigger
             compact={props.compact}
-            value={`${serviceBadge(props.storeQuery.service || props.manifest.defaults.service)} ${formatServiceLabel(props.storeQuery.service || props.manifest.defaults.service, language)}`}
+            value={formatServiceLabel(props.storeQuery.service || props.manifest.defaults.service, language)}
+            valueContent={(
+              <span className="inline-flex min-w-0 items-center gap-2">
+                <ResourceBadge kind="service" value={props.storeQuery.service || props.manifest.defaults.service} size="sm" />
+                <span className="truncate">{formatServiceLabel(props.storeQuery.service || props.manifest.defaults.service, language)}</span>
+              </span>
+            )}
             onClick={() => props.onOpenSelector('store-service')}
           />
           <SelectTrigger
             compact={props.compact}
-            value={props.storeQuery.country ? `${countryBadge(props.storeQuery.country)} ${formatCountryLabel(props.storeQuery.country, language)}` : ''}
+            value={props.storeQuery.country ? formatCountryLabel(props.storeQuery.country, language) : ''}
+            valueContent={props.storeQuery.country ? (
+              <span className="inline-flex min-w-0 items-center gap-2">
+                <ResourceBadge kind="country" value={props.storeQuery.country} size="sm" />
+                <span className="truncate">{formatCountryLabel(props.storeQuery.country, language)}</span>
+              </span>
+            ) : undefined}
             placeholder={t('All countries')}
             muted={!props.storeQuery.country}
             onClick={() => props.onOpenSelector('store-country')}
@@ -355,7 +367,7 @@ function WorkspaceStore(props: {
               key={`${item.country}-${item.display_name}`}
             >
               <span className="inline-flex min-w-0 items-center gap-2.5">
-                <span className="shrink-0">{countryBadge(item.country)}</span>
+                <ResourceBadge kind="country" value={item.country} size="sm" />
                 <span className="min-w-0 overflow-hidden text-ellipsis whitespace-nowrap">{formatCountryLabel(item.country, language)}</span>
               </span>
               <span className="text-[13px] text-ds-text-secondary">{item.operator_label || formatOperatorLabel(item.operator || 'any', language)}</span>

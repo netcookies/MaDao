@@ -1,0 +1,1 @@
+export { ResourceBadge } from './ResourceBadge';
