@@ -1155,17 +1155,22 @@ export function App() {
   }
 
   function reorderRoutingPlanItem(fromIndex: number, toIndex: number) {
+    let reordered = false;
     setRoutingPlans((current) => current.map((plan) => {
       if (!selectedRoutingPlanMatcher(plan)) return plan;
       if (fromIndex < 0 || toIndex < 0 || fromIndex >= plan.items.length || toIndex >= plan.items.length) return plan;
       const nextItems = [...plan.items];
       const [moved] = nextItems.splice(fromIndex, 1);
       nextItems.splice(toIndex, 0, moved);
+      reordered = true;
       return {
         ...plan,
         items: nextItems,
       };
     }));
+    if (reordered) {
+      pushStatusMessage(translate('candidate_order_updated_save_to_persist'));
+    }
   }
 
   function openActivationModal() {

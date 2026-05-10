@@ -1,4 +1,17 @@
-import { useState, useEffect } from 'react';
+import { useEffect, useState } from 'react';
+import {
+  DndContext,
+  PointerSensor,
+  closestCenter,
+  type DragEndEvent,
+  type DragOverEvent,
+  type DragStartEvent,
+  useSensor,
+  useSensors,
+} from '@dnd-kit/core';
+import { restrictToParentElement, restrictToVerticalAxis } from '@dnd-kit/modifiers';
+import { SortableContext, useSortable, verticalListSortingStrategy } from '@dnd-kit/sortable';
+import { CSS } from '@dnd-kit/utilities';
 import { ChevronRight, Copy, GripVertical, Plus } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import { Modal } from '../../components/overlays';
@@ -310,13 +323,51 @@ function RoutingPlanDetailScreen(props: {
 }) {
   const { t } = useTranslation();
   const toggleLabel = props.plan.enabled ? t('Enabled') : t('Disabled');
-  const [draggedItemId, setDraggedItemId] = useState<string | null>(null);
-  const [dragOverItemId, setDragOverItemId] = useState<string | null>(null);
+  const [activeItemId, setActiveItemId] = useState<string | null>(null);
+  const [overItemId, setOverItemId] = useState<string | null>(null);
+  const sensors = useSensors(
+    useSensor(PointerSensor, {
+      activationConstraint: {
+        distance: 6,
+      },
+    }),
+  );
 
   useEffect(() => {
-    setDraggedItemId(null);
-    setDragOverItemId(null);
+    setActiveItemId(null);
+    setOverItemId(null);
   }, [props.plan.id, props.plan.items.length]);
+
+  function handleDragStart(event: DragStartEvent) {
+    const itemId = String(event.active.id);
+    setActiveItemId(itemId);
+    setOverItemId(itemId);
+  }
+
+  function handleDragOver(event: DragOverEvent) {
+    setOverItemId(event.over ? String(event.over.id) : null);
+  }
+
+  function resetDraggingState() {
+    setActiveItemId(null);
+    setOverItemId(null);
+  }
+
+  function handleDragEnd(event: DragEndEvent) {
+    const { active, over } = event;
+    if (!over || active.id === over.id) {
+      resetDraggingState();
+      return;
+    }
+
+    const fromIndex = props.plan.items.findIndex((item) => item.id === String(active.id));
+    const toIndex = props.plan.items.findIndex((item) => item.id === String(over.id));
+
+    if (fromIndex >= 0 && toIndex >= 0 && fromIndex !== toIndex) {
+      props.onReorderItem(fromIndex, toIndex);
+    }
+    resetDraggingState();
+  }
 
   return (
     <div className="flex flex-col gap-6">
@@ -436,11 +487,16 @@ function RoutingPlanDetailScreen(props: {
 
       <section className="flex flex-col gap-4">
         <div className="flex flex-col gap-3 min-[760px]:flex-row min-[760px]:items-center min-[760px]:justify-between">
-          <div className="flex items-center gap-2">
-            <h2 className="m-0 text-[14px] font-semibold text-ds-text-primary">{t('Route Candidates')}</h2>
-            <span className="inline-flex items-center rounded-pill bg-ds-surface-subtle px-2.5 py-1 text-[12px] font-semibold text-ds-text-secondary">
-              {props.plan.items.length}
-            </span>
+          <div className="flex flex-col gap-1.5">
+            <div className="flex items-center gap-2">
+              <h2 className="m-0 text-[14px] font-semibold text-ds-text-primary">{t('Route Candidates')}</h2>
+              <span className="inline-flex items-center rounded-pill bg-ds-surface-subtle px-2.5 py-1 text-[12px] font-semibold text-ds-text-secondary">
+                {props.plan.items.length}
+              </span>
+            </div>
+            <p className="m-0 text-[12px] text-ds-text-secondary">
+              {t('Drag candidates to reorder. Save Changes to persist.')}
+            </p>
           </div>
           <AppButton variant="outline" size="utility" onClick={props.onAddItem}>
             <Plus size={14} />
@@ -449,7 +505,7 @@ function RoutingPlanDetailScreen(props: {
         </div>
 
         <div className="overflow-hidden rounded-2xl border border-ds-border bg-ds-surface shadow-ds backdrop-blur-ds">
-          <div className="hidden min-[900px]:grid min-[900px]:grid-cols-[18px_18px_100px_minmax(0,1fr)_80px_124px_84px] min-[900px]:items-center min-[900px]:gap-x-2 bg-ds-surface-subtle px-4 py-2.5 text-[11px] font-semibold uppercase tracking-[0.08em] text-ds-text-secondary">
+          <div className="hidden min-[900px]:grid min-[900px]:grid-cols-[28px_28px_100px_minmax(0,1fr)_80px_124px_84px] min-[900px]:items-center min-[900px]:gap-x-2 bg-ds-surface-subtle px-4 py-2.5 text-[11px] font-semibold uppercase tracking-[0.08em] text-ds-text-secondary">
             <span />
             <span>#</span>
             <span>{t('Provider')}</span>
@@ -459,161 +515,196 @@ function RoutingPlanDetailScreen(props: {
             <span className="text-right">{t('Actions')}</span>
           </div>
 
-          {props.plan.items.length > 0 ? props.plan.items.map((item, index) => {
-            const provider = props.providers.find((entry) => entry.id === item.provider);
-            const providerLabel = item.provider === 'any'
-              ? t('Any provider')
-              : provider
-                ? formatProviderLabel(provider.name, props.language)
-                : t('Choose provider');
-            const countryLabel = item.country ? formatCountryLabel(item.country, props.language) : t('Any country');
-            const operatorLabel = formatOperatorLabel(item.operator || 'any', props.language);
-
-            return (
-              <div
-                key={item.id}
-                onDragOver={(event) => {
-                  if (!draggedItemId || draggedItemId === item.id) return;
-                  event.preventDefault();
-                  if (dragOverItemId !== item.id) setDragOverItemId(item.id);
-                }}
-                onDrop={(event) => {
-                  const droppedItemId = event.dataTransfer.getData('text/plain') || draggedItemId;
-                  if (!droppedItemId || droppedItemId === item.id) return;
-                  event.preventDefault();
-                  const fromIndex = props.plan.items.findIndex((entry) => entry.id === droppedItemId);
-                  if (fromIndex >= 0 && fromIndex !== index) props.onReorderItem(fromIndex, index);
-                  setDraggedItemId(null);
-                  setDragOverItemId(null);
-                }}
-                onDragLeave={(event) => {
-                  const nextTarget = event.relatedTarget;
-                  if (nextTarget instanceof Node && event.currentTarget.contains(nextTarget)) return;
-                  if (dragOverItemId === item.id) setDragOverItemId(null);
-                }}
-                className={cx(
-                  'grid grid-cols-[24px_minmax(0,1fr)_auto] gap-3 border-b border-ds-border px-4 py-3 last:border-b-0 min-[900px]:grid-cols-[18px_18px_100px_minmax(0,1fr)_80px_124px_84px] min-[900px]:items-center min-[900px]:gap-x-2',
-                  item.enabled ? 'bg-ds-surface' : 'bg-ds-surface opacity-60',
-                  dragOverItemId === item.id && 'border-t-2 border-t-ds-accent-blue',
-                  draggedItemId === item.id && 'opacity-45',
-                )}
-              >
-                <div
-                  draggable
-                  onDragStart={(event) => {
-                    event.dataTransfer.effectAllowed = 'move';
-                    event.dataTransfer.setData('text/plain', item.id);
-                    setDraggedItemId(item.id);
-                    setDragOverItemId(item.id);
-                  }}
-                  onDragEnd={() => {
-                    setDraggedItemId(null);
-                    setDragOverItemId(null);
-                  }}
-                  className="flex cursor-grab items-center justify-center text-ds-text-secondary min-[900px]:justify-start"
-                  aria-label={t('Drag candidate {{index}}', { index: index + 1 })}
-                >
-                  <GripVertical size={14} className="opacity-30" />
-                </div>
-
-                <div className="hidden text-[13px] text-ds-text-secondary min-[900px]:block">
-                  {index + 1}
-                </div>
-
-                <div className="min-w-0">
-                  <button
-                    type="button"
-                    onClick={() => props.onOpenProviderPicker(item.id)}
-                    className="inline-flex w-full min-w-0 items-center gap-2 bg-transparent p-0 text-left text-[13px] font-medium text-ds-text-primary transition-colors duration-fast ease-[var(--ds-motion-transition-fast)] hover:text-ds-accent-blue"
-                  >
-                    <ResourceBadge kind="provider" value={item.provider} size="sm" />
-                    <span className="truncate">{providerLabel}</span>
-                  </button>
-                  <div className="mt-1 flex flex-wrap gap-3 text-[12px] text-ds-text-secondary min-[900px]:hidden">
-                    <span>#{index + 1}</span>
-                    <button
-                      type="button"
-                      onClick={() => props.onOpenItemSelector(item.id, 'country', 'row')}
-                      className="inline-flex min-w-0 items-center gap-1 bg-transparent p-0 text-left text-inherit hover:text-ds-accent-blue"
-                    >
-                      <ResourceBadge kind="country" value={item.country || 'any'} size="sm" iconUrl={props.countryIconUrls?.[item.country || 'any']} />
-                      <span className="truncate">{countryLabel}</span>
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => props.onOpenItemSelector(item.id, 'operator', 'row')}
-                      className="inline-flex min-w-0 items-center gap-1 bg-transparent p-0 text-left text-inherit hover:text-ds-accent-blue"
-                    >
-                      <span className="truncate">{operatorLabel}</span>
-                    </button>
-                    <span>{summarizePrice(item, t)}</span>
-                    {!item.enabled ? <span>{t('Disabled')}</span> : null}
-                  </div>
-                </div>
-
-                <div className="hidden min-[900px]:block">
-                  <button
-                    type="button"
-                    onClick={() => props.onOpenItemSelector(item.id, 'country', 'row')}
-                    className="inline-flex w-full min-w-0 items-center gap-2 bg-transparent p-0 text-left text-[12px] text-ds-text-secondary transition-colors duration-fast ease-[var(--ds-motion-transition-fast)] hover:text-ds-accent-blue"
-                  >
-                    <ResourceBadge kind="country" value={item.country || 'any'} size="sm" iconUrl={props.countryIconUrls?.[item.country || 'any']} />
-                    <span className="truncate">{countryLabel}</span>
-                  </button>
-                </div>
-
-                <div className="hidden min-[900px]:block">
-                  <button
-                    type="button"
-                    onClick={() => props.onOpenItemSelector(item.id, 'operator', 'row')}
-                    className="inline-flex w-full min-w-0 items-center gap-2 bg-transparent p-0 text-left text-[12px] text-ds-text-secondary transition-colors duration-fast ease-[var(--ds-motion-transition-fast)] hover:text-ds-accent-blue"
-                  >
-                    <span className="truncate">{operatorLabel}</span>
-                  </button>
-                </div>
-
-                <div className="hidden text-[12px] text-ds-text-secondary min-[900px]:block">
-                  {summarizePrice(item, t)}
-                </div>
-
-                <div className="flex items-center justify-end gap-2.5">
-                  <button
-                    type="button"
-                    onClick={() => props.onDuplicateItem(item.id)}
-                    className="inline-flex h-7 w-7 items-center justify-center rounded-[8px] text-ds-text-secondary transition-colors duration-fast ease-[var(--ds-motion-transition-fast)] hover:bg-ds-surface-subtle hover:text-ds-accent-blue"
-                    aria-label={t('Duplicate candidate {{index}}', { index: index + 1 })}
-                    title={t('Duplicate candidate')}
-                  >
-                    <Copy size={14} />
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => props.onOpenItemEditor(item.id)}
-                    className="inline-flex h-7 w-7 items-center justify-center rounded-[8px] text-ds-accent-blue transition-colors duration-fast ease-[var(--ds-motion-transition-fast)] hover:bg-ds-surface-subtle"
-                    aria-label={t('Edit candidate {{index}}', { index: index + 1 })}
-                    title={t('Edit candidate')}
-                  >
-                    <RoutingPencilIcon />
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => props.onRemoveItem(item.id)}
-                    className="inline-flex h-7 w-7 items-center justify-center rounded-[8px] text-[rgb(224,68,62)] transition-colors duration-fast ease-[var(--ds-motion-transition-fast)] hover:bg-ds-surface-subtle"
-                    aria-label={t('Delete candidate {{index}}', { index: index + 1 })}
-                    title={t('Delete candidate')}
-                  >
-                    <RoutingTrashIcon />
-                  </button>
-                </div>
-              </div>
-            );
-          }) : (
+          {props.plan.items.length > 0 ? (
+            <DndContext
+              sensors={sensors}
+              collisionDetection={closestCenter}
+              modifiers={[restrictToVerticalAxis, restrictToParentElement]}
+              onDragStart={handleDragStart}
+              onDragOver={handleDragOver}
+              onDragEnd={handleDragEnd}
+              onDragCancel={resetDraggingState}
+            >
+              <SortableContext items={props.plan.items.map((item) => item.id)} strategy={verticalListSortingStrategy}>
+                {props.plan.items.map((item, index) => (
+                  <SortableRoutingPlanItemRow
+                    key={item.id}
+                    item={item}
+                    index={index}
+                    providers={props.providers}
+                    countryIconUrls={props.countryIconUrls}
+                    language={props.language}
+                    activeItemId={activeItemId}
+                    overItemId={overItemId}
+                    onOpenProviderPicker={props.onOpenProviderPicker}
+                    onOpenItemSelector={props.onOpenItemSelector}
+                    onDuplicateItem={props.onDuplicateItem}
+                    onOpenItemEditor={props.onOpenItemEditor}
+                    onRemoveItem={props.onRemoveItem}
+                  />
+                ))}
+              </SortableContext>
+            </DndContext>
+          ) : (
             <div className="px-5 py-10 text-center text-[13px] text-ds-text-secondary">
               {t('No candidates yet. Add a candidate to start building this route.')}
             </div>
           )}
         </div>
       </section>
+    </div>
+  );
+}
+
+function SortableRoutingPlanItemRow(props: {
+  item: RoutingPlanItem;
+  index: number;
+  providers: ProviderManifest[];
+  countryIconUrls?: Record<string, string>;
+  language: 'en' | 'zh';
+  activeItemId: string | null;
+  overItemId: string | null;
+  onOpenProviderPicker: (itemId: string) => void;
+  onOpenItemSelector: (itemId: string, field: 'provider' | 'country' | 'operator', source?: 'row' | 'editor') => void;
+  onDuplicateItem: (itemId: string) => void;
+  onOpenItemEditor: (itemId: string) => void;
+  onRemoveItem: (itemId: string) => void;
+}) {
+  const { t } = useTranslation();
+  const {
+    attributes,
+    listeners,
+    setActivatorNodeRef,
+    setNodeRef,
+    transform,
+    transition,
+    isDragging,
+  } = useSortable({ id: props.item.id });
+  const provider = props.providers.find((entry) => entry.id === props.item.provider);
+  const providerLabel = props.item.provider === 'any'
+    ? t('Any provider')
+    : provider
+      ? formatProviderLabel(provider.name, props.language)
+      : t('Choose provider');
+  const countryLabel = props.item.country ? formatCountryLabel(props.item.country, props.language) : t('Any country');
+  const operatorLabel = formatOperatorLabel(props.item.operator || 'any', props.language);
+  const isDropTarget = props.overItemId === props.item.id && props.activeItemId !== props.item.id;
+
+  return (
+    <div
+      ref={setNodeRef}
+      style={{
+        transform: CSS.Transform.toString(transform),
+        transition,
+      }}
+      className={cx(
+        'grid grid-cols-[32px_minmax(0,1fr)_auto] gap-3 border-b border-ds-border px-4 py-3 last:border-b-0 min-[900px]:grid-cols-[28px_28px_100px_minmax(0,1fr)_80px_124px_84px] min-[900px]:items-center min-[900px]:gap-x-2',
+        props.item.enabled ? 'bg-ds-surface' : 'bg-ds-surface opacity-60',
+        isDropTarget && 'border-t-2 border-t-ds-accent-blue',
+        isDragging && 'z-10 opacity-45 shadow-ds',
+      )}
+    >
+      <button
+        type="button"
+        ref={setActivatorNodeRef}
+        {...attributes}
+        {...listeners}
+        className="flex h-8 w-8 cursor-grab touch-none select-none items-center justify-center rounded-[8px] text-ds-text-secondary transition-colors duration-fast ease-[var(--ds-motion-transition-fast)] hover:bg-ds-surface-subtle hover:text-ds-accent-blue active:cursor-grabbing min-[900px]:justify-center"
+        aria-label={t('Drag candidate {{index}}', { index: props.index + 1 })}
+        title={t('Drag candidate {{index}}', { index: props.index + 1 })}
+      >
+        <GripVertical size={14} className="opacity-30" />
+      </button>
+
+      <div className="hidden text-[13px] text-ds-text-secondary min-[900px]:block">
+        {props.index + 1}
+      </div>
+
+      <div className="min-w-0">
+        <button
+          type="button"
+          onClick={() => props.onOpenProviderPicker(props.item.id)}
+          className="inline-flex w-full min-w-0 items-center gap-2 bg-transparent p-0 text-left text-[13px] font-medium text-ds-text-primary transition-colors duration-fast ease-[var(--ds-motion-transition-fast)] hover:text-ds-accent-blue"
+        >
+          <ResourceBadge kind="provider" value={props.item.provider} size="sm" />
+          <span className="truncate">{providerLabel}</span>
+        </button>
+        <div className="mt-1 flex flex-wrap gap-3 text-[12px] text-ds-text-secondary min-[900px]:hidden">
+          <span>#{props.index + 1}</span>
+          <button
+            type="button"
+            onClick={() => props.onOpenItemSelector(props.item.id, 'country', 'row')}
+            className="inline-flex min-w-0 items-center gap-1 bg-transparent p-0 text-left text-inherit hover:text-ds-accent-blue"
+          >
+            <ResourceBadge kind="country" value={props.item.country || 'any'} size="sm" iconUrl={props.countryIconUrls?.[props.item.country || 'any']} />
+            <span className="truncate">{countryLabel}</span>
+          </button>
+          <button
+            type="button"
+            onClick={() => props.onOpenItemSelector(props.item.id, 'operator', 'row')}
+            className="inline-flex min-w-0 items-center gap-1 bg-transparent p-0 text-left text-inherit hover:text-ds-accent-blue"
+          >
+            <span className="truncate">{operatorLabel}</span>
+          </button>
+          <span>{summarizePrice(props.item, t)}</span>
+          {!props.item.enabled ? <span>{t('Disabled')}</span> : null}
+        </div>
+      </div>
+
+      <div className="hidden min-[900px]:block">
+        <button
+          type="button"
+          onClick={() => props.onOpenItemSelector(props.item.id, 'country', 'row')}
+          className="inline-flex w-full min-w-0 items-center gap-2 bg-transparent p-0 text-left text-[12px] text-ds-text-secondary transition-colors duration-fast ease-[var(--ds-motion-transition-fast)] hover:text-ds-accent-blue"
+        >
+          <ResourceBadge kind="country" value={props.item.country || 'any'} size="sm" iconUrl={props.countryIconUrls?.[props.item.country || 'any']} />
+          <span className="truncate">{countryLabel}</span>
+        </button>
+      </div>
+
+      <div className="hidden min-[900px]:block">
+        <button
+          type="button"
+          onClick={() => props.onOpenItemSelector(props.item.id, 'operator', 'row')}
+          className="inline-flex w-full min-w-0 items-center gap-2 bg-transparent p-0 text-left text-[12px] text-ds-text-secondary transition-colors duration-fast ease-[var(--ds-motion-transition-fast)] hover:text-ds-accent-blue"
+        >
+          <span className="truncate">{operatorLabel}</span>
+        </button>
+      </div>
+
+      <div className="hidden text-[12px] text-ds-text-secondary min-[900px]:block">
+        {summarizePrice(props.item, t)}
+      </div>
+
+      <div className="flex items-center justify-end gap-2.5">
+        <button
+          type="button"
+          onClick={() => props.onDuplicateItem(props.item.id)}
+          className="inline-flex h-7 w-7 items-center justify-center rounded-[8px] text-ds-text-secondary transition-colors duration-fast ease-[var(--ds-motion-transition-fast)] hover:bg-ds-surface-subtle hover:text-ds-accent-blue"
+          aria-label={t('Duplicate candidate {{index}}', { index: props.index + 1 })}
+          title={t('Duplicate candidate')}
+        >
+          <Copy size={14} />
+        </button>
+        <button
+          type="button"
+          onClick={() => props.onOpenItemEditor(props.item.id)}
+          className="inline-flex h-7 w-7 items-center justify-center rounded-[8px] text-ds-accent-blue transition-colors duration-fast ease-[var(--ds-motion-transition-fast)] hover:bg-ds-surface-subtle"
+          aria-label={t('Edit candidate {{index}}', { index: props.index + 1 })}
+          title={t('Edit candidate')}
+        >
+          <RoutingPencilIcon />
+        </button>
+        <button
+          type="button"
+          onClick={() => props.onRemoveItem(props.item.id)}
+          className="inline-flex h-7 w-7 items-center justify-center rounded-[8px] text-[rgb(224,68,62)] transition-colors duration-fast ease-[var(--ds-motion-transition-fast)] hover:bg-ds-surface-subtle"
+          aria-label={t('Delete candidate {{index}}', { index: props.index + 1 })}
+          title={t('Delete candidate')}
+        >
+          <RoutingTrashIcon />
+        </button>
+      </div>
     </div>
   );
 }
