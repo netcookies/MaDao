@@ -611,7 +611,13 @@ export function App() {
   }, [snapshot]);
 
   const recentActivity = useMemo(() => {
-    const tickets = (snapshot?.tickets ?? []).filter((ticket) => ticket.provider !== 'mock');
+    const tickets = (snapshot?.tickets ?? [])
+      .filter((ticket) => ticket.provider !== 'mock')
+      .sort((left, right) => {
+        const leftTime = new Date(left.updated_at ?? left.created_at ?? 0).getTime();
+        const rightTime = new Date(right.updated_at ?? right.created_at ?? 0).getTime();
+        return rightTime - leftTime;
+      });
     return tickets.slice(0, 6);
   }, [snapshot]);
 
@@ -733,6 +739,7 @@ export function App() {
       description: '',
       enabled: true,
       execution_mode: 'sequential',
+      execution_rounds: 1,
       items: defaultProvider ? [{
         id: `draft-item-${Date.now()}`,
         provider: defaultProvider.id,
@@ -1273,7 +1280,7 @@ export function App() {
           option: {
             value: plan.id,
             label: plan.name,
-            hint: `${formatServiceLabel(plan.service, language)} · ${plan.execution_mode === 'random' ? t('Random') : t('Sequential')}`,
+            hint: `${formatServiceLabel(plan.service, language)} · ${plan.execution_mode === 'random' ? t('Random') : t('Sequential')} · ${plan.execution_rounds === 0 ? t('Unlimited rounds') : t('{{count}} rounds', { count: plan.execution_rounds })}`,
           },
           language,
           source: 'synthetic',

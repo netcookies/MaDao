@@ -60,6 +60,8 @@ export type TicketRecord = {
   routing_item_id?: string | null;
   routing_item_index?: number | null;
   routing_execution_mode?: RoutingExecutionMode | null;
+  routing_execution_rounds?: number | null;
+  routing_current_round?: number | null;
 };
 
 export type LogEntry = {
@@ -237,6 +239,7 @@ export type RoutingPlan = {
   description?: string | null;
   enabled: boolean;
   execution_mode: RoutingExecutionMode;
+  execution_rounds: number;
   items: RoutingPlanItem[];
 };
 

@@ -119,11 +119,13 @@ export function SearchField(props: InputHTMLAttributes<HTMLInputElement> & {
 
 export function TextField(props: InputHTMLAttributes<HTMLInputElement> & {
   compact?: boolean;
+  fullWidth?: boolean;
   className?: string;
   inputClassName?: string;
 }) {
   const {
     compact = false,
+    fullWidth = true,
     className,
     inputClassName,
     ...inputProps
@@ -132,6 +134,7 @@ export function TextField(props: InputHTMLAttributes<HTMLInputElement> & {
   return (
     <DsTextField
       compact={compact}
+      fullWidth={fullWidth}
       className={className}
       inputClassName={inputClassName}
       {...inputProps}

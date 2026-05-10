@@ -438,6 +438,7 @@ const ROUTING_PLANS: RoutingPlan[] = [
     description: 'Primary acquisition plan for OpenAI-style services.',
     enabled: true,
     execution_mode: 'sequential',
+    execution_rounds: 2,
     items: [
       {
         id: 'hero-ca',

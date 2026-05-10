@@ -16,6 +16,10 @@
 4. 执行策略为：
    - `sequential`
    - `random`
+5. 可选执行轮数：
+   - `1` 表示只跑一轮候选项
+   - `2` 表示候选项耗尽后再从头跑一轮
+   - `0` 表示无限轮
 
 ## 数据模型
 
@@ -26,12 +30,14 @@
 - `service`
 - `enabled`
 - `execution_mode`
+- `execution_rounds`
 - `items[]`
 
 补充说明：
 
 - `id` 由系统生成随机值，用作稳定引用
 - `name` 由用户维护，用于界面展示和业务识别
+- `execution_rounds` 控制候选项耗尽后是否进入下一轮；`0` 表示无限轮
 
 每个 `RoutingPlanItem` 包含：
 
@@ -120,7 +126,12 @@ Content-Type: application/json
 }
 ```
 
-服务端会按该方案的 `execution_mode` 继续尝试下一项；如果候选项耗尽，则返回 routing failure。
+服务端会按该方案的 `execution_mode` 继续尝试下一项；如果当前轮候选项耗尽且 `execution_rounds` 允许继续，则会进入下一轮；如果所有允许轮次都耗尽，则返回 routing failure。
+
+补充说明：
+
+- `random` 模式下，每一轮都会基于稳定候选集生成该轮顺序。
+- `failover` 会沿着当前 ticket 已记录的候选顺序和轮次继续推进，不会回退到已尝试项之前。
 
 ## 价格选择支持边界
 

@@ -8,6 +8,10 @@ fn default_true() -> bool {
     true
 }
 
+fn default_execution_rounds() -> u32 {
+    1
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct AcquireCodeRequest {
     pub provider: String,
@@ -382,6 +386,8 @@ pub struct RoutingPlan {
     pub enabled: bool,
     #[serde(default)]
     pub execution_mode: RoutingExecutionMode,
+    #[serde(default = "default_execution_rounds")]
+    pub execution_rounds: u32,
     #[serde(default)]
     pub items: Vec<RoutingPlanItem>,
 }
@@ -459,6 +465,10 @@ pub struct TicketRecord {
     #[serde(default)]
     pub routing_execution_mode: Option<RoutingExecutionMode>,
     #[serde(default)]
+    pub routing_execution_rounds: Option<u32>,
+    #[serde(default)]
+    pub routing_current_round: Option<u32>,
+    #[serde(default)]
     pub routing_candidate_item_ids: Vec<String>,
     #[serde(default)]
     pub routing_attempt_count: u32,
@@ -492,6 +502,8 @@ impl TicketRecord {
             routing_item_id: None,
             routing_item_index: None,
             routing_execution_mode: None,
+            routing_execution_rounds: None,
+            routing_current_round: None,
             routing_candidate_item_ids: Vec::new(),
             routing_attempt_count: 0,
         }
@@ -515,4 +527,14 @@ pub struct LogEntry {
     pub scope: String,
     pub level: String,
     pub message: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+pub struct RuntimeStateStore {
+    #[serde(default)]
+    pub tickets: Vec<TicketRecord>,
+    #[serde(default)]
+    pub logs: Vec<LogEntry>,
+    #[serde(default)]
+    pub provider_balance_cache: Vec<ProviderBalanceCacheEntry>,
 }

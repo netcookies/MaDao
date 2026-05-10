@@ -112,6 +112,9 @@ POST /api/tickets/{ticket_id}/callbacks
 - daemon 会在后台循环中尝试轮询等待中的 ticket
 - 一旦 ticket 拿到 `code`，会向注册的 callback URL 发送 POST JSON
 - 成功或失败都会写入运行时日志
+- 运行时 `tickets` 与 `logs` 会持久化到 daemon 配置目录下的 `runtime-state.json`
+- `logs` 会受 `log_buffer` 限制裁剪，`tickets` 也会按固定上限裁剪，避免无限增长
+- UI 中的 `Messages`、`Recent Activity`、`Logs` 都基于这份运行时状态派生
 
 回调 payload：
 

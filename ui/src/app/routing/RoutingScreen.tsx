@@ -12,7 +12,7 @@ import {
 import { restrictToParentElement, restrictToVerticalAxis } from '@dnd-kit/modifiers';
 import { SortableContext, useSortable, verticalListSortingStrategy } from '@dnd-kit/sortable';
 import { CSS } from '@dnd-kit/utilities';
-import { ChevronRight, Copy, GripVertical, Plus } from 'lucide-react';
+import { ChevronRight, Copy, GripVertical, Minus, Plus } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import { Modal } from '../../components/overlays';
 import { formatCountryLabel, formatProviderLabel, formatServiceLabel } from '../../lib/formatters';
@@ -25,6 +25,7 @@ import {
   SegmentedControl,
   SelectTrigger,
   StatusBadge,
+  TextField,
   ToggleSwitch,
 } from '../ui-bridge';
 import { ResourceBadge } from '../../components/primitives';
@@ -92,6 +93,7 @@ function emptyPlan(): RoutingPlan {
     description: '',
     enabled: true,
     execution_mode: 'sequential',
+    execution_rounds: 1,
     items: [],
   };
 }
@@ -186,6 +188,11 @@ export function RoutingScreen(props: RoutingScreenProps) {
       />
     </>
   );
+}
+
+function clampExecutionRounds(value: number) {
+  if (!Number.isFinite(value)) return 1;
+  return Math.max(0, Math.trunc(value));
 }
 
 function RoutingPlanMatrixScreen(props: {
@@ -458,20 +465,75 @@ function RoutingPlanDetailScreen(props: {
           </label>
 
           <div className="flex flex-col gap-4 min-[760px]:flex-row min-[760px]:items-end min-[760px]:justify-between">
-            <div className="flex flex-col gap-2">
-              <span className="text-[11px] font-semibold uppercase tracking-[0.08em] text-ds-text-secondary">
-                {t('Execution Mode')}
-              </span>
-              <SegmentedControl
-                items={[
-                  { id: 'sequential', label: t('Sequential') },
-                  { id: 'random', label: t('Random') },
-                ]}
-                value={props.plan.execution_mode as RoutingExecutionMode}
-                onChange={(value) => props.onUpdatePlan({ ...props.plan, execution_mode: value })}
-                appearance="rail"
-                className="flex-nowrap"
-              />
+            <div className="flex flex-col gap-4 min-[760px]:flex-row min-[760px]:items-end">
+              <div className="flex flex-col gap-2">
+                <span className="text-[11px] font-semibold uppercase tracking-[0.08em] text-ds-text-secondary">
+                  {t('Execution Mode')}
+                </span>
+                <SegmentedControl
+                  items={[
+                    { id: 'sequential', label: t('Sequential') },
+                    { id: 'random', label: t('Random') },
+                  ]}
+                  value={props.plan.execution_mode as RoutingExecutionMode}
+                  onChange={(value) => props.onUpdatePlan({ ...props.plan, execution_mode: value })}
+                  appearance="rail"
+                  className="flex-nowrap"
+                />
+              </div>
+
+              <div className="flex min-w-[188px] flex-col gap-2">
+                <span className="text-[11px] font-semibold uppercase tracking-[0.08em] text-ds-text-secondary">
+                  {t('Execution Rounds')}（{t('0 MEANS INFINITE')}）
+                </span>
+                <div className="flex items-center gap-2">
+                  <AppButton
+                    variant="outline"
+                    size="utility"
+                    aria-label={t('Decrease execution rounds')}
+                    className="w-10 min-w-10 px-0"
+                    onClick={() => props.onUpdatePlan({
+                      ...props.plan,
+                      execution_rounds: clampExecutionRounds(props.plan.execution_rounds - 1),
+                    })}
+                  >
+                    <Minus size={18} strokeWidth={2.4} />
+                  </AppButton>
+                  <TextField
+                    type="number"
+                    min={0}
+                    step={1}
+                    value={props.plan.execution_rounds}
+                    onChange={(event) => {
+                      const trimmed = event.target.value.trim();
+                      if (!trimmed) return;
+                      const parsed = Number.parseInt(trimmed, 10);
+                      if (!Number.isFinite(parsed)) return;
+                      props.onUpdatePlan({
+                        ...props.plan,
+                        execution_rounds: clampExecutionRounds(parsed),
+                      });
+                    }}
+                    compact
+                    fullWidth={false}
+                    aria-label={t('Execution rounds')}
+                    className="w-[64px]"
+                    inputClassName="text-center [-moz-appearance:textfield] [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:appearance-none"
+                  />
+                  <AppButton
+                    variant="outline"
+                    size="utility"
+                    aria-label={t('Increase execution rounds')}
+                    className="w-10 min-w-10 px-0"
+                    onClick={() => props.onUpdatePlan({
+                      ...props.plan,
+                      execution_rounds: clampExecutionRounds(props.plan.execution_rounds + 1),
+                    })}
+                  >
+                    <Plus size={18} strokeWidth={2.4} />
+                  </AppButton>
+                </div>
+              </div>
             </div>
 
             <div className="min-[760px]:text-right">
