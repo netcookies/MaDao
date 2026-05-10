@@ -593,6 +593,23 @@ export function App() {
     return [...services.entries()].map(([id, label]) => ({ id, label }));
   }, [providerOptions]);
 
+  const sharedCountryIconUrls = useMemo<Record<string, string>>(() => {
+    const next: Record<string, string> = {};
+    optionCatalog.countries.forEach((item) => {
+      const firstProviderWithIcon = item.providers.find((providerId) => item.provider_icon_urls?.[providerId]);
+      const iconUrl = firstProviderWithIcon
+        ? item.provider_icon_urls?.[firstProviderWithIcon]
+        : item.icon_url;
+      if (iconUrl) {
+        if (!next[item.value]) next[item.value] = iconUrl;
+        Object.values(item.provider_values).forEach((providerValue) => {
+          if (providerValue && !next[providerValue]) next[providerValue] = iconUrl;
+        });
+      }
+    });
+    return next;
+  }, [optionCatalog.countries]);
+
   const [routingView, setRoutingView] = useState<'matrix' | 'detail'>('matrix');
   const [selectedRoutingPlanId, setSelectedRoutingPlanId] = useState('');
   const [routingFilter, setRoutingFilter] = useState<RoutingPlanFilter>('all');
@@ -1415,6 +1432,7 @@ export function App() {
                 plans={routingPlans}
                 providers={orderedProviders}
                 serviceOptions={routingServiceOptions}
+                countryIconUrls={sharedCountryIconUrls}
                 selectedPlanId={selectedRoutingPlanId}
                 routingFilter={routingFilter}
                 routingSearch={routingSearch}
@@ -1430,7 +1448,7 @@ export function App() {
                 onUpdateRoutingSearch={setRoutingSearch}
                 onOpenServicePicker={openRoutingServiceSelector}
                 onOpenProviderPicker={(itemId) => void openRoutingItemSelector(itemId, 'provider')}
-                onOpenItemSelector={(itemId, field) => void openRoutingItemSelector(itemId, field, 'editor')}
+                onOpenItemSelector={(itemId, field, source) => void openRoutingItemSelector(itemId, field, source)}
                 onAddItem={addRoutingPlanItem}
                 onRemoveItem={removeRoutingPlanItem}
                 onReorderItem={reorderRoutingPlanItem}

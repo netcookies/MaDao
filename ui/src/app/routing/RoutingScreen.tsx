@@ -39,6 +39,7 @@ export type RoutingScreenProps = {
   plans: RoutingPlan[];
   providers: ProviderManifest[];
   serviceOptions: Array<{ id: string; label: string }>;
+  countryIconUrls?: Record<string, string>;
   selectedPlanId: string;
   routingFilter: RoutingPlanFilter;
   routingSearch: string;
@@ -54,7 +55,7 @@ export type RoutingScreenProps = {
   onUpdateRoutingSearch: (value: string) => void;
   onOpenServicePicker: () => void;
   onOpenProviderPicker: (itemId: string) => void;
-  onOpenItemSelector: (itemId: string, field: 'provider' | 'country' | 'operator') => void;
+  onOpenItemSelector: (itemId: string, field: 'provider' | 'country' | 'operator', source?: 'row' | 'editor') => void;
   onAddItem: () => void;
   onRemoveItem: (itemId: string) => void;
   onReorderItem: (fromIndex: number, toIndex: number) => void;
@@ -133,6 +134,7 @@ export function RoutingScreen(props: RoutingScreenProps) {
         plan={plan}
         providers={props.providers}
         serviceOptions={props.serviceOptions}
+        countryIconUrls={props.countryIconUrls}
         language={language}
         busyAction={props.busyAction}
         onBackToList={props.onBackToList}
@@ -151,11 +153,12 @@ export function RoutingScreen(props: RoutingScreenProps) {
         providers={props.providers}
         provider={props.providers.find((item) => item.id === props.itemEditor?.providerId)}
         language={language}
+        countryIconUrls={props.countryIconUrls}
         priceItems={props.itemPriceOptions}
         loading={props.itemEditorLoading}
         onClose={props.onCloseItemEditor}
         onChange={props.onItemEditorChange}
-        onOpenSelector={(field) => props.itemEditor && props.onOpenItemSelector(props.itemEditor.itemId, field)}
+        onOpenSelector={(field) => props.itemEditor && props.onOpenItemSelector(props.itemEditor.itemId, field, 'editor')}
         onApply={props.onApplyItemEditor}
         onLoadPriceOptions={props.onLoadItemPriceOptions}
         onQuickFill={props.onUseItemPriceQuickFill}
@@ -170,6 +173,7 @@ function RoutingPlanMatrixScreen(props: {
   enabledPlans: number;
   disabledPlans: number;
   serviceOptions: Array<{ id: string; label: string }>;
+  countryIconUrls?: Record<string, string>;
   language: 'en' | 'zh';
   routingFilter: RoutingPlanFilter;
   routingSearch: string;
@@ -291,7 +295,7 @@ function RoutingPlanDetailScreen(props: {
   onRemoveItem: (itemId: string) => void;
   onReorderItem: (fromIndex: number, toIndex: number) => void;
   onOpenProviderPicker: (itemId: string) => void;
-  onOpenItemSelector: (itemId: string, field: 'provider' | 'country' | 'operator') => void;
+  onOpenItemSelector: (itemId: string, field: 'provider' | 'country' | 'operator', source?: 'row' | 'editor') => void;
   onOpenItemEditor: (itemId: string) => void;
 }) {
   const { t } = useTranslation();
@@ -435,11 +439,12 @@ function RoutingPlanDetailScreen(props: {
         </div>
 
         <div className="overflow-hidden rounded-2xl border border-ds-border bg-ds-surface shadow-ds backdrop-blur-ds">
-          <div className="hidden min-[900px]:grid min-[900px]:grid-cols-[24px_36px_minmax(0,1fr)_160px_120px_60px] min-[900px]:items-center bg-ds-surface-subtle px-4 py-2.5 text-[11px] font-semibold uppercase tracking-[0.08em] text-ds-text-secondary">
+          <div className="hidden min-[900px]:grid min-[900px]:grid-cols-[18px_18px_100px_minmax(0,1fr)_80px_124px_84px] min-[900px]:items-center min-[900px]:gap-x-2 bg-ds-surface-subtle px-4 py-2.5 text-[11px] font-semibold uppercase tracking-[0.08em] text-ds-text-secondary">
             <span />
             <span>#</span>
             <span>{t('Provider')}</span>
-            <span>{t('Country · Operator')}</span>
+            <span>{t('Country')}</span>
+            <span>{t('Operator')}</span>
             <span>{t('Price Range')}</span>
             <span className="text-right">{t('Actions')}</span>
           </div>
@@ -451,7 +456,8 @@ function RoutingPlanDetailScreen(props: {
               : provider
                 ? formatProviderLabel(provider.name, props.language)
                 : t('Choose provider');
-            const countryOperator = `${item.country ? formatCountryLabel(item.country, props.language) : t('Any country')} · ${formatOperatorLabel(item.operator || 'any', props.language)}`;
+            const countryLabel = item.country ? formatCountryLabel(item.country, props.language) : t('Any country');
+            const operatorLabel = formatOperatorLabel(item.operator || 'any', props.language);
 
             return (
               <div
@@ -475,7 +481,7 @@ function RoutingPlanDetailScreen(props: {
                   if (dragOverItemId === item.id) setDragOverItemId(null);
                 }}
                 className={cx(
-                  'grid grid-cols-[24px_minmax(0,1fr)_auto] gap-3 border-b border-ds-border px-4 py-3 last:border-b-0 min-[900px]:grid-cols-[24px_36px_minmax(0,1fr)_160px_120px_60px] min-[900px]:items-center',
+                  'grid grid-cols-[24px_minmax(0,1fr)_auto] gap-3 border-b border-ds-border px-4 py-3 last:border-b-0 min-[900px]:grid-cols-[18px_18px_100px_minmax(0,1fr)_80px_124px_84px] min-[900px]:items-center min-[900px]:gap-x-2',
                   item.enabled ? 'bg-ds-surface' : 'bg-ds-surface opacity-60',
                   dragOverItemId === item.id && 'border-t-2 border-t-ds-accent-blue',
                   draggedItemId === item.id && 'opacity-45',
@@ -514,14 +520,45 @@ function RoutingPlanDetailScreen(props: {
                   </button>
                   <div className="mt-1 flex flex-wrap gap-3 text-[12px] text-ds-text-secondary min-[900px]:hidden">
                     <span>#{index + 1}</span>
-                    <span>{countryOperator}</span>
+                    <button
+                      type="button"
+                      onClick={() => props.onOpenItemSelector(item.id, 'country', 'row')}
+                      className="inline-flex min-w-0 items-center gap-1 bg-transparent p-0 text-left text-inherit hover:text-ds-accent-blue"
+                    >
+                      <ResourceBadge kind="country" value={item.country || 'any'} size="sm" iconUrl={props.countryIconUrls?.[item.country || 'any']} />
+                      <span className="truncate">{countryLabel}</span>
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => props.onOpenItemSelector(item.id, 'operator', 'row')}
+                      className="inline-flex min-w-0 items-center gap-1 bg-transparent p-0 text-left text-inherit hover:text-ds-accent-blue"
+                    >
+                      <span className="truncate">{operatorLabel}</span>
+                    </button>
                     <span>{summarizePrice(item, t)}</span>
                     {!item.enabled ? <span>{t('Disabled')}</span> : null}
                   </div>
                 </div>
 
-                <div className="hidden text-[12px] text-ds-text-secondary min-[900px]:block">
-                  {countryOperator}
+                <div className="hidden min-[900px]:block">
+                  <button
+                    type="button"
+                    onClick={() => props.onOpenItemSelector(item.id, 'country', 'row')}
+                    className="inline-flex w-full min-w-0 items-center gap-2 bg-transparent p-0 text-left text-[12px] text-ds-text-secondary transition-colors duration-fast ease-[var(--ds-motion-transition-fast)] hover:text-ds-accent-blue"
+                  >
+                    <ResourceBadge kind="country" value={item.country || 'any'} size="sm" iconUrl={props.countryIconUrls?.[item.country || 'any']} />
+                    <span className="truncate">{countryLabel}</span>
+                  </button>
+                </div>
+
+                <div className="hidden min-[900px]:block">
+                  <button
+                    type="button"
+                    onClick={() => props.onOpenItemSelector(item.id, 'operator', 'row')}
+                    className="inline-flex w-full min-w-0 items-center gap-2 bg-transparent p-0 text-left text-[12px] text-ds-text-secondary transition-colors duration-fast ease-[var(--ds-motion-transition-fast)] hover:text-ds-accent-blue"
+                  >
+                    <span className="truncate">{operatorLabel}</span>
+                  </button>
                 </div>
 
                 <div className="hidden text-[12px] text-ds-text-secondary min-[900px]:block">
@@ -628,6 +665,7 @@ function RoutingItemEditorModal(props: {
   providers: ProviderManifest[];
   provider?: ProviderManifest;
   language: 'en' | 'zh';
+  countryIconUrls?: Record<string, string>;
   priceItems: ProviderPriceItem[];
   loading: boolean;
   onClose: () => void;
@@ -708,7 +746,7 @@ function RoutingItemEditorModal(props: {
               value={editor.country ? formatCountryLabel(editor.country, props.language) : ''}
               valueContent={editor.country ? (
                 <span className="inline-flex min-w-0 items-center gap-2">
-                  <ResourceBadge kind="country" value={editor.country} size="sm" />
+                  <ResourceBadge kind="country" value={editor.country} size="sm" iconUrl={props.countryIconUrls?.[editor.country]} />
                   <span className="truncate">{formatCountryLabel(editor.country, props.language)}</span>
                 </span>
               ) : undefined}
