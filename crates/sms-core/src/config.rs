@@ -9,7 +9,6 @@ pub struct ServerConfig {
     pub socket_path: PathBuf,
     pub provider_dir: PathBuf,
     pub log_buffer: usize,
-    pub ui_title: String,
 }
 
 impl ServerConfig {

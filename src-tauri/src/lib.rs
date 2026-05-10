@@ -19,6 +19,7 @@ use tauri::tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent}
 const MENU_COMMAND_EVENT: &str = "menu-command";
 const TRAY_ID: &str = "madao-menu-bar";
 const APP_NAME: &str = "码到";
+const APP_WINDOW_TITLE: &str = "码到 —— 一站式接码助手";
 const MENU_NEW_ACTIVATION_ID: &str = "menu.new_activation";
 const MENU_OPEN_MAIN_WINDOW_ID: &str = "menu.open_main_window";
 const MENU_PREFERENCES_ID: &str = "menu.preferences";
@@ -548,6 +549,11 @@ async fn window_action(window: WebviewWindow, action: String) -> Result<(), Stri
     }
 }
 
+#[tauri::command]
+async fn set_window_title(window: WebviewWindow, title: String) -> Result<(), String> {
+    window.set_title(&title).map_err(|err| err.to_string())
+}
+
 pub fn run() {
     tauri::Builder::default()
         .enable_macos_default_menu(false)
@@ -559,7 +565,8 @@ pub fn run() {
             refresh_menu_bar,
             app_config_directory,
             open_app_config_directory,
-            window_action
+            window_action,
+            set_window_title
         ])
         .on_tray_icon_event(|app, event| {
             if event.id().as_ref() != TRAY_ID {
@@ -628,7 +635,6 @@ pub fn run() {
             app.manage(Arc::clone(&service));
             let app_handle = app.handle().clone();
             let config = config.clone();
-            let initial_window_title = config.ui_title.clone();
             let cache_service = Arc::clone(&service);
             tauri::async_runtime::spawn(async move {
                 match spawn_http_server(service, &config).await {
@@ -650,7 +656,7 @@ pub fn run() {
                 }
             });
             if let Some(window) = app.get_webview_window("main") {
-                let _ = window.set_title(&initial_window_title);
+                let _ = window.set_title(APP_WINDOW_TITLE);
             }
             let _ = app.set_dock_visibility(true);
             let menu = build_app_menu(&app.handle())?;
