@@ -7,10 +7,37 @@ on:
 
 permissions:
   contents: write
+  models: read
 
 jobs:
+  release_meta:
+    name: Prepare release metadata
+    runs-on: ubuntu-latest
+    outputs:
+      current_tag: ${{ steps.meta.outputs.current_tag }}
+      prerelease: ${{ steps.meta.outputs.prerelease }}
+      release_name: ${{ steps.meta.outputs.release_name }}
+      release_body: ${{ steps.meta.outputs.release_body }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Generate release notes
+        id: meta
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: node scripts/generate-release-notes.mjs --github-output "$GITHUB_OUTPUT" --notes-file "$RUNNER_TEMP/release-notes.md"
+
   build:
     name: Build ${{ matrix.platform.name }}
+    needs: release_meta
     runs-on: ${{ matrix.platform.os }}
     strategy:
       fail-fast: false
@@ -29,6 +56,8 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
 
       - name: Setup Node.js
         uses: actions/setup-node@v4
@@ -73,9 +102,9 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
-          tagName: ${{ github.ref_name }}
-          releaseName: 码到 ${{ github.ref_name }}
-          releaseBody: 自动构建的多平台二进制发布。
+          tagName: ${{ needs.release_meta.outputs.current_tag }}
+          releaseName: ${{ needs.release_meta.outputs.release_name }}
+          releaseBody: ${{ needs.release_meta.outputs.release_body }}
           releaseDraft: false
-          prerelease: false
+          prerelease: ${{ fromJSON(needs.release_meta.outputs.prerelease) }}
           args: ${{ matrix.platform.args }}

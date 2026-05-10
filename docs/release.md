@@ -1,14 +1,60 @@
 # 自动发布
 
-仓库提供了 GitHub Actions 发布工作流：
+仓库提供了 GitHub Actions 发布工作流，以及本地一键发布脚本：
 
 ```text
 .github/workflows/release.yml
+scripts/release.mjs
+scripts/generate-release-notes.mjs
 ```
 
-## 触发方式
+## 推荐发布方式
 
-推荐通过推送语义化 tag 触发：
+推荐直接使用项目脚本完成版本提升、校验、打 tag 和推送：
+
+```bash
+npm run release -- patch
+```
+
+也可以显式指定版本：
+
+```bash
+npm run release -- 0.2.0
+npm run release -- 0.2.1-beta.1
+```
+
+脚本会按顺序执行：
+
+1. 检查 Git 工作区必须干净。
+2. 提升 `Cargo.toml`、`Cargo.lock`、`package.json`、`package-lock.json` 的版本号。
+3. 执行本地校验：
+
+```bash
+npm run build
+cargo check --workspace
+cargo test -p sms-core
+```
+
+4. 创建提交：`chore: 发布 vX.Y.Z`
+5. 创建 annotated tag：`vX.Y.Z`
+6. 生成本地发版说明预览：`.git/release-notes-vX.Y.Z.md`
+7. 推送当前分支和 tag，触发 GitHub Actions 发布
+
+如果只想预演，不改文件：
+
+```bash
+npm run release -- patch --dry-run
+```
+
+如果只想本地生成发版说明预览：
+
+```bash
+npm run release:notes -- --current-tag v0.2.0 --to-ref HEAD --no-ai
+```
+
+## CI 触发方式
+
+CI 仍然通过推送语义化 tag 触发：
 
 ```bash
 git tag v0.1.0
@@ -25,7 +71,13 @@ git push origin v0.1.0
 
 ## 工作流内容
 
-发布前会执行：
+工作流会先自动生成发版说明，再在以下平台构建：
+
+- macOS
+- Linux
+- Windows
+
+构建前会执行：
 
 ```bash
 npm ci
@@ -34,7 +86,19 @@ cargo check --workspace
 cargo test -p sms-core
 ```
 
-通过后再调用 `tauri-apps/tauri-action` 打包各平台桌面产物。
+通过后再调用 `tauri-apps/tauri-action` 打包各平台桌面产物，并把自动生成的发版说明写入 GitHub Release。
+
+## 发版说明来源
+
+发版说明由 `scripts/generate-release-notes.mjs` 生成，规则如下：
+
+- 默认比较 `当前 tag` 与 `上一个稳定 tag`
+- 预发布 tag（如 `v0.2.1-beta.1`）会回看上一个已合并 tag
+- 自动忽略 `chore: 发布 vX.Y.Z` 这类发布提交
+- 优先调用 GitHub Models 生成面向用户的中文说明
+- 如果 AI 不可用，则回退为基于 Conventional Commits 的稳定分组说明
+
+因此 CI 即使没有 AI 响应，也不会阻塞正式发布。
 
 ## 版本来源
 
@@ -47,8 +111,34 @@ cargo test -p sms-core
 
 不同平台会由 Tauri 自动输出对应格式的安装包 / bundle，具体取决于 runner 平台与 Tauri bundler 支持：
 
-- macOS：`.app` / `.dmg`
+- macOS：通常为 `.app` / `.dmg`
 - Linux：如 `.AppImage` / `.deb`
 - Windows：如 `.msi` / `.exe`
 
 实际生成格式以当次 Tauri bundler 输出为准。
+
+## macOS 签名说明
+
+当前 workflow 只执行 `tauri-apps/tauri-action` 打包，没有配置 Apple Developer 签名或 notarization 所需的 secrets / 环境变量，因此：
+
+- 当前 macOS 产物默认是`未签名`、`未 notarize`的
+- 在 macOS runner 上通常仍会生成 `.app` 和 `.dmg`
+- 用户从浏览器下载后，可能会被 Gatekeeper 标记 `com.apple.quarantine`
+
+如果下载后的 `.dmg` 或 `.app` 无法直接打开，可以先清理 quarantine 标记。
+
+对 `.dmg`：
+
+```bash
+xattr -dr com.apple.quarantine ~/Downloads/码到.dmg
+```
+
+把应用拖到 `Applications` 后，如果 `.app` 仍然被拦截，再执行：
+
+```bash
+xattr -dr com.apple.quarantine /Applications/码到.app
+```
+
+如果应用不在 `Applications`，把路径替换成实际位置即可。
+
+`xattr` 只是移除本机下载隔离标记，不等同于正式签名或 notarization。后续如果要面向更广泛的 macOS 分发，建议再补 Apple 证书签名与 notarization 流程。

@@ -1,0 +1,4 @@
+interface:
+  display_name: "Project Release"
+  short_description: "Run the project release script safely."
+  default_prompt: "Use $release to bump version, verify, tag, and push a project release with scripts/release.mjs."

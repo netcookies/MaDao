@@ -7,6 +7,8 @@
     "dev": "vite",
     "build": "vite build",
     "preview": "vite preview",
+    "release": "node scripts/release.mjs",
+    "release:notes": "node scripts/generate-release-notes.mjs",
     "check:5sim-gap": "node scripts/check-5sim-catalog-gap.mjs",
     "ui:design-baselines": "node scripts/ui-screenshot/fixtures.mjs",
     "ui:screenshot": "node scripts/ui-screenshot/capture.mjs",
