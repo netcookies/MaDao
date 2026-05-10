@@ -235,6 +235,16 @@ fn build_app_menu(app: &tauri::AppHandle) -> Result<Menu<tauri::Wry>, String> {
         .item(&open_main_window)
         .build()
         .map_err(|err| err.to_string())?;
+    let edit_submenu = SubmenuBuilder::new(app, "Edit")
+        .undo()
+        .redo()
+        .separator()
+        .cut()
+        .copy()
+        .paste()
+        .select_all()
+        .build()
+        .map_err(|err| err.to_string())?;
     let window_submenu = SubmenuBuilder::new(app, "Window")
         .item(&overview)
         .item(&providers)
@@ -248,6 +258,7 @@ fn build_app_menu(app: &tauri::AppHandle) -> Result<Menu<tauri::Wry>, String> {
     MenuBuilder::new(app)
         .item(&app_submenu)
         .item(&file_submenu)
+        .item(&edit_submenu)
         .item(&window_submenu)
         .build()
         .map_err(|err| err.to_string())
@@ -396,7 +407,7 @@ fn sync_menu_bar(app: &tauri::AppHandle) -> Result<(), String> {
 
 fn handle_menu_event(app: &tauri::AppHandle, event_id: &str) {
     match menu_action_for_id(event_id) {
-        MenuAction::Noop => {}
+        MenuAction::Noop => return,
         MenuAction::ShowWindow => {
             if let Err(err) = show_main_window(app) {
                 eprintln!("menu action `{event_id}` failed: {err}");
@@ -625,6 +636,7 @@ pub fn run() {
             tauri::async_runtime::spawn(async move {
                 loop {
                     let _ = cache_service.maybe_poll_provider_options().await;
+                    cache_service.refresh_all_provider_balances().await;
                     cache_service.maybe_dispatch_ticket_callbacks().await;
                     tokio::time::sleep(std::time::Duration::from_secs(60)).await;
                 }
@@ -667,5 +679,10 @@ mod tests {
     #[test]
     fn parses_quit_event_id() {
         assert_eq!(menu_action_for_id(MENU_QUIT_ID), MenuAction::Quit);
+    }
+
+    #[test]
+    fn unknown_event_ids_are_noop() {
+        assert_eq!(menu_action_for_id("undo"), MenuAction::Noop);
     }
 }

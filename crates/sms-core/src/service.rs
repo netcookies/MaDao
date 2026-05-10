@@ -2,12 +2,13 @@ use crate::error::SmsError;
 use crate::models::{
     AcquireCodeRequest, AcquireCodeResponse, LogEntry, NotificationFeed, OptionCacheOverview,
     OptionCacheState, OptionItem, OptionListResponse, PollCodeRequest, PollCodeResponse,
-    ProviderBalance, ProviderDynamicOptions, ProviderManifestList, ProviderManifestSaveResponse,
-    ProviderOperatorsQuery, ProviderOptionCacheEntry, ProviderPriceQuery, ProviderPriceResponse,
-    ProviderRawOptionAuditEntry, ProviderReorderRequest, ProviderServicesQuery, ProviderSummary,
-    ReleaseCodeRequest, ReleaseCodeResponse, RoutingExecutionMode, RoutingFailoverRequest,
-    RoutingPlan, RoutingPlanItem, RoutingPlanList, RoutingPlanStore, RuntimeSettings,
-    RuntimeSettingsUpdate, RuntimeSnapshot, TicketCallbackListResponse,
+    ProviderBalance, ProviderBalanceCacheEntry, ProviderDynamicOptions, ProviderManifestList,
+    ProviderManifestSaveResponse, ProviderOperatorsQuery, ProviderOptionCacheEntry,
+    ProviderPriceQuery, ProviderPriceResponse, ProviderRawOptionAuditEntry,
+    ProviderReorderRequest, ProviderServicesQuery, ProviderSummary, ReleaseCodeRequest,
+    ReleaseCodeResponse, RoutingExecutionMode, RoutingFailoverRequest, RoutingPlan,
+    RoutingPlanItem, RoutingPlanList, RoutingPlanStore, RuntimeSettings, RuntimeSettingsUpdate,
+    RuntimeSnapshot, TicketCallbackListResponse,
     TicketCallbackRegistrationRequest, TicketCallbackSubscription, TicketCodeCallbackPayload,
     TicketListResponse, TicketRecord, TicketStatus,
 };
@@ -15,8 +16,8 @@ use crate::options::{
     OptionKind, ProviderOptionCacheStore, ProviderRawOptionAuditStore, build_cache_overview,
     cache_state, load_option_cache_store, load_raw_option_audit_store,
     normalize_loaded_provider_options, normalize_price_items, normalize_provider_options,
-    resolve_provider_value, save_option_cache_store, save_raw_option_audit_store,
-    with_cache_state,
+    normalize_ticket_record, resolve_provider_value,
+    save_option_cache_store, save_raw_option_audit_store, with_cache_state,
 };
 use crate::registry::ProviderRegistry;
 use chrono::Utc;
@@ -31,6 +32,16 @@ use uuid::Uuid;
 
 const ROUTING_PLANS_FILE_NAME: &str = "routing-plans.json";
 const ROUTING_ANY_PROVIDER: &str = "any";
+const LOW_BALANCE_PATTERNS: [&str; 8] = [
+    "no balance",
+    "not enough balance",
+    "insufficient balance",
+    "low balance",
+    "balance too low",
+    "not enough funds",
+    "insufficient funds",
+    "balance below",
+];
 
 pub struct SmsService {
     registry: Arc<RwLock<ProviderRegistry>>,
@@ -44,6 +55,7 @@ pub struct SmsService {
     routing_plans: RwLock<RoutingPlanStore>,
     provider_option_cache: RwLock<ProviderOptionCacheStore>,
     provider_raw_option_audit: RwLock<ProviderRawOptionAuditStore>,
+    provider_balance_cache: RwLock<BTreeMap<String, ProviderBalanceCacheEntry>>,
     callback_subscriptions: RwLock<BTreeMap<String, Vec<TicketCallbackSubscription>>>,
     callback_client: Client,
     log_buffer: usize,
@@ -135,6 +147,7 @@ impl SmsService {
             routing_plans: RwLock::new(routing_plans),
             provider_option_cache: RwLock::new(provider_option_cache),
             provider_raw_option_audit: RwLock::new(provider_raw_option_audit),
+            provider_balance_cache: RwLock::new(BTreeMap::new()),
             callback_subscriptions: RwLock::new(BTreeMap::new()),
             callback_client: Client::builder()
                 .timeout(std::time::Duration::from_secs(5))
@@ -239,6 +252,7 @@ impl SmsService {
         );
         let ticket = match provider
             .acquire(&self.translate_acquire_request(
+                provider.manifest(),
                 &request,
                 cached_options.as_ref().map(|entry| &entry.options),
             ))
@@ -258,6 +272,11 @@ impl SmsService {
                 return Err(error);
             }
         };
+        let ticket = normalize_ticket_record(
+            provider.manifest(),
+            cached_options.as_ref().map(|entry| &entry.options),
+            ticket,
+        );
         let response = AcquireCodeResponse {
             ticket_id: ticket.id.clone(),
             provider: ticket.provider.clone(),
@@ -425,6 +444,7 @@ impl SmsService {
             }
 
             let translated = self.translate_acquire_request(
+                provider.manifest(),
                 &routed,
                 cached_options.as_ref().map(|entry| &entry.options),
             );
@@ -444,6 +464,7 @@ impl SmsService {
                 }
                 Err(error) => {
                     self.log_upstream_response(&provider_id, "acquire", "error", error.to_string());
+                    self.maybe_disable_provider_for_low_balance(&provider_id, &error);
                     last_error = Some(error);
                     continue;
                 }
@@ -455,6 +476,11 @@ impl SmsService {
             ticket.routing_execution_mode = Some(plan.execution_mode);
             ticket.routing_candidate_item_ids = candidate_item_ids.to_vec();
             ticket.routing_attempt_count = (attempt_index + 1) as u32;
+            ticket = normalize_ticket_record(
+                provider.manifest(),
+                cached_options.as_ref().map(|entry| &entry.options),
+                ticket,
+            );
 
             let response = AcquireCodeResponse {
                 ticket_id: ticket.id.clone(),
@@ -661,6 +687,7 @@ impl SmsService {
             } else {
                 item.provider.clone()
             };
+            let provider_for_disable = provider.clone();
             let mut acquire_request = AcquireCodeRequest {
                 provider,
                 service: Some(plan.service.clone()),
@@ -705,6 +732,9 @@ impl SmsService {
             match response {
                 Ok(response) => return Ok(response),
                 Err(error) => {
+                    if let Some(provider_id) = (!provider_for_disable.is_empty()).then_some(provider_for_disable.clone()) {
+                        self.maybe_disable_provider_for_low_balance(&provider_id, &error);
+                    }
                     self.log(
                         "router",
                         "warn",
@@ -728,6 +758,15 @@ impl SmsService {
         };
         match provider.get_balance().await {
             Ok(balance) => {
+                self.provider_balance_cache.write().insert(
+                    provider_id.to_string(),
+                    ProviderBalanceCacheEntry {
+                        provider: provider_id.to_string(),
+                        amount: balance.amount,
+                        currency: balance.currency.clone(),
+                        fetched_at: Utc::now(),
+                    },
+                );
                 self.log_upstream_response(
                     provider_id,
                     "get_balance",
@@ -750,7 +789,12 @@ impl SmsService {
         self.log_upstream_request(
             &query.provider,
             "get_prices",
-            format!("service={}", query.service.clone().unwrap_or_default()),
+            format!(
+                "service={} country={} operator={}",
+                query.service.clone().unwrap_or_default(),
+                query.country.clone().unwrap_or_default(),
+                query.operator.clone().unwrap_or_default(),
+            ),
         );
         let cached_options = self
             .provider_option_cache
@@ -762,15 +806,60 @@ impl SmsService {
             let registry = self.registry.read();
             registry.get(&query.provider)?
         };
-        let service = resolve_provider_value(
-            cached_options.as_ref().map(|entry| &entry.options),
-            OptionKind::Service,
-            query
-                .service
-                .as_deref()
-                .unwrap_or(provider.manifest().defaults.service.as_str()),
-        );
-        let items = match provider.get_prices(Some(&service)).await {
+        let canonical_service = query
+            .service
+            .as_deref()
+            .unwrap_or(provider.manifest().defaults.service.as_str());
+        let aliased_service = provider.manifest().resolve_service_alias(Some(canonical_service));
+        let service = if cached_options
+            .as_ref()
+            .map(|entry| {
+                entry
+                    .options
+                    .raw_services
+                    .iter()
+                    .any(|item| item.value.eq_ignore_ascii_case(&aliased_service))
+            })
+            .unwrap_or(false)
+        {
+            aliased_service.clone()
+        } else {
+            resolve_provider_value(
+                cached_options.as_ref().map(|entry| &entry.options),
+                OptionKind::Service,
+                &aliased_service,
+            )
+        };
+        let country = query.country.as_ref().and_then(|value| {
+            let trimmed = value.trim();
+            if trimmed.is_empty() {
+                None
+            } else {
+                Some(resolve_provider_value(
+                    cached_options.as_ref().map(|entry| &entry.options),
+                    OptionKind::Country,
+                    trimmed,
+                ))
+            }
+        });
+        let operator = query.operator.as_ref().and_then(|value| {
+            let trimmed = value.trim();
+            if trimmed.is_empty() {
+                None
+            } else {
+                Some(resolve_provider_value(
+                    cached_options.as_ref().map(|entry| &entry.options),
+                    OptionKind::Operator,
+                    trimmed,
+                ))
+            }
+        });
+        let items = match provider.get_prices(ProviderPriceQuery {
+            provider: query.provider.clone(),
+            service: Some(service.clone()),
+            country,
+            operator,
+        }).await {
             Ok(items) => {
                 self.log_upstream_response(
                     &query.provider,
@@ -794,7 +883,7 @@ impl SmsService {
             normalize_price_items(cached_options.as_ref().map(|entry| &entry.options), items);
         Ok(ProviderPriceResponse {
             provider: query.provider,
-            service: provider.manifest().resolve_service_alias(Some(&service)),
+            service: canonical_service.to_string(),
             items: normalized_items,
         })
     }
@@ -1393,6 +1482,7 @@ impl SmsService {
     pub fn runtime_snapshot(&self) -> RuntimeSnapshot {
         let registry = self.registry.read();
         let settings = self.runtime_settings();
+        let balance_cache = self.provider_balance_cache.read().clone();
         let providers = registry
             .manifests()
             .map(|manifest| ProviderSummary {
@@ -1410,6 +1500,13 @@ impl SmsService {
                 option_cache_state: self
                     .provider_option_cache_state_with_settings(&manifest.id, &settings),
                 option_cache_fetched_at: self.provider_option_cache_fetched_at(&manifest.id),
+                balance: balance_cache.get(&manifest.id).map(|entry| entry.amount),
+                balance_currency: balance_cache
+                    .get(&manifest.id)
+                    .map(|entry| entry.currency.clone()),
+                balance_fetched_at: balance_cache
+                    .get(&manifest.id)
+                    .map(|entry| entry.fetched_at),
                 can_enable: matches!(manifest.kind, plugin_sdk::ProviderKind::Mock)
                     || !settings.option_cache_enabled
                     || self.provider_option_cache_state_with_settings(&manifest.id, &settings)
@@ -1459,6 +1556,72 @@ impl SmsService {
         }
 
         self.option_cache_overview()
+    }
+
+    pub async fn refresh_all_provider_balances(&self) {
+        let manifests = {
+            let registry = self.registry.read();
+            registry.list_manifests()
+        };
+
+        for manifest in manifests {
+            if matches!(manifest.kind, plugin_sdk::ProviderKind::Mock) {
+                continue;
+            }
+            if !manifest.enabled || !manifest.has_configured_api_key() {
+                continue;
+            }
+
+            match self.get_balance(&manifest.id).await {
+                Ok(_) => self.log(
+                    "balance",
+                    "info",
+                    format!("provider balance refreshed for `{}`", manifest.id),
+                ),
+                Err(error) => self.log(
+                    "balance",
+                    "warn",
+                    format!("provider balance refresh failed for `{}`: {error}", manifest.id),
+                ),
+            }
+        }
+    }
+
+    fn maybe_disable_provider_for_low_balance(&self, provider_id: &str, error: &SmsError) {
+        if !Self::is_low_balance_error(error) {
+            return;
+        }
+        let manifest = match self.registry.read().manifest(provider_id) {
+            Ok(manifest) => manifest,
+            Err(_) => return,
+        };
+        if !manifest.enabled {
+            return;
+        }
+
+        let mut next_manifest = manifest.clone();
+        next_manifest.enabled = false;
+        if self
+            .registry
+            .write()
+            .save_manifest(provider_id, next_manifest)
+            .is_ok()
+        {
+            self.log(
+                "balance",
+                "warn",
+                format!(
+                    "provider `{provider_id}` auto-disabled after low balance error: {error}"
+                ),
+            );
+        }
+    }
+
+    fn is_low_balance_error(error: &SmsError) -> bool {
+        let normalized = error.to_string().to_ascii_lowercase();
+        LOW_BALANCE_PATTERNS
+            .iter()
+            .any(|pattern| normalized.contains(pattern))
     }
 
     pub async fn maybe_poll_provider_options(&self) -> OptionCacheOverview {
@@ -1623,16 +1786,29 @@ impl SmsService {
 
     fn translate_acquire_request(
         &self,
+        manifest: &ProviderManifest,
         request: &AcquireCodeRequest,
         options: Option<&ProviderDynamicOptions>,
     ) -> AcquireCodeRequest {
         let mut translated = request.clone();
         if let Some(service) = translated.service.as_ref() {
-            translated.service = Some(resolve_provider_value(
-                options,
-                OptionKind::Service,
-                service,
-            ));
+            let aliased = manifest.resolve_service_alias(Some(service));
+            let resolved = resolve_provider_value(options, OptionKind::Service, &aliased);
+            translated.service = Some(
+                if options
+                    .map(|entry| {
+                        entry
+                            .raw_services
+                            .iter()
+                            .any(|item| item.value.eq_ignore_ascii_case(&aliased))
+                    })
+                    .unwrap_or(false)
+                {
+                    aliased
+                } else {
+                    resolved
+                },
+            );
         }
         if let Some(country) = translated.country.as_ref() {
             translated.country = Some(resolve_provider_value(
@@ -1789,8 +1965,8 @@ fn ensure_routing_plan_enabled(plan: RoutingPlan) -> Result<RoutingPlan, SmsErro
 mod tests {
     use super::*;
     use crate::models::{
-        RoutingExecutionMode, RoutingFailoverRequest, RoutingPlan, RoutingPlanItem,
-        RoutingPriceMode,
+        OptionItem, ProviderDynamicOptions, ProviderOptionCacheEntry, RoutingExecutionMode,
+        RoutingFailoverRequest, RoutingPlan, RoutingPlanItem, RoutingPriceMode,
     };
     use crate::options::ProviderRawOptionAuditStore;
     use crate::registry::ProviderRegistry;
@@ -1831,6 +2007,19 @@ mod tests {
         SmsService::new(registry, 32)
     }
 
+    fn make_mock_preferred_service() -> SmsService {
+        let provider_dir = fixture_provider_dir();
+        for name in ["herosms.toml", "smsbower.toml", "fivesim.toml"] {
+            let path = provider_dir.join(name);
+            let content = fs::read_to_string(&path).unwrap();
+            let mut manifest: ProviderManifest = toml::from_str(&content).unwrap();
+            manifest.enabled = false;
+            fs::write(&path, toml::to_string_pretty(&manifest).unwrap()).unwrap();
+        }
+        let registry = ProviderRegistry::load_from_dir(provider_dir).unwrap();
+        SmsService::new(registry, 32)
+    }
+
     fn make_persistent_service(base: &Path) -> SmsService {
         let provider_dir = fixture_provider_dir();
         let registry = ProviderRegistry::load_from_dir(provider_dir).unwrap();
@@ -1842,6 +2031,48 @@ mod tests {
             Some(base.join("provider-options-raw.json")),
             Some(base.join("routing-plans.json")),
         )
+    }
+
+    #[test]
+    fn persistent_service_recanoicalizes_legacy_cached_countries_on_load() {
+        let base = std::env::temp_dir().join(format!("madao-cache-migrate-{}", Uuid::now_v7()));
+        fs::create_dir_all(&base).unwrap();
+
+        let legacy_cache = r#"{
+  "entries": {
+    "smsbower": {
+      "provider": "smsbower",
+      "fetched_at": "2026-05-09T05:43:15.596832Z",
+      "options": {
+        "provider": "smsbower",
+        "raw_services": [],
+        "raw_countries": [],
+        "raw_operators": [],
+        "services": [],
+        "countries": [
+          {
+            "value": "1",
+            "label": "Ukraine",
+            "hint": "380",
+            "provider_value": "1",
+            "icon_url": null,
+            "provider_icon_url": null
+          }
+        ],
+        "operators": [],
+        "cache_state": "fresh",
+        "fetched_at": "2026-05-09T05:43:15.596832Z"
+      }
+    }
+  }
+}"#;
+        fs::write(base.join("provider-options-cache.json"), legacy_cache).unwrap();
+
+        let service = make_persistent_service(&base);
+        let cached = service.provider_cached_options("smsbower").unwrap();
+        assert_eq!(cached.countries[0].value, "ukraine");
+        assert_eq!(cached.countries[0].label, "Ukraine");
+        assert_eq!(cached.countries[0].provider_value.as_deref(), Some("1"));
     }
 
     fn routing_plan() -> RoutingPlan {
@@ -1985,49 +2216,6 @@ mod tests {
         );
     }
 
-
-    #[test]
-    fn persistent_service_recanoicalizes_legacy_cached_countries_on_load() {
-        let base = std::env::temp_dir().join(format!("madao-cache-migrate-{}", Uuid::now_v7()));
-        fs::create_dir_all(&base).unwrap();
-
-        let legacy_cache = r#"{
-  "entries": {
-    "smsbower": {
-      "provider": "smsbower",
-      "fetched_at": "2026-05-09T05:43:15.596832Z",
-      "options": {
-        "provider": "smsbower",
-        "raw_services": [],
-        "raw_countries": [],
-        "raw_operators": [],
-        "services": [],
-        "countries": [
-          {
-            "value": "1",
-            "label": "Ukraine",
-            "hint": "380",
-            "provider_value": "1",
-            "icon_url": null,
-            "provider_icon_url": null
-          }
-        ],
-        "operators": [],
-        "cache_state": "fresh",
-        "fetched_at": "2026-05-09T05:43:15.596832Z"
-      }
-    }
-  }
-}"#;
-        fs::write(base.join("provider-options-cache.json"), legacy_cache).unwrap();
-
-        let service = make_persistent_service(&base);
-        let cached = service.provider_cached_options("smsbower").unwrap();
-        assert_eq!(cached.countries[0].value, "ukraine");
-        assert_eq!(cached.countries[0].label, "Ukraine");
-        assert_eq!(cached.countries[0].provider_value.as_deref(), Some("1"));
-    }
-
     #[test]
     fn routing_plan_can_be_saved_and_listed() {
         let service = make_service();
@@ -2082,7 +2270,7 @@ mod tests {
 
     #[tokio::test]
     async fn any_provider_routing_item_expands_to_enabled_provider() {
-        let service = make_service();
+        let service = make_mock_preferred_service();
         service
             .save_routing_plan(any_provider_routing_plan())
             .unwrap();
@@ -2105,7 +2293,7 @@ mod tests {
             .unwrap();
 
         assert_ne!(acquire.provider, ROUTING_ANY_PROVIDER);
-        assert!(["herosms", "smsbower", "mock"].contains(&acquire.provider.as_str()));
+        assert_eq!(acquire.provider, "mock");
         assert_eq!(
             acquire.routing_item_id.as_deref(),
             Some("any-provider-item")
@@ -2114,7 +2302,7 @@ mod tests {
 
     #[tokio::test]
     async fn auto_provider_without_routing_plan_uses_enabled_provider() {
-        let service = make_service();
+        let service = make_mock_preferred_service();
 
         let acquire = service
             .acquire_code(AcquireCodeRequest {
@@ -2133,7 +2321,7 @@ mod tests {
             .await
             .unwrap();
 
-        assert!(["herosms", "smsbower", "mock"].contains(&acquire.provider.as_str()));
+        assert_eq!(acquire.provider, "mock");
     }
 
     #[tokio::test]
@@ -2238,6 +2426,8 @@ mod tests {
             .get_prices(ProviderPriceQuery {
                 provider: "mock".to_string(),
                 service: Some("openai".to_string()),
+                country: None,
+                operator: None,
             })
             .await
             .unwrap();
@@ -2249,6 +2439,145 @@ mod tests {
             )
         );
         assert!(logs.iter().any(|entry| entry.scope == "upstream:mock" && entry.message.contains("get_prices")));
+    }
+
+    #[tokio::test]
+    async fn smsbower_prices_use_raw_service_code_when_cached_provider_value_is_numeric() {
+        let service = make_service();
+        {
+            let mut cache = service.provider_option_cache.write();
+            cache.entries.insert(
+                "smsbower".to_string(),
+                ProviderOptionCacheEntry {
+                    provider: "smsbower".to_string(),
+                    fetched_at: Utc::now(),
+                    options: ProviderDynamicOptions {
+                        provider: "smsbower".to_string(),
+                        raw_services: vec![OptionItem {
+                            value: "dr".to_string(),
+                            label: "OpenAI (ChatGPT)".to_string(),
+                            hint: "dr".to_string(),
+                            provider_value: Some("247".to_string()),
+                            icon_url: Some("https://smsbower.app/img/services/247.svg".to_string()),
+                            provider_icon_url: Some("https://smsbower.app/img/services/247.svg".to_string()),
+                        }],
+                        raw_countries: Vec::new(),
+                        raw_operators: Vec::new(),
+                        services: vec![OptionItem {
+                            value: "openai".to_string(),
+                            label: "OpenAI (GPT)".to_string(),
+                            hint: "dr".to_string(),
+                            provider_value: Some("247".to_string()),
+                            icon_url: Some("https://smsbower.app/img/services/247.svg".to_string()),
+                            provider_icon_url: Some("https://smsbower.app/img/services/247.svg".to_string()),
+                        }],
+                        countries: Vec::new(),
+                        operators: Vec::new(),
+                        cache_state: crate::models::OptionCacheState::Fresh,
+                        fetched_at: Some(Utc::now()),
+                    },
+                },
+            );
+        }
+
+        let response = service
+            .get_prices(ProviderPriceQuery {
+                provider: "smsbower".to_string(),
+                service: Some("openai".to_string()),
+                country: None,
+                operator: None,
+            })
+            .await
+            .unwrap();
+
+        assert_eq!(response.service, "openai");
+
+        let logs = service.runtime_snapshot().logs;
+        assert!(logs.iter().any(|entry| {
+            entry.scope == "upstream:smsbower"
+                && entry.message.contains("get_prices")
+                && entry.message.contains("service=dr")
+        }));
+    }
+
+    #[test]
+    fn runtime_snapshot_exposes_cached_provider_balance() {
+        let service = make_service();
+        service.provider_balance_cache.write().insert(
+            "fivesim".to_string(),
+            ProviderBalanceCacheEntry {
+                provider: "fivesim".to_string(),
+                amount: 12.34,
+                currency: "USD".to_string(),
+                fetched_at: Utc::now(),
+            },
+        );
+
+        let snapshot = service.runtime_snapshot();
+        let provider = snapshot.providers.iter().find(|item| item.id == "fivesim").unwrap();
+
+        assert_eq!(provider.balance, Some(12.34));
+        assert_eq!(provider.balance_currency.as_deref(), Some("USD"));
+        assert!(provider.balance_fetched_at.is_some());
+    }
+
+    #[tokio::test]
+    async fn refresh_all_provider_balances_skips_provider_without_api_key() {
+        let provider_dir = fixture_provider_dir();
+        let fivesim_path = provider_dir.join("fivesim.toml");
+        let content = fs::read_to_string(&fivesim_path).unwrap();
+        fs::write(
+            &fivesim_path,
+            content.replace("api_key = \"", "api_key = \"disabled-").replacen("disabled-", "", 1),
+        )
+        .unwrap();
+        let content = fs::read_to_string(&fivesim_path).unwrap();
+        let updated = content
+            .lines()
+            .map(|line| {
+                if line.trim_start().starts_with("api_key = ") {
+                    "api_key = \"\"".to_string()
+                } else {
+                    line.to_string()
+                }
+            })
+            .collect::<Vec<_>>()
+            .join("\n");
+        fs::write(&fivesim_path, updated).unwrap();
+
+        let registry = ProviderRegistry::load_from_dir(provider_dir).unwrap();
+        let service = SmsService::new(registry, 32);
+
+        service.refresh_all_provider_balances().await;
+
+        let snapshot = service.runtime_snapshot();
+        let provider = snapshot.providers.iter().find(|item| item.id == "fivesim").unwrap();
+        assert!(provider.balance.is_none());
+
+        let logs = snapshot.logs;
+        assert!(!logs.iter().any(|entry| {
+            entry.scope == "upstream:fivesim" && entry.message.contains("get_balance")
+        }));
+    }
+
+    #[test]
+    fn low_balance_error_auto_disables_provider() {
+        let service = make_service();
+
+        service.maybe_disable_provider_for_low_balance(
+            "fivesim",
+            &SmsError::Upstream("insufficient balance for provider".to_string()),
+        );
+
+        let manifest = service.provider_manifest("fivesim").unwrap();
+        assert!(!manifest.enabled);
+
+        let logs = service.runtime_snapshot().logs;
+        assert!(logs.iter().any(|entry| {
+            entry.scope == "balance"
+                && entry.message.contains("auto-disabled")
+                && entry.message.contains("fivesim")
+        }));
     }
 
     #[test]

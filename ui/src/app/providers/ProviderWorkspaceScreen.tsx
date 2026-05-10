@@ -69,6 +69,8 @@ export type ProviderWorkspaceScreenProps = {
   storeQuery: StoreQueryState;
   serviceOptions?: OptionItem[];
   countryOptions?: OptionItem[];
+  serviceIconUrls?: Record<string, string>;
+  countryIconUrls?: Record<string, string>;
   onStoreQueryChange: (patch: Partial<StoreQueryState>) => void;
   onSortPrices: (key: PriceSortKey) => void;
   priceSort: { key: PriceSortKey; dir: 'asc' | 'desc' };
@@ -146,6 +148,8 @@ export function ProviderWorkspaceScreen(props: ProviderWorkspaceScreenProps) {
             storeQuery={props.storeQuery}
             serviceOptions={props.serviceOptions}
             countryOptions={props.countryOptions}
+            serviceIconUrls={props.serviceIconUrls}
+            countryIconUrls={props.countryIconUrls}
             onStoreQueryChange={props.onStoreQueryChange}
             onSortPrices={props.onSortPrices}
             priceSort={props.priceSort}
@@ -154,6 +158,21 @@ export function ProviderWorkspaceScreen(props: ProviderWorkspaceScreenProps) {
       </div>
     </div>
   );
+}
+
+function normalizeOptionToken(value: string | null | undefined) {
+  return (value ?? '').trim().toLowerCase();
+}
+
+function findMatchingOption(options: OptionItem[] | undefined, value: string) {
+  const target = normalizeOptionToken(value);
+  if (!target) return undefined;
+  return options?.find((item) => {
+    const optionValue = normalizeOptionToken(item.value);
+    const providerValue = normalizeOptionToken(item.provider_value);
+    const hintValue = normalizeOptionToken(item.hint);
+    return optionValue === target || providerValue === target || hintValue === target;
+  });
 }
 
 function WorkspaceConfig(props: {
@@ -281,14 +300,20 @@ function WorkspaceStore(props: {
   storeQuery: StoreQueryState;
   serviceOptions?: OptionItem[];
   countryOptions?: OptionItem[];
+  serviceIconUrls?: Record<string, string>;
+  countryIconUrls?: Record<string, string>;
   onStoreQueryChange: (patch: Partial<StoreQueryState>) => void;
   onSortPrices: (key: PriceSortKey) => void;
   priceSort: { key: PriceSortKey; dir: 'asc' | 'desc' };
 }) {
   const { t, i18n } = useTranslation();
   const language = (i18n.resolvedLanguage ?? i18n.language ?? 'en') as LanguageCode;
-  const selectedServiceOption = props.serviceOptions?.find((item) => item.value === (props.storeQuery.service || props.manifest.defaults.service));
-  const selectedCountryOption = props.countryOptions?.find((item) => item.value === props.storeQuery.country);
+  const currentServiceValue = props.storeQuery.service || props.manifest.defaults.service;
+  const currentCountryValue = props.storeQuery.country;
+  const selectedServiceOption = findMatchingOption(props.serviceOptions, currentServiceValue);
+  const selectedCountryOption = findMatchingOption(props.countryOptions, currentCountryValue);
+  const resolvedServiceValue = selectedServiceOption?.value ?? currentServiceValue;
+  const resolvedCountryValue = selectedCountryOption?.value ?? currentCountryValue;
   return (
     <div className={cx('flex flex-col gap-5', props.compact && 'gap-4')}>
       <div className={cx('flex items-start justify-between gap-6', props.compact && 'gap-4')}>
@@ -303,32 +328,32 @@ function WorkspaceStore(props: {
         <div className="flex shrink-0 items-center gap-2">
           <SelectTrigger
             compact={props.compact}
-            value={formatServiceLabel(props.storeQuery.service || props.manifest.defaults.service, language)}
+            value={formatServiceLabel(resolvedServiceValue, language)}
             valueContent={(
               <span className="inline-flex min-w-0 items-center gap-2">
                 <ResourceBadge
                   kind="service"
-                  value={props.storeQuery.service || props.manifest.defaults.service}
+                  value={resolvedServiceValue}
                   size="sm"
-                  iconUrl={selectedServiceOption?.icon_url ?? selectedServiceOption?.provider_icon_url}
+                  iconUrl={selectedServiceOption?.icon_url ?? selectedServiceOption?.provider_icon_url ?? props.serviceIconUrls?.[resolvedServiceValue]}
                 />
-                <span className="truncate">{selectedServiceOption?.label || formatServiceLabel(props.storeQuery.service || props.manifest.defaults.service, language)}</span>
+                <span className="truncate">{selectedServiceOption?.label || formatServiceLabel(resolvedServiceValue, language)}</span>
               </span>
             )}
             onClick={() => props.onOpenSelector('store-service')}
           />
           <SelectTrigger
             compact={props.compact}
-            value={props.storeQuery.country ? formatCountryLabel(props.storeQuery.country, language) : ''}
-            valueContent={props.storeQuery.country ? (
+            value={resolvedCountryValue ? formatCountryLabel(resolvedCountryValue, language) : ''}
+            valueContent={resolvedCountryValue ? (
               <span className="inline-flex min-w-0 items-center gap-2">
                 <ResourceBadge
                   kind="country"
-                  value={props.storeQuery.country}
+                  value={resolvedCountryValue}
                   size="sm"
-                  iconUrl={selectedCountryOption?.icon_url ?? selectedCountryOption?.provider_icon_url}
+                  iconUrl={selectedCountryOption?.icon_url ?? selectedCountryOption?.provider_icon_url ?? props.countryIconUrls?.[resolvedCountryValue]}
                 />
-                <span className="truncate">{formatCountryLabel(props.storeQuery.country, language) || selectedCountryOption?.label}</span>
+                <span className="truncate">{formatCountryLabel(resolvedCountryValue, language) || selectedCountryOption?.label}</span>
               </span>
             ) : undefined}
             placeholder={t('All countries')}
@@ -377,16 +402,16 @@ function WorkspaceStore(props: {
             </>
           )}
         >
-        {props.prices.length > 0 ? props.prices.slice(0, 20).map((item) => (
+        {props.prices.length > 0 ? props.prices.map((item) => (
             <div
               className={cx(
                 'grid grid-cols-1 items-center gap-4 border-b border-solid border-[var(--ds-color-divider-subtle)] border-x-0 border-t-0 px-4 py-3 last:border-b-0 min-[760px]:grid-cols-[minmax(0,1.5fr)_minmax(0,1fr)_120px_96px]',
                 props.compact && 'gap-3 px-3 py-2.5 text-[13px]',
               )}
-              key={`${item.country}-${item.display_name}`}
+              key={`${item.country}-${item.operator}-${item.price}`}
             >
               <span className="inline-flex min-w-0 items-center gap-2.5">
-                <ResourceBadge kind="country" value={item.country} size="sm" />
+                <ResourceBadge kind="country" value={item.country} size="sm" iconUrl={props.countryIconUrls?.[item.country]} />
                 <span className="min-w-0 overflow-hidden text-ellipsis whitespace-nowrap">{formatCountryLabel(item.country, language)}</span>
               </span>
               <span className="text-[13px] text-ds-text-secondary">{item.operator_label || formatOperatorLabel(item.operator || 'any', language)}</span>

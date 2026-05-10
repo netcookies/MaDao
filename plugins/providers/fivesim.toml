@@ -1,7 +1,7 @@
 id = "fivesim"
 name = "5SIM"
 kind = "five_sim"
-enabled = false
+enabled = true
 priority = 10
 homepage = "https://5sim.net/"
 description = "兼容 5SIM REST API 的 provider。"

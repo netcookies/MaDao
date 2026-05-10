@@ -1,9 +1,10 @@
 use crate::error::SmsError;
 use crate::models::{
     AcquireCodeRequest, OptionItem, PollCodeResponse, ProviderBalance, ProviderOperatorsQuery,
-    ProviderPriceItem, ProviderServicesQuery, ReleaseAction, TicketRecord,
+    ProviderPriceItem, ProviderPriceQuery, ProviderServicesQuery, ReleaseAction, TicketRecord,
 };
 use crate::smsbower_assets::{
+    SmsBowerFaqService,
     country_icon_url as smsbower_country_icon_url,
     fallback_service_icon_url as smsbower_fallback_service_icon_url,
     fetch_faq_countries_map as smsbower_fetch_faq_countries_map,
@@ -49,7 +50,7 @@ pub trait SmsProvider: Send + Sync {
 
     async fn get_balance(&self) -> Result<ProviderBalance, SmsError>;
 
-    async fn get_prices(&self, service: Option<&str>) -> Result<Vec<ProviderPriceItem>, SmsError>;
+    async fn get_prices(&self, query: ProviderPriceQuery) -> Result<Vec<ProviderPriceItem>, SmsError>;
 
     async fn list_countries(&self) -> Result<Vec<OptionItem>, SmsError>;
 
@@ -135,8 +136,8 @@ impl SmsProvider for MockProvider {
         })
     }
 
-    async fn get_prices(&self, service: Option<&str>) -> Result<Vec<ProviderPriceItem>, SmsError> {
-        let resolved = self.manifest.resolve_service_alias(service);
+    async fn get_prices(&self, query: ProviderPriceQuery) -> Result<Vec<ProviderPriceItem>, SmsError> {
+        let resolved = self.manifest.resolve_service_alias(query.service.as_deref());
         Ok(vec![ProviderPriceItem {
             country: self.manifest.defaults.country.clone(),
             display_name: "Mock Country".to_string(),
@@ -283,6 +284,79 @@ impl HeroSmsProvider {
         self.as_shared().parse_prices(service, json)
     }
 
+    async fn request_offer_prices(
+        &self,
+        service: &str,
+        country: Option<&str>,
+    ) -> Result<Vec<ProviderPriceItem>, SmsError> {
+        let mut request = self
+            .client
+            .get("https://hero-sms.com/api/v1/activations/offers")
+            .header("Authorization", format!("ApiKey {}", self.config.api_key))
+            .query(&[("services", service)]);
+        if let Some(country) = country.filter(|value| !value.trim().is_empty() && *value != "any") {
+            request = request.query(&[("countries", country)]);
+        }
+        let response = request
+            .send()
+            .await
+            .map_err(|err| SmsError::Upstream(err.to_string()))?;
+        let status = response.status();
+        let text = response
+            .text()
+            .await
+            .map_err(|err| SmsError::Upstream(err.to_string()))?;
+        if !status.is_success() {
+            return Err(SmsError::Upstream(text));
+        }
+        let json = serde_json::from_str::<Value>(&text)
+            .map_err(|err| SmsError::Upstream(format!("parse offers response failed: {err}")))?;
+        Ok(self.parse_offer_prices(service, &json))
+    }
+
+    fn parse_offer_prices(&self, service: &str, json: &Value) -> Vec<ProviderPriceItem> {
+        let mut items = Vec::new();
+        let Some(service_map) = json.pointer(&format!("/data/{service}")).and_then(Value::as_object) else {
+            return items;
+        };
+
+        for (country, payload) in service_map {
+            let Some(price_map) = payload.pointer("/map").and_then(Value::as_object) else {
+                continue;
+            };
+            for (price_key, stock_value) in price_map {
+                let Some(price) = price_key.trim().parse::<f64>().ok() else {
+                    continue;
+                };
+                let stock = stock_value
+                    .as_u64()
+                    .or_else(|| stock_value.as_i64().map(|value| value.max(0) as u64))
+                    .unwrap_or(0);
+                if stock == 0 {
+                    continue;
+                }
+                items.push(ProviderPriceItem {
+                    country: country.clone(),
+                    display_name: country.clone(),
+                    operator: "any".to_string(),
+                    operator_label: Some("Any operator".to_string()),
+                    provider_country: Some(country.clone()),
+                    provider_operator: Some("any".to_string()),
+                    price,
+                    stock,
+                });
+            }
+        }
+
+        items.sort_by(|left, right| {
+            left.country
+                .cmp(&right.country)
+                .then_with(|| left.price.total_cmp(&right.price))
+                .then_with(|| left.stock.cmp(&right.stock))
+        });
+        items
+    }
+
     fn parse_number(
         &self,
         text: &str,
@@ -316,6 +390,30 @@ impl SmsBowerProvider {
         smsbower_fallback_service_icon_url(service_id)
     }
 
+    fn enrich_service_item(item: OptionItem, faq: Option<&SmsBowerFaqService>) -> OptionItem {
+        let Some(faq) = faq else {
+            return item;
+        };
+        let provider_value = item
+            .provider_value
+            .clone()
+            .or_else(|| Some(item.value.clone()));
+        OptionItem {
+            provider_value,
+            icon_url: faq
+                .img_path
+                .clone()
+                .or_else(|| Some(Self::service_icon_url(&faq.id))),
+            provider_icon_url: faq
+                .img_path
+                .clone()
+                .or_else(|| Some(Self::service_icon_url(&faq.id))),
+            value: item.value,
+            label: faq.title.clone(),
+            hint: faq.activate_org_code.clone(),
+        }
+    }
+
     fn as_shared(&self) -> SharedHandlerApiProvider {
         SharedHandlerApiProvider {
             manifest: self.manifest.clone(),
@@ -331,26 +429,72 @@ impl SmsBowerProvider {
             .into_iter()
             .map(|item| {
                 let code = item.value.clone();
-                if let Some(faq) = faq_map.get(&code) {
-                    OptionItem {
-                        provider_value: Some(faq.id.clone()),
-                        icon_url: faq
-                            .img_path
-                            .clone()
-                            .or_else(|| Some(Self::service_icon_url(&faq.id))),
-                        provider_icon_url: faq
-                            .img_path
-                            .clone()
-                            .or_else(|| Some(Self::service_icon_url(&faq.id))),
-                        value: code,
-                        label: faq.title.clone(),
-                        hint: faq.activate_org_code.clone(),
-                    }
-                } else {
-                    item
-                }
+                Self::enrich_service_item(item, faq_map.get(&code))
             })
             .collect())
+    }
+
+    async fn request_price_v3(
+        &self,
+        service: &str,
+        country: Option<&str>,
+    ) -> Result<Vec<ProviderPriceItem>, SmsError> {
+        let mut params = vec![("service", service.to_string())];
+        if let Some(country) = country.filter(|value| !value.trim().is_empty() && *value != "any") {
+            params.push(("country", country.to_string()));
+        }
+        let (_text, json) = self.as_shared().request("getPricesV3", &params).await?;
+        Ok(Self::parse_price_v3(service, json.as_ref()))
+    }
+
+    fn parse_price_v3(service: &str, json: Option<&Value>) -> Vec<ProviderPriceItem> {
+        let Some(Value::Object(country_map)) = json else {
+            return Vec::new();
+        };
+
+        let mut items = Vec::new();
+        for (country_id, entry) in country_map {
+            let Some(service_entry) = entry.get(service).and_then(Value::as_object) else {
+                continue;
+            };
+            for (provider_id, provider_payload) in service_entry {
+                let Some(provider_payload) = provider_payload.as_object() else {
+                    continue;
+                };
+                let Some(price) = provider_payload.get("price").and_then(coerce_f64) else {
+                    continue;
+                };
+                let stock = provider_payload
+                    .get("count")
+                    .and_then(|value| {
+                        value
+                            .as_u64()
+                            .or_else(|| value.as_str().and_then(|text| text.parse().ok()))
+                    })
+                    .unwrap_or(0);
+                if stock == 0 {
+                    continue;
+                }
+                items.push(ProviderPriceItem {
+                    country: country_id.clone(),
+                    display_name: country_id.clone(),
+                    operator: provider_id.clone(),
+                    operator_label: Some(format!("Provider #{provider_id}")),
+                    provider_country: Some(country_id.clone()),
+                    provider_operator: Some(provider_id.clone()),
+                    price,
+                    stock,
+                });
+            }
+        }
+
+        items.sort_by(|left, right| {
+            left.country
+                .cmp(&right.country)
+                .then_with(|| left.operator.cmp(&right.operator))
+                .then_with(|| left.price.total_cmp(&right.price))
+        });
+        items
     }
 }
 
@@ -802,12 +946,21 @@ impl SmsProvider for HeroSmsProvider {
         })
     }
 
-    async fn get_prices(&self, service: Option<&str>) -> Result<Vec<ProviderPriceItem>, SmsError> {
-        let service = self.manifest.resolve_service_alias(service);
+    async fn get_prices(&self, query: ProviderPriceQuery) -> Result<Vec<ProviderPriceItem>, SmsError> {
+        let service = self.manifest.resolve_service_alias(query.service.as_deref());
+        let country = query.country.as_deref();
+        if let Ok(items) = self.request_offer_prices(&service, country).await {
+            if !items.is_empty() {
+                return Ok(items);
+            }
+        }
         let (_text, json) = self
             .request(
                 &self.config.get_prices_action,
-                &[("service", service.clone())],
+                &[
+                    ("service", service.clone()),
+                    ("country", country.unwrap_or_default().to_string()),
+                ],
             )
             .await?;
         Ok(self.parse_prices(&service, json.as_ref()))
@@ -901,13 +1054,26 @@ impl SmsProvider for SmsBowerProvider {
         hero.list_countries().await
     }
 
-    async fn get_prices(&self, service: Option<&str>) -> Result<Vec<ProviderPriceItem>, SmsError> {
+    async fn get_prices(&self, query: ProviderPriceQuery) -> Result<Vec<ProviderPriceItem>, SmsError> {
+        let service = self.manifest.resolve_service_alias(query.service.as_deref());
+        let country = query.country.as_deref();
+        if let Ok(items) = self.request_price_v3(&service, country).await {
+            if !items.is_empty() {
+                return Ok(items);
+            }
+        }
         let hero = HeroSmsProvider::from_shared(SharedHandlerApiProvider {
             manifest: self.manifest.clone(),
             client: self.client.clone(),
             config: self.config.clone(),
         });
-        hero.get_prices(service).await
+        hero.get_prices(ProviderPriceQuery {
+            provider: query.provider,
+            service: Some(service),
+            country: query.country,
+            operator: query.operator,
+        })
+        .await
     }
 
     async fn list_services(
@@ -1287,8 +1453,8 @@ impl SmsProvider for FiveSimProvider {
         })
     }
 
-    async fn get_prices(&self, service: Option<&str>) -> Result<Vec<ProviderPriceItem>, SmsError> {
-        let service = self.manifest.resolve_service_alias(service);
+    async fn get_prices(&self, query: ProviderPriceQuery) -> Result<Vec<ProviderPriceItem>, SmsError> {
+        let service = self.manifest.resolve_service_alias(query.service.as_deref());
         let (_text, json) = self
             .request_get(
                 &self.config.prices_endpoint,
@@ -1676,6 +1842,52 @@ mod tests {
     }
 
     #[test]
+    fn herosms_offer_prices_expand_multiple_price_tiers() {
+        let provider = HeroSmsProvider::new(handler_manifest()).unwrap();
+        let prices = provider.parse_offer_prices(
+            "dr",
+            &json!({
+                "data": {
+                    "dr": {
+                        "50": {
+                            "map": {
+                                "0.0750": 42414,
+                                "0.2353": 255111
+                            }
+                        }
+                    }
+                }
+            }),
+        );
+        assert_eq!(prices.len(), 2);
+        assert_eq!(prices[0].country, "50");
+        assert_eq!(prices[0].operator, "any");
+        assert_eq!(prices[0].stock, 42414);
+        assert!((prices[0].price - 0.075).abs() < f64::EPSILON);
+        assert_eq!(prices[1].stock, 255111);
+        assert!((prices[1].price - 0.2353).abs() < f64::EPSILON);
+    }
+
+    #[test]
+    fn smsbower_price_v3_expands_multiple_provider_slots() {
+        let json = json!({
+            "31": {
+                "dr": {
+                    "2217": { "count": 1, "price": 0.059, "provider_id": 2217 },
+                    "2260": { "count": 286, "price": 0.006, "provider_id": 2260 }
+                }
+            }
+        });
+        let prices = SmsBowerProvider::parse_price_v3("dr", Some(&json));
+        assert_eq!(prices.len(), 2);
+        assert_eq!(prices[0].country, "31");
+        assert_eq!(prices[0].operator, "2217");
+        assert!((prices[0].price - 0.059).abs() < f64::EPSILON);
+        assert_eq!(prices[1].operator, "2260");
+        assert_eq!(prices[1].stock, 286);
+    }
+
+    #[test]
     fn fivesim_poll_mapping_follows_manifest_pointers() {
         let provider = FiveSimProvider::new(five_sim_manifest()).unwrap();
         let (status, code, mapped) = provider.map_poll_payload(&json!({
@@ -1767,6 +1979,39 @@ mod tests {
         assert_eq!(
             parsed[1],
             vec!["Discord".to_string(), "discord".to_string()]
+        );
+    }
+
+    #[test]
+    fn smsbower_service_enrichment_keeps_upstream_service_code() {
+        let enriched = SmsBowerProvider::enrich_service_item(
+            OptionItem {
+                value: "dr".to_string(),
+                label: "Legacy OpenAI".to_string(),
+                hint: "dr".to_string(),
+                provider_value: Some("dr".to_string()),
+                icon_url: None,
+                provider_icon_url: None,
+            },
+            Some(&SmsBowerFaqService {
+                id: "247".to_string(),
+                title: "OpenAI (ChatGPT)".to_string(),
+                activate_org_code: "dr".to_string(),
+                img_path: None,
+            }),
+        );
+
+        assert_eq!(enriched.value, "dr");
+        assert_eq!(enriched.provider_value.as_deref(), Some("dr"));
+        assert_eq!(enriched.label, "OpenAI (ChatGPT)");
+        assert_eq!(enriched.hint, "dr");
+        assert_eq!(
+            enriched.icon_url.as_deref(),
+            Some("https://smsbower.app/img/services/247.svg?timestamp=1748774536")
+        );
+        assert_eq!(
+            enriched.provider_icon_url.as_deref(),
+            Some("https://smsbower.app/img/services/247.svg?timestamp=1748774536")
         );
     }
 }

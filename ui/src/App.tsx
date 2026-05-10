@@ -322,6 +322,7 @@ export function App() {
     reloadProviders,
     updateRuntimeSettings,
     fetchBalance,
+    fetchVisibleBalances,
     refreshProvider,
     fetchPrices,
     updateStoreQuery,
@@ -365,6 +366,10 @@ export function App() {
       language,
     },
   );
+  const visibleProviderIds = useMemo(
+    () => visibleProviders.map((provider) => provider.id).join('|'),
+    [visibleProviders],
+  );
 
   const {
     pollTicket,
@@ -392,6 +397,9 @@ export function App() {
     },
     {
       loadSnapshot,
+      refreshBalancesAfterAcquire: async (providerId?: string) => {
+        await fetchVisibleBalances(providerId ? [providerId] : undefined);
+      },
     },
   );
 
@@ -437,6 +445,11 @@ export function App() {
     }, 4000);
     return () => window.clearInterval(timer);
   }, [autoRefresh]);
+
+  useEffect(() => {
+    if (activeScreen !== 'providers' || providerView !== 'list') return;
+    void fetchVisibleBalances();
+  }, [activeScreen, providerView, visibleProviderIds]);
 
   useEffect(() => {
     const root = document.documentElement;
@@ -603,6 +616,23 @@ export function App() {
     });
     return [...services.entries()].map(([id, label]) => ({ id, label }));
   }, [providerOptions]);
+
+  const sharedServiceIconUrls = useMemo<Record<string, string>>(() => {
+    const next: Record<string, string> = {};
+    optionCatalog.services.forEach((item) => {
+      const firstProviderWithIcon = item.providers.find((providerId) => item.provider_icon_urls?.[providerId]);
+      const iconUrl = firstProviderWithIcon
+        ? item.provider_icon_urls?.[firstProviderWithIcon]
+        : item.icon_url;
+      if (iconUrl) {
+        if (!next[item.value]) next[item.value] = iconUrl;
+        Object.values(item.provider_values).forEach((providerValue) => {
+          if (providerValue && !next[providerValue]) next[providerValue] = iconUrl;
+        });
+      }
+    });
+    return next;
+  }, [optionCatalog.services]);
 
   const sharedCountryIconUrls = useMemo<Record<string, string>>(() => {
     const next: Record<string, string> = {};
@@ -804,6 +834,25 @@ export function App() {
     }));
   }
 
+  function duplicateRoutingPlanItem(itemId: string) {
+    setRoutingPlans((current) => current.map((plan) => {
+      if (!selectedRoutingPlanMatcher(plan)) return plan;
+      const index = plan.items.findIndex((item) => item.id === itemId);
+      if (index < 0) return plan;
+      const source = plan.items[index];
+      const duplicate: RoutingPlanItem = {
+        ...source,
+        id: `${source.id}-copy-${Math.random().toString(36).slice(2, 8)}`,
+      };
+      const nextItems = [...plan.items];
+      nextItems.splice(index + 1, 0, duplicate);
+      return {
+        ...plan,
+        items: nextItems,
+      };
+    }));
+  }
+
   function moveRoutingPlanItem(itemId: string, direction: 'up' | 'down') {
     setRoutingPlans((current) => current.map((plan) => {
       const isSelected = selectedRoutingPlanMatcher(plan);
@@ -911,7 +960,10 @@ export function App() {
     }
     try {
       setRoutingItemPriceLoading(true);
-      const prices = await fetchProviderPrices(routingItemEditor.providerId, service);
+      const prices = await fetchProviderPrices(routingItemEditor.providerId, service, {
+        country: routingItemEditor.country.trim() ? routingItemEditor.country : undefined,
+        operator: routingItemEditor.operator || undefined,
+      });
       setRoutingItemPriceOptions(prices.items);
       pushStatusMessage(translate('loaded_prices_for_provider', { provider: routingItemEditor.providerId }));
     } catch (error) {
@@ -1443,6 +1495,7 @@ export function App() {
                 plans={routingPlans}
                 providers={orderedProviders}
                 serviceOptions={routingServiceOptions}
+                serviceIconUrls={sharedServiceIconUrls}
                 countryIconUrls={sharedCountryIconUrls}
                 selectedPlanId={selectedRoutingPlanId}
                 routingFilter={routingFilter}
@@ -1461,6 +1514,7 @@ export function App() {
                 onOpenProviderPicker={(itemId) => void openRoutingItemSelector(itemId, 'provider')}
                 onOpenItemSelector={(itemId, field, source) => void openRoutingItemSelector(itemId, field, source)}
                 onAddItem={addRoutingPlanItem}
+                onDuplicateItem={duplicateRoutingPlanItem}
                 onRemoveItem={removeRoutingPlanItem}
                 onReorderItem={reorderRoutingPlanItem}
                 onOpenItemEditor={openRoutingItemEditor}
@@ -1516,6 +1570,8 @@ export function App() {
                   icon_url: item.provider_icon_urls?.[selectedProvider] ?? item.icon_url,
                   provider_icon_url: item.provider_icon_urls?.[selectedProvider] ?? item.icon_url,
                 }))}
+                serviceIconUrls={sharedServiceIconUrls}
+                countryIconUrls={sharedCountryIconUrls}
                 onStoreQueryChange={(patch) => updateStoreQuery(selectedProvider, patch)}
                 onSortPrices={(key) => {
                   setPriceSort((current) => {

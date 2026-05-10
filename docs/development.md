@@ -63,6 +63,13 @@ npm run build
 cargo run -p madao-sms-daemon
 ```
 
+默认情况下，daemon 会自动初始化并使用用户配置目录，而不是直接读写仓库内的 `config/` 与 `plugins/providers/`：
+
+- macOS：`~/Library/Application Support/com.madao.sms`
+- Linux：`$XDG_CONFIG_HOME/com.madao.sms` 或 `~/.config/com.madao.sms`
+
+如果你显式传入配置文件路径，例如 `cargo run -p madao-sms-daemon -- /path/to/config.toml`，则会按该路径运行。
+
 ### 查看 provider manifests
 
 ```bash

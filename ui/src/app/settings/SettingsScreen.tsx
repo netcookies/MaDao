@@ -142,6 +142,11 @@ export function SettingsScreen(props: SettingsScreenProps) {
             <span className="text-[13px] leading-[1.43] tracking-[-0.224px] text-ds-text-secondary">Tauri v2</span>
           </div>
         </div>
+
+        <div className="flex items-center justify-between gap-4 border-solid border-ds-border border-b-0 border-x-0 border-t px-6 py-3">
+          <span className="font-text text-utility font-normal tracking-[var(--ds-type-utility-tracking)] text-ds-text-secondary">{t('Version')}</span>
+          <span className="font-mono text-caption text-ds-text-secondary">v1.0.0</span>
+        </div>
       </div>
     </div>
   );

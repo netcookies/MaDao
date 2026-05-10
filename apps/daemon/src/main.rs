@@ -1,4 +1,5 @@
 use anyhow::Context;
+use directories::ProjectDirs;
 use plugin_sdk::ProviderManifest;
 use serde::Deserialize;
 use sms_core::config::ServerConfig;
@@ -9,26 +10,21 @@ use sms_core::models::{
 use sms_core::registry::ProviderRegistry;
 use sms_core::service::SmsService;
 use sms_server::spawn_http_server;
-use std::path::PathBuf;
+use std::fs;
+use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
 use tokio::net::UnixListener;
 
+const DEFAULT_CONFIG_TEMPLATE_PATH: &str = "config/server.toml";
+const DEFAULT_PROVIDER_TEMPLATE_DIR: &str = "plugins/providers";
+
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
-    let cwd = std::env::current_dir().context("read current dir failed")?;
-    let config_path = std::env::args()
-        .nth(1)
-        .map(PathBuf::from)
-        .unwrap_or_else(|| cwd.join("config/server.toml"));
-    let mut config = ServerConfig::load_from_file(&config_path)?;
-    if !config.provider_dir.exists() {
-        let fallback_provider_dir = cwd.join("plugins/providers");
-        if fallback_provider_dir.exists() {
-            config.provider_dir = fallback_provider_dir;
-        }
-    }
-    let registry = ProviderRegistry::load_from_dir(cwd.join(&config.provider_dir))?;
+    let cli_config_path = std::env::args().nth(1).map(PathBuf::from);
+    let config_path = prepare_config_path(cli_config_path.as_deref())?;
+    let config = ServerConfig::load_from_file(&config_path)?;
+    let registry = ProviderRegistry::load_from_dir(&config.provider_dir)?;
     let config_dir = config_path
         .parent()
         .context("resolve config directory failed")?;
@@ -45,7 +41,7 @@ async fn main() -> anyhow::Result<()> {
         .await
         .with_context(|| format!("bind http listener failed: {}", config.http_bind))?;
 
-    let socket_path = normalize_socket_path(&cwd, &config.socket_path);
+    let socket_path = config.socket_path.clone();
     if socket_path.exists() {
         let _ = std::fs::remove_file(&socket_path);
     }
@@ -139,12 +135,70 @@ async fn handle_socket_command(service: &SmsService, line: &str) -> String {
     }
 }
 
-fn normalize_socket_path(cwd: &PathBuf, raw: &PathBuf) -> PathBuf {
-    if raw.is_absolute() {
-        raw.clone()
-    } else {
-        cwd.join(raw)
+fn prepare_config_path(explicit_path: Option<&Path>) -> anyhow::Result<PathBuf> {
+    if let Some(path) = explicit_path {
+        return Ok(path.to_path_buf());
     }
+
+    let config_dir = daemon_config_dir()?;
+    fs::create_dir_all(&config_dir)
+        .with_context(|| format!("create daemon config dir failed: {}", config_dir.display()))?;
+    let config_path = config_dir.join("config.toml");
+
+    if !config_path.exists() {
+        let cwd = std::env::current_dir().context("read current dir failed")?;
+        let template_path = cwd.join(DEFAULT_CONFIG_TEMPLATE_PATH);
+        let mut config = ServerConfig::load_from_file(&template_path)
+            .with_context(|| format!("load config template failed: {}", template_path.display()))?;
+        config.provider_dir = PathBuf::from("providers");
+        let content = toml::to_string_pretty(&config).context("serialize daemon config failed")?;
+        fs::write(&config_path, content)
+            .with_context(|| format!("write daemon config failed: {}", config_path.display()))?;
+    }
+
+    seed_default_providers(&config_dir)?;
+    Ok(config_path)
+}
+
+fn daemon_config_dir() -> anyhow::Result<PathBuf> {
+    ProjectDirs::from("com", "madao", "sms")
+        .map(|dirs| dirs.config_dir().to_path_buf())
+        .context("resolve daemon config dir failed")
+}
+
+fn seed_default_providers(config_dir: &Path) -> anyhow::Result<()> {
+    let target_dir = config_dir.join("providers");
+    fs::create_dir_all(&target_dir)
+        .with_context(|| format!("create provider dir failed: {}", target_dir.display()))?;
+
+    let cwd = std::env::current_dir().context("read current dir failed")?;
+    let source_dir = cwd.join(DEFAULT_PROVIDER_TEMPLATE_DIR);
+    let entries = fs::read_dir(&source_dir)
+        .with_context(|| format!("read provider template dir failed: {}", source_dir.display()))?;
+
+    for entry in entries {
+        let entry = entry.context("read provider template entry failed")?;
+        let source_path = entry.path();
+        if source_path.extension().and_then(|value| value.to_str()) != Some("toml") {
+            continue;
+        }
+        let target_path = target_dir.join(
+            source_path
+                .file_name()
+                .context("provider template missing file name")?,
+        );
+        if !target_path.exists() {
+            fs::copy(&source_path, &target_path).with_context(|| {
+                format!(
+                    "copy provider template failed: {} -> {}",
+                    source_path.display(),
+                    target_path.display()
+                )
+            })?;
+        }
+    }
+
+    Ok(())
 }
 
 #[derive(Debug, Deserialize)]

@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { ChevronRight, GripVertical, Plus } from 'lucide-react';
+import { ChevronRight, Copy, GripVertical, Plus } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import { Modal } from '../../components/overlays';
 import { formatCountryLabel, formatProviderLabel, formatServiceLabel } from '../../lib/formatters';
@@ -39,6 +39,7 @@ export type RoutingScreenProps = {
   plans: RoutingPlan[];
   providers: ProviderManifest[];
   serviceOptions: Array<{ id: string; label: string }>;
+  serviceIconUrls?: Record<string, string>;
   countryIconUrls?: Record<string, string>;
   selectedPlanId: string;
   routingFilter: RoutingPlanFilter;
@@ -57,6 +58,7 @@ export type RoutingScreenProps = {
   onOpenProviderPicker: (itemId: string) => void;
   onOpenItemSelector: (itemId: string, field: 'provider' | 'country' | 'operator', source?: 'row' | 'editor') => void;
   onAddItem: () => void;
+  onDuplicateItem: (itemId: string) => void;
   onRemoveItem: (itemId: string) => void;
   onReorderItem: (fromIndex: number, toIndex: number) => void;
   onOpenItemEditor: (itemId: string) => void;
@@ -116,6 +118,8 @@ export function RoutingScreen(props: RoutingScreenProps) {
         enabledPlans={enabledPlans}
         disabledPlans={disabledPlans}
         serviceOptions={props.serviceOptions}
+        serviceIconUrls={props.serviceIconUrls}
+        countryIconUrls={props.countryIconUrls}
         language={language}
         routingFilter={props.routingFilter}
         routingSearch={props.routingSearch}
@@ -134,6 +138,7 @@ export function RoutingScreen(props: RoutingScreenProps) {
         plan={plan}
         providers={props.providers}
         serviceOptions={props.serviceOptions}
+        serviceIconUrls={props.serviceIconUrls}
         countryIconUrls={props.countryIconUrls}
         language={language}
         busyAction={props.busyAction}
@@ -142,6 +147,7 @@ export function RoutingScreen(props: RoutingScreenProps) {
         onUpdatePlan={props.onUpdatePlan}
         onOpenServicePicker={props.onOpenServicePicker}
         onAddItem={props.onAddItem}
+        onDuplicateItem={props.onDuplicateItem}
         onRemoveItem={props.onRemoveItem}
         onReorderItem={props.onReorderItem}
         onOpenProviderPicker={props.onOpenProviderPicker}
@@ -173,6 +179,7 @@ function RoutingPlanMatrixScreen(props: {
   enabledPlans: number;
   disabledPlans: number;
   serviceOptions: Array<{ id: string; label: string }>;
+  serviceIconUrls?: Record<string, string>;
   countryIconUrls?: Record<string, string>;
   language: 'en' | 'zh';
   routingFilter: RoutingPlanFilter;
@@ -226,8 +233,8 @@ function RoutingPlanMatrixScreen(props: {
                     {plan.name || t('Untitled Plan')}
                   </span>
                 </div>
-                <StatusBadge tone={plan.enabled ? 'green' : 'gray'}>
-                  {plan.enabled ? t('Enabled') : t('Disabled')}
+                <StatusBadge tone={!plan.id ? 'orange' : plan.enabled ? 'green' : 'gray'}>
+                  {!plan.id ? t('Draft') : plan.enabled ? t('Enabled') : t('Disabled')}
                 </StatusBadge>
               </div>
 
@@ -241,7 +248,7 @@ function RoutingPlanMatrixScreen(props: {
                 >
                   {plan.service ? (
                     <span className="inline-flex items-center gap-2">
-                      <ResourceBadge kind="service" value={plan.service} size="sm" />
+                      <ResourceBadge kind="service" value={plan.service} size="sm" iconUrl={props.serviceIconUrls?.[plan.service]} />
                       <span>{formatServiceLabel(plan.service, props.language)}</span>
                     </span>
                   ) : t('No Service')}
@@ -285,6 +292,8 @@ function RoutingPlanDetailScreen(props: {
   plan: RoutingPlan;
   providers: ProviderManifest[];
   serviceOptions: Array<{ id: string; label: string }>;
+  serviceIconUrls?: Record<string, string>;
+  countryIconUrls?: Record<string, string>;
   language: 'en' | 'zh';
   busyAction: string;
   onBackToList: () => void;
@@ -292,6 +301,7 @@ function RoutingPlanDetailScreen(props: {
   onUpdatePlan: (plan: RoutingPlan) => void;
   onOpenServicePicker: () => void;
   onAddItem: () => void;
+  onDuplicateItem: (itemId: string) => void;
   onRemoveItem: (itemId: string) => void;
   onReorderItem: (fromIndex: number, toIndex: number) => void;
   onOpenProviderPicker: (itemId: string) => void;
@@ -371,7 +381,7 @@ function RoutingPlanDetailScreen(props: {
                 value={props.plan.service ? formatServiceLabel(props.plan.service, props.language) : ''}
                 valueContent={props.plan.service ? (
                   <span className="inline-flex min-w-0 items-center gap-2">
-                    <ResourceBadge kind="service" value={props.plan.service} size="sm" />
+                    <ResourceBadge kind="service" value={props.plan.service} size="sm" iconUrl={props.serviceIconUrls?.[props.plan.service]} />
                     <span className="truncate">{formatServiceLabel(props.plan.service, props.language)}</span>
                   </span>
                 ) : undefined}
@@ -468,9 +478,10 @@ function RoutingPlanDetailScreen(props: {
                   if (dragOverItemId !== item.id) setDragOverItemId(item.id);
                 }}
                 onDrop={(event) => {
-                  if (!draggedItemId || draggedItemId === item.id) return;
+                  const droppedItemId = event.dataTransfer.getData('text/plain') || draggedItemId;
+                  if (!droppedItemId || droppedItemId === item.id) return;
                   event.preventDefault();
-                  const fromIndex = props.plan.items.findIndex((entry) => entry.id === draggedItemId);
+                  const fromIndex = props.plan.items.findIndex((entry) => entry.id === droppedItemId);
                   if (fromIndex >= 0 && fromIndex !== index) props.onReorderItem(fromIndex, index);
                   setDraggedItemId(null);
                   setDragOverItemId(null);
@@ -566,6 +577,15 @@ function RoutingPlanDetailScreen(props: {
                 </div>
 
                 <div className="flex items-center justify-end gap-2.5">
+                  <button
+                    type="button"
+                    onClick={() => props.onDuplicateItem(item.id)}
+                    className="inline-flex h-7 w-7 items-center justify-center rounded-[8px] text-ds-text-secondary transition-colors duration-fast ease-[var(--ds-motion-transition-fast)] hover:bg-ds-surface-subtle hover:text-ds-accent-blue"
+                    aria-label={t('Duplicate candidate {{index}}', { index: index + 1 })}
+                    title={t('Duplicate candidate')}
+                  >
+                    <Copy size={14} />
+                  </button>
                   <button
                     type="button"
                     onClick={() => props.onOpenItemEditor(item.id)}
@@ -820,13 +840,23 @@ function RoutingItemEditorModal(props: {
                 className="flex items-center gap-3 border-b border-ds-border px-4 py-3 last:border-b-0"
               >
                 <div className="min-w-0 flex-1">
-                  <div className="truncate text-[13px] font-medium text-ds-text-primary">
-                    {formatCountryLabel(item.country, props.language)} · {item.operator_label || formatOperatorLabel(item.operator || 'any', props.language)}
+                  <div className="inline-flex min-w-0 items-center gap-2 truncate text-[13px] font-medium text-ds-text-primary">
+                    <ResourceBadge kind="country" value={item.country} size="sm" iconUrl={props.countryIconUrls?.[item.country]} />
+                    <span className="truncate">
+                      {formatCountryLabel(item.country, props.language)} · {item.operator_label || formatOperatorLabel(item.operator || 'any', props.language)}
+                    </span>
                   </div>
-                  <div className="mt-0.5 text-[11px] text-ds-text-secondary">{t('stock')}: {item.stock.toLocaleString()}</div>
+                  <div className="mt-0.5 text-[11px] text-ds-text-secondary">
+                    {t('stock')}: {item.stock.toLocaleString()}
+                  </div>
                 </div>
                 <div className="w-20 text-right font-mono text-[13px] text-ds-text-secondary">${item.price.toFixed(3)}</div>
                 <div className="flex items-center gap-2">
+                  <AppButton variant="ghost" size="utility" onClick={() => {
+                    props.onQuickFill('min', item.price);
+                    props.onQuickFill('max', item.price);
+                    setPriceMode('range');
+                  }}>{t('Use exact')}</AppButton>
                   <AppButton variant="ghost" size="utility" onClick={() => {
                     props.onQuickFill('min', item.price);
                     setPriceMode('range');

@@ -31,6 +31,31 @@ import {
 import { refreshMenuBar } from '../services/menuBarApi';
 import { i18n } from '../app/i18n';
 
+function normalizeOptionToken(value: string | null | undefined) {
+  return (value ?? '').trim().toLowerCase();
+}
+
+function resolveCanonicalOptionValue(
+  options: ProviderDynamicOptions | undefined,
+  rawValue: string | undefined,
+  kind: 'service' | 'country' | 'operator',
+) {
+  const target = normalizeOptionToken(rawValue);
+  if (!target) return rawValue ?? '';
+  const source = kind === 'service'
+    ? options?.services
+    : kind === 'country'
+      ? options?.countries
+      : options?.operators;
+  const matched = source?.find((item) => {
+    const optionValue = normalizeOptionToken(item.value);
+    const providerValue = normalizeOptionToken(item.provider_value);
+    const hintValue = normalizeOptionToken(item.hint);
+    return optionValue === target || providerValue === target || hintValue === target;
+  });
+  return matched?.value ?? rawValue ?? '';
+}
+
 type DataState = {
   snapshot: Snapshot | null;
   setSnapshot: (value: Snapshot | null | ((prev: Snapshot | null) => Snapshot | null)) => void;
@@ -102,11 +127,18 @@ export function useProviderRuntime(
   const selectedSummary = data.snapshot?.providers.find((provider) => provider.id === ui.selectedProvider);
   const selectedPrices = data.pricePanels[ui.selectedProvider];
   const selectedOptions = data.providerOptions[ui.selectedProvider];
+  const selectedStoreState = data.storeQueries[ui.selectedProvider];
   const selectedStoreQuery = data.storeQueries[ui.selectedProvider] ?? {
-    service: selectedManifest?.defaults.service ?? '',
-    country: '',
-    operator: '',
+    service: resolveCanonicalOptionValue(selectedOptions, selectedManifest?.defaults.service, 'service'),
+    country: resolveCanonicalOptionValue(selectedOptions, '', 'country'),
+    operator: resolveCanonicalOptionValue(selectedOptions, '', 'operator'),
     search: '',
+  };
+  const normalizedSelectedStoreQuery = {
+    service: resolveCanonicalOptionValue(selectedOptions, selectedStoreState?.service ?? selectedStoreQuery.service, 'service'),
+    country: resolveCanonicalOptionValue(selectedOptions, selectedStoreState?.country ?? selectedStoreQuery.country, 'country'),
+    operator: resolveCanonicalOptionValue(selectedOptions, selectedStoreState?.operator ?? selectedStoreQuery.operator, 'operator'),
+    search: selectedStoreState?.search ?? selectedStoreQuery.search,
   };
 
   async function resolveProviderOptions(providerId: string, mode: 'cache-first' | 'refresh-only' = 'cache-first') {
@@ -123,7 +155,7 @@ export function useProviderRuntime(
   const sortedPrices = useMemo(() => {
     const panel = selectedPrices;
     if (!panel) return [];
-    const query = selectedStoreQuery;
+    const query = normalizedSelectedStoreQuery;
     const sort = data.priceSort[ui.selectedProvider] ?? { key: 'country' as PriceSortKey, dir: 'asc' as const };
     const filtered = panel.items.filter((item) => {
       if (query.country && item.country !== query.country) return false;
@@ -144,12 +176,23 @@ export function useProviderRuntime(
           return left.display_name.localeCompare(right.display_name) * direction;
       }
     });
-  }, [data.priceSort, selectedPrices, ui.selectedProvider, selectedStoreQuery]);
+  }, [data.priceSort, selectedPrices, ui.selectedProvider, normalizedSelectedStoreQuery]);
 
   async function loadSnapshot() {
     try {
       const runtime = await fetchRuntimeSnapshot();
-      startTransition(() => data.setSnapshot(runtime));
+      startTransition(() => {
+        data.setSnapshot(runtime);
+        data.setBalances((current) => {
+          const next = { ...current };
+          runtime.providers.forEach((provider) => {
+            if (provider.balance != null && provider.balance_currency) {
+              next[provider.id] = `${provider.balance.toFixed(2)} ${provider.balance_currency}`;
+            }
+          });
+          return next;
+        });
+      });
     } catch {
       ui.setStatusMessage(translate('cannot_connect_runtime_snapshot'));
     }
@@ -401,6 +444,24 @@ export function useProviderRuntime(
     }
   }
 
+  async function fetchVisibleBalances(providerIds?: string[]) {
+    const targets = (providerIds ?? selectableProviders.map((provider) => provider.id))
+      .filter((providerId, index, all) => providerId && all.indexOf(providerId) === index);
+    if (targets.length === 0) return;
+
+    await Promise.all(targets.map(async (providerId) => {
+      try {
+        const payload = await fetchProviderBalance(providerId);
+        data.setBalances((current) => ({
+          ...current,
+          [providerId]: `${payload.amount.toFixed(2)} ${payload.currency}`,
+        }));
+      } catch {
+        // 批量刷新余额时静默跳过单个 provider 的失败，避免页面进入时刷一排错误提示。
+      }
+    }));
+  }
+
   async function refreshProvider(providerId: string) {
     try {
       ui.setBusyAction(`refresh-${providerId}`);
@@ -420,11 +481,18 @@ export function useProviderRuntime(
 
   async function fetchPrices(providerId: string) {
     const query = data.storeQueries[providerId];
-    const service = query?.service || data.manifests[providerId]?.defaults.service;
+    const service = resolveCanonicalOptionValue(
+      data.providerOptions[providerId],
+      query?.service || data.manifests[providerId]?.defaults.service,
+      'service',
+    );
     if (!service) return;
     try {
       ui.setBusyAction(`prices-${providerId}`);
-      const payload = await fetchProviderPrices(providerId, service);
+      const payload = await fetchProviderPrices(providerId, service, {
+        country: query?.country?.trim() ? query.country : undefined,
+        operator: query?.operator || undefined,
+      });
       data.setPricePanels((current) => ({
         ...current,
         [providerId]: payload,
@@ -438,14 +506,22 @@ export function useProviderRuntime(
   }
 
   function updateStoreQuery(providerId: string, patch: Partial<StoreQueryState>) {
+    const options = data.providerOptions[providerId];
     data.setStoreQueries((current) => ({
       ...current,
       [providerId]: {
-        service: current[providerId]?.service ?? data.manifests[providerId]?.defaults.service ?? '',
-        country: current[providerId]?.country ?? '',
-        operator: current[providerId]?.operator ?? '',
+        service: resolveCanonicalOptionValue(
+          options,
+          current[providerId]?.service ?? data.manifests[providerId]?.defaults.service,
+          'service',
+        ),
+        country: resolveCanonicalOptionValue(options, current[providerId]?.country, 'country'),
+        operator: resolveCanonicalOptionValue(options, current[providerId]?.operator, 'operator'),
         search: current[providerId]?.search ?? '',
         ...patch,
+        ...(patch.service != null ? { service: resolveCanonicalOptionValue(options, patch.service, 'service') } : {}),
+        ...(patch.country != null ? { country: resolveCanonicalOptionValue(options, patch.country, 'country') } : {}),
+        ...(patch.operator != null ? { operator: resolveCanonicalOptionValue(options, patch.operator, 'operator') } : {}),
       },
     }));
   }
@@ -492,6 +568,7 @@ export function useProviderRuntime(
     reloadProviders,
     updateRuntimeSettings,
     fetchBalance,
+    fetchVisibleBalances,
     refreshProvider,
     fetchPrices,
     updateStoreQuery,

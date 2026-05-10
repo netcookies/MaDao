@@ -27,6 +27,7 @@ type ActivationUiState = {
 
 type ActivationRuntimeActions = {
   loadSnapshot: () => Promise<void>;
+  refreshBalancesAfterAcquire: (providerId?: string) => Promise<void>;
 };
 
 export function useActivationFlow(
@@ -111,6 +112,13 @@ export function useActivationFlow(
       ui.setShowActivationModal(false);
       ui.setStatusMessage(translate('activation_created_waiting_sms'));
       await runtime.loadSnapshot();
+      await runtime.refreshBalancesAfterAcquire(
+        ui.activationForm.routing_plan_id
+          || ui.activationForm.provider === ANY_PROVIDER_VALUE
+          || !ui.activationForm.provider
+          ? undefined
+          : ui.activationForm.provider,
+      );
     } catch (error) {
       ui.setActivationError(String(error));
     } finally {

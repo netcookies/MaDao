@@ -250,7 +250,6 @@ pub fn normalize_price_items(
         .collect()
 }
 
-
 pub fn normalize_ticket_record(
     manifest: &ProviderManifest,
     options: Option<&ProviderDynamicOptions>,
@@ -686,7 +685,6 @@ mod tests {
         );
     }
 
-
     #[test]
     fn normalize_loaded_provider_options_recanonicalizes_legacy_numeric_countries() {
         let manifest = test_manifest();
@@ -727,7 +725,6 @@ mod tests {
             "telegram"
         );
     }
-
 
     #[test]
     fn normalize_ticket_record_maps_provider_values_back_to_canonical_values() {

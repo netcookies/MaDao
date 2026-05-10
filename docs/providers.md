@@ -24,11 +24,13 @@
 
 ## Provider Manifest
 
-provider manifests 位于：
+provider manifest 模板位于：
 
 ```text
 plugins/providers/*.toml
 ```
+
+桌面端与 daemon 默认都会在首次运行时将这些模板复制到用户配置目录下的 `providers/`，后续实际读写都发生在用户目录副本中。
 
 当前内置：
 

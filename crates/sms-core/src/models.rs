@@ -115,10 +115,22 @@ pub struct ProviderBalance {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ProviderBalanceCacheEntry {
+    pub provider: String,
+    pub amount: f64,
+    pub currency: String,
+    pub fetched_at: DateTime<Utc>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ProviderPriceQuery {
     pub provider: String,
     #[serde(default)]
     pub service: Option<String>,
+    #[serde(default)]
+    pub country: Option<String>,
+    #[serde(default)]
+    pub operator: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -245,6 +257,12 @@ pub struct ProviderSummary {
     pub option_cache_state: OptionCacheState,
     #[serde(default)]
     pub option_cache_fetched_at: Option<DateTime<Utc>>,
+    #[serde(default)]
+    pub balance: Option<f64>,
+    #[serde(default)]
+    pub balance_currency: Option<String>,
+    #[serde(default)]
+    pub balance_fetched_at: Option<DateTime<Utc>>,
     #[serde(default)]
     pub can_enable: bool,
 }

@@ -140,11 +140,15 @@ export async function fetchProviderBalance(providerId: string): Promise<Provider
   return readJson<ProviderBalance>(await fetch(`${API_BASE}/api/providers/${providerId}/balance`));
 }
 
-export async function fetchProviderPrices(providerId: string, service: string): Promise<ProviderPriceResponse> {
+export async function fetchProviderPrices(
+  providerId: string,
+  service: string,
+  query?: { country?: string; operator?: string },
+): Promise<ProviderPriceResponse> {
   return readJson<ProviderPriceResponse>(await fetch(`${API_BASE}/api/providers/${providerId}/prices`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ provider: providerId, service }),
+    body: JSON.stringify({ provider: providerId, service, country: query?.country, operator: query?.operator }),
   }));
 }
 

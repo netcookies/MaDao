@@ -617,6 +617,8 @@ function renderPageTarget(target: ScreenshotTarget, t: (key: string, options?: R
         onOpenRawJson={noop}
         onOpenSelector={noop}
         storeQuery={{ service: 'openai', country: '', operator: '', search: '' }}
+        serviceIconUrls={{ openai: 'https://smsbower.app/img/services/247.svg?timestamp=1748774536' }}
+        countryIconUrls={{ '31': 'https://smsbower.app/img/svg/countries/31.svg?v=2' }}
         onStoreQueryChange={noop}
         onSortPrices={noop}
         priceSort={{ key: 'country', dir: 'asc' }}
@@ -664,6 +666,8 @@ function renderPageTarget(target: ScreenshotTarget, t: (key: string, options?: R
         onOpenRawJson={noop}
         onOpenSelector={noop}
         storeQuery={{ service: 'openai', country: '', operator: '', search: '' }}
+        serviceIconUrls={{ openai: 'https://smsbower.app/img/services/247.svg?timestamp=1748774536' }}
+        countryIconUrls={{ '31': 'https://smsbower.app/img/svg/countries/31.svg?v=2' }}
         onStoreQueryChange={noop}
         onSortPrices={noop}
         priceSort={{ key: 'country', dir: 'asc' }}
@@ -710,6 +714,8 @@ function renderPageTarget(target: ScreenshotTarget, t: (key: string, options?: R
         onOpenRawJson={noop}
         onOpenSelector={noop}
         storeQuery={{ service: 'openai', country: '', operator: '', search: '' }}
+        serviceIconUrls={{ openai: 'https://smsbower.app/img/services/247.svg?timestamp=1748774536' }}
+        countryIconUrls={{ '31': 'https://smsbower.app/img/svg/countries/31.svg?v=2' }}
         onStoreQueryChange={noop}
         onSortPrices={noop}
         priceSort={{ key: 'country', dir: 'asc' }}

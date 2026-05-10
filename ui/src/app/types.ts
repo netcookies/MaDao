@@ -38,6 +38,9 @@ export type ProviderSummary = {
   priority: number;
   option_cache_state?: OptionCacheState;
   option_cache_fetched_at?: string | null;
+  balance?: number | null;
+  balance_currency?: string | null;
+  balance_fetched_at?: string | null;
   can_enable?: boolean;
 };
 

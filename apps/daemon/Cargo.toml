@@ -7,10 +7,12 @@ license.workspace = true
 [dependencies]
 anyhow.workspace = true
 axum.workspace = true
+directories = "5.0.1"
 plugin-sdk = { path = "../../crates/plugin-sdk" }
 serde.workspace = true
 serde_json.workspace = true
 sms-core = { path = "../../crates/sms-core" }
 sms-server = { path = "../../crates/sms-server" }
 tokio.workspace = true
+toml.workspace = true
 tracing.workspace = true

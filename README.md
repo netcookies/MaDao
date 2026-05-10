@@ -19,7 +19,7 @@
 ## 当前能力
 
 - Rust workspace 已分层为 `plugin-sdk / sms-core / sms-server / daemon / src-tauri`
-- provider manifests 使用 `TOML` 管理，位于 `plugins/providers/*.toml`
+- provider manifests 模板使用 `TOML` 管理，仓库模板位于 `plugins/providers/*.toml`
 - 支持 provider manifest：
   - 列表
   - 单项读取
@@ -54,7 +54,7 @@
 │   ├── sms-core/             # 统一领域模型、provider trait、服务层
 │   └── sms-server/           # axum HTTP 路由层
 ├── config/server.toml        # 服务端基础配置
-├── plugins/providers/        # provider manifests
+├── plugins/providers/        # provider manifest 模板
 ├── src-tauri/                # Tauri 2 桌面宿主
 ├── ui/                       # React + Vite 前端
 └── DESIGN.md                 # Apple 风格设计规范
@@ -95,6 +95,13 @@ cargo check --workspace
 ```bash
 cargo run -p madao-sms-daemon
 ```
+
+默认会初始化并读取用户配置目录：
+
+- macOS：`~/Library/Application Support/com.madao.sms`
+- Linux：`$XDG_CONFIG_HOME/com.madao.sms` 或 `~/.config/com.madao.sms`
+
+其中 `providers/*.toml` 为实际运行时副本；仓库里的 `plugins/providers/*.toml` 仅作为默认模板，不应保存真实 `api_key`。
 
 默认监听：
 
