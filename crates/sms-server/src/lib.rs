@@ -46,7 +46,10 @@ pub fn build_router(service: Arc<SmsService>) -> Router {
             "/api/routing-plans/{plan_id}",
             get(get_routing_plan).delete(delete_routing_plan),
         )
-        .route("/api/notifications", get(get_notifications))
+        .route(
+            "/api/notifications",
+            get(get_notifications).post(clear_notifications),
+        )
         .route("/api/tickets", get(list_tickets))
         .route("/api/tickets/{ticket_id}", get(get_ticket))
         .route(
@@ -138,6 +141,14 @@ async fn get_notifications(State(state): State<ApiState>) -> Json<NotificationFe
     state
         .service
         .log_http_access("GET", "/api/notifications", "200");
+    Json(state.service.notification_feed())
+}
+
+async fn clear_notifications(State(state): State<ApiState>) -> Json<NotificationFeed> {
+    state.service.clear_logs();
+    state
+        .service
+        .log_http_access("POST", "/api/notifications", "200");
     Json(state.service.notification_feed())
 }
 
@@ -1061,6 +1072,59 @@ mod tests {
                 .pointer("/items/0/url")
                 .and_then(serde_json::Value::as_str),
             Some("https://example.com/callback")
+        );
+    }
+
+    #[tokio::test]
+    async fn notifications_endpoint_can_clear_logs() {
+        let app = test_router();
+
+        let _ = app
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .method(Method::GET)
+                    .uri("/api/providers")
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+
+        let clear_response = app
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .method(Method::POST)
+                    .uri("/api/notifications")
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(clear_response.status(), StatusCode::OK);
+
+        let clear_body = axum::body::to_bytes(clear_response.into_body(), usize::MAX)
+            .await
+            .unwrap();
+        let clear_json: serde_json::Value = serde_json::from_slice(&clear_body).unwrap();
+        let items = clear_json
+            .pointer("/items")
+            .and_then(serde_json::Value::as_array)
+            .unwrap();
+        assert_eq!(items.len(), 1);
+        assert_eq!(
+            items[0]
+                .pointer("/scope")
+                .and_then(serde_json::Value::as_str),
+            Some("http")
+        );
+        assert!(
+            items[0]
+                .pointer("/message")
+                .and_then(serde_json::Value::as_str)
+                .unwrap_or_default()
+                .contains("POST /api/notifications -> 200")
         );
     }
 

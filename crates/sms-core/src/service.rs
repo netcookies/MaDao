@@ -28,6 +28,7 @@ use std::collections::{BTreeMap, VecDeque};
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
+use url::Url;
 use uuid::Uuid;
 
 const ROUTING_PLANS_FILE_NAME: &str = "routing-plans.json";
@@ -974,6 +975,14 @@ impl SmsService {
                 "unknown ticket {ticket_id}"
             )));
         }
+        let parsed_url = Url::parse(&request.url).map_err(|error| {
+            SmsError::InvalidRequest(format!("invalid callback url: {error}"))
+        })?;
+        if !matches!(parsed_url.scheme(), "http" | "https") {
+            return Err(SmsError::InvalidRequest(
+                "callback url must use http or https".to_string(),
+            ));
+        }
         let subscription = TicketCallbackSubscription {
             id: Uuid::now_v7().to_string(),
             ticket_id: ticket_id.to_string(),
@@ -1046,10 +1055,12 @@ impl SmsService {
 
             let callbacks = self
                 .callback_subscriptions
-                .write()
-                .remove(&ticket_id)
+                .read()
+                .get(&ticket_id)
+                .cloned()
                 .unwrap_or_default();
-            for callback in callbacks {
+            let mut delivered_ids = Vec::new();
+            for callback in &callbacks {
                 let payload = TicketCodeCallbackPayload {
                     ticket_id: latest.id.clone(),
                     provider: latest.provider.clone(),
@@ -1068,6 +1079,7 @@ impl SmsService {
                     .await;
                 match result {
                     Ok(response) if response.status().is_success() => {
+                        delivered_ids.push(callback.id.clone());
                         self.log(
                             "callback",
                             "info",
@@ -1092,6 +1104,22 @@ impl SmsService {
                         );
                     }
                 }
+            }
+
+            if delivered_ids.is_empty() {
+                continue;
+            }
+
+            let delivered_ids = delivered_ids
+                .into_iter()
+                .collect::<std::collections::BTreeSet<_>>();
+            let mut subscriptions = self.callback_subscriptions.write();
+            let Some(entries) = subscriptions.get_mut(&ticket_id) else {
+                continue;
+            };
+            entries.retain(|entry| !delivered_ids.contains(&entry.id));
+            if entries.is_empty() {
+                subscriptions.remove(&ticket_id);
             }
         }
     }
@@ -1459,6 +1487,10 @@ impl SmsService {
         NotificationFeed {
             items: self.logs.read().iter().rev().take(20).cloned().collect(),
         }
+    }
+
+    pub fn clear_logs(&self) {
+        self.logs.write().clear();
     }
 
     pub fn runtime_settings(&self) -> RuntimeSettings {
@@ -2660,6 +2692,90 @@ mod tests {
         assert_eq!(payloads[0].code.as_deref(), Some("123456"));
 
         server.abort();
+    }
+
+    #[tokio::test]
+    async fn callback_subscription_is_retained_after_delivery_failure() {
+        let service = make_service();
+        let acquire = service
+            .acquire_code(AcquireCodeRequest {
+                provider: "mock".to_string(),
+                service: Some("openai".to_string()),
+                country: Some("local".to_string()),
+                max_price: None,
+                min_price: None,
+                auto_pick_country: None,
+                reuse_phone: None,
+                reuse_key: None,
+                metadata: BTreeMap::new(),
+                routing_plan_id: None,
+                routing_plan_name: None,
+            })
+            .await
+            .unwrap();
+
+        service
+            .register_ticket_callback(
+                &acquire.ticket_id,
+                TicketCallbackRegistrationRequest {
+                    url: "http://127.0.0.1:9/callback".to_string(),
+                    secret: Some("demo".to_string()),
+                },
+            )
+            .unwrap();
+
+        service.maybe_dispatch_ticket_callbacks().await;
+
+        let callbacks = service.list_ticket_callbacks(&acquire.ticket_id).unwrap();
+        assert_eq!(callbacks.items.len(), 1);
+        assert_eq!(callbacks.items[0].url, "http://127.0.0.1:9/callback");
+    }
+
+    #[tokio::test]
+    async fn callback_subscription_rejects_non_http_scheme() {
+        let service = make_service();
+        let acquire = service
+            .acquire_code(AcquireCodeRequest {
+                provider: "mock".to_string(),
+                service: Some("openai".to_string()),
+                country: Some("local".to_string()),
+                max_price: None,
+                min_price: None,
+                auto_pick_country: None,
+                reuse_phone: None,
+                reuse_key: None,
+                metadata: BTreeMap::new(),
+                routing_plan_id: None,
+                routing_plan_name: None,
+            })
+            .await
+            .unwrap();
+
+        let error = service
+            .register_ticket_callback(
+                &acquire.ticket_id,
+                TicketCallbackRegistrationRequest {
+                    url: "file:///tmp/callback".to_string(),
+                    secret: None,
+                },
+            )
+            .unwrap_err();
+
+        assert!(error.to_string().contains("callback url must use http or https"));
+    }
+
+    #[test]
+    fn clear_logs_resets_notification_feed() {
+        let service = make_service();
+        service.log("system", "info", "entry-1");
+        service.log("system", "warn", "entry-2");
+
+        assert!(!service.notification_feed().items.is_empty());
+
+        service.clear_logs();
+
+        let feed = service.notification_feed();
+        assert!(feed.items.is_empty());
     }
 
     #[tokio::test]
