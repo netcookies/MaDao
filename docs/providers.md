@@ -20,6 +20,7 @@
 | SmsBower | [docs/providers/smsbower.md](providers/smsbower.md) |
 | 5SIM REST API | [docs/providers/5sim.md](providers/5sim.md) |
 | handler_api 共性参考 | [docs/providers/handler-api.md](providers/handler-api.md) |
+| 返回值校验完善计划 | [docs/providers/provider-validation-plan.md](providers/provider-validation-plan.md) |
 | Mock（本地联调） | [docs/providers/mock.md](providers/mock.md) |
 
 ## Provider Manifest

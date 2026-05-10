@@ -13,6 +13,7 @@ use crate::smsbower_assets::{
 use async_trait::async_trait;
 use plugin_sdk::{FiveSimConfig, HandlerApiConfig, MockConfig, ProviderKind, ProviderManifest};
 use reqwest::Client;
+use serde::Deserialize;
 use serde_json::Value;
 use std::collections::BTreeMap;
 use std::sync::Arc;
@@ -32,6 +33,78 @@ fn coerce_str_value(value: &Value) -> Option<String> {
         .map(ToOwned::to_owned)
         .or_else(|| value.as_i64().map(|n| n.to_string()))
         .or_else(|| value.as_u64().map(|n| n.to_string()))
+}
+
+fn coerce_u64(value: &Value) -> Option<u64> {
+    value
+        .as_u64()
+        .or_else(|| value.as_i64().and_then(|v| u64::try_from(v).ok()))
+        .or_else(|| value.as_str().and_then(|s| s.trim().parse().ok()))
+}
+
+#[derive(Debug, Deserialize)]
+struct UpstreamErrorPayload {
+    title: String,
+    details: String,
+    #[serde(default)]
+    info: BTreeMap<String, Value>,
+}
+
+fn format_handler_api_error(text: &str) -> String {
+    let trimmed = text.trim();
+    if trimmed.is_empty() {
+        return "empty handler_api error".to_string();
+    }
+    let Ok(payload) = serde_json::from_str::<UpstreamErrorPayload>(trimmed) else {
+        return trimmed.to_string();
+    };
+    let mut message = format!("{}: {}", payload.title, payload.details);
+    if let Some(min_activation_time) = payload
+        .info
+        .get("minActivationTime")
+        .and_then(coerce_u64)
+    {
+        message.push_str(&format!(" (minActivationTime={min_activation_time}s)"));
+    }
+    message
+}
+
+fn is_handler_api_error_text(text: &str) -> bool {
+    matches!(
+        text.trim(),
+        "BAD_KEY"
+            | "BAD_ACTION"
+            | "BAD_SERVICE"
+            | "BAD_COUNTRY"
+            | "BAD_STATUS"
+            | "NO_ACTIVATION"
+            | "NO_BALANCE"
+            | "NO_NUMBERS"
+            | "ERROR_SQL"
+            | "EARLY_CANCEL_DENIED"
+            | "FREE_CANCELLATION_EXPIRED"
+            | "OTP_RECEIVED"
+            | "STATUS_CANCEL"
+    ) || serde_json::from_str::<UpstreamErrorPayload>(text.trim()).is_ok()
+}
+
+fn normalize_fivesim_error(text: &str) -> String {
+    let trimmed = text.trim();
+    match trimmed.to_ascii_lowercase().as_str() {
+        "no free phones" => "NO_FREE_PHONES: no free phones".to_string(),
+        "not enough user balance" => {
+            "INSUFFICIENT_BALANCE: not enough user balance".to_string()
+        }
+        "not enough rating" => "INSUFFICIENT_RATING: not enough rating".to_string(),
+        "select country" => "SELECT_COUNTRY: select country".to_string(),
+        "select operator" => "SELECT_OPERATOR: select operator".to_string(),
+        "bad country" => "BAD_COUNTRY: bad country".to_string(),
+        "bad operator" => "BAD_OPERATOR: bad operator".to_string(),
+        "no product" => "NO_PRODUCT: no product".to_string(),
+        "server offline" => "SERVER_OFFLINE: server offline".to_string(),
+        "order not found" => "ORDER_NOT_FOUND: order not found".to_string(),
+        _ => trimmed.to_string(),
+    }
 }
 
 #[async_trait]
@@ -364,6 +437,14 @@ impl HeroSmsProvider {
     ) -> Result<(String, String, Option<f64>), SmsError> {
         self.as_shared().parse_number(text, json)
     }
+
+    fn expected_release_response(&self, action: ReleaseAction) -> &'static str {
+        match action {
+            ReleaseAction::Finish => "ACCESS_ACTIVATION",
+            ReleaseAction::Cancel | ReleaseAction::Ban => "ACCESS_CANCEL",
+            ReleaseAction::Retry => "ACCESS_RETRY_GET",
+        }
+    }
 }
 
 pub struct SmsBowerProvider {
@@ -546,7 +627,7 @@ impl SharedHandlerApiProvider {
             .await
             .map_err(|err| SmsError::Upstream(err.to_string()))?;
         if !status.is_success() {
-            return Err(SmsError::Upstream(text));
+            return Err(SmsError::Upstream(format_handler_api_error(&text)));
         }
         let json = serde_json::from_str::<Value>(&text).ok();
         Ok((text, json))
@@ -696,6 +777,9 @@ impl SharedHandlerApiProvider {
                     return Ok(number);
                 }
             }
+        }
+        if !text.trim().is_empty() {
+            return Err(SmsError::Upstream(format_handler_api_error(text)));
         }
         Err(SmsError::Upstream("unable to parse balance".to_string()))
     }
@@ -933,6 +1017,16 @@ impl SmsProvider for HeroSmsProvider {
                 &[("id", upstream_id), ("status", status.to_string())],
             )
             .await?;
+        let expected = self.expected_release_response(action);
+        if text.trim() != expected {
+            if is_handler_api_error_text(text.trim()) {
+                return Err(SmsError::Upstream(format_handler_api_error(&text)));
+            }
+            return Err(SmsError::Upstream(format!(
+                "unexpected release response: expected {expected}, got {}",
+                text.trim()
+            )));
+        }
         Ok(text)
     }
 
@@ -963,6 +1057,11 @@ impl SmsProvider for HeroSmsProvider {
                 ],
             )
             .await?;
+        if json.is_none() {
+            return Err(SmsError::Upstream(
+                "handler_api prices response is not valid JSON".to_string(),
+            ));
+        }
         Ok(self.parse_prices(&service, json.as_ref()))
     }
 
@@ -1146,12 +1245,12 @@ impl FiveSimProvider {
             .await
             .map_err(|err| SmsError::Upstream(err.to_string()))?;
         if !status.is_success() {
-            return Err(SmsError::Upstream(text));
+            return Err(SmsError::Upstream(normalize_fivesim_error(&text)));
         }
         // 5SIM 部分端点在 HTTP 200 时会以纯文本返回错误（如 "no free phones"），
         // 直接将原文回传比 "invalid json: ..." 更利于排查问题。
         let json = serde_json::from_str::<Value>(&text)
-            .map_err(|_| SmsError::Upstream(text.trim().to_string()))?;
+            .map_err(|_| SmsError::Upstream(normalize_fivesim_error(&text)))?;
         Ok((text, json))
     }
 
@@ -1322,6 +1421,33 @@ impl FiveSimProvider {
         };
         (status, sms_code, mapped)
     }
+
+    fn expected_release_status(&self, action: ReleaseAction) -> &'static str {
+        match action {
+            ReleaseAction::Finish => "FINISHED",
+            ReleaseAction::Cancel => "CANCELED",
+            ReleaseAction::Ban => "BANNED",
+            ReleaseAction::Retry => "PENDING",
+        }
+    }
+
+    fn validate_release_payload(
+        &self,
+        json: &Value,
+        action: ReleaseAction,
+    ) -> Result<String, SmsError> {
+        let status = json
+            .pointer(&self.config.status_json_pointer)
+            .and_then(Value::as_str)
+            .ok_or_else(|| SmsError::Upstream("missing 5SIM release status".to_string()))?;
+        let expected = self.expected_release_status(action);
+        if !status.eq_ignore_ascii_case(expected) {
+            return Err(SmsError::Upstream(format!(
+                "unexpected 5SIM release status: expected {expected}, got {status}"
+            )));
+        }
+        Ok(status.to_string())
+    }
 }
 
 #[async_trait]
@@ -1436,8 +1562,8 @@ impl SmsProvider for FiveSimProvider {
             ReleaseAction::Ban => self.config.ban_action.as_str(),
         };
         let endpoint = format!("user/{verb}/{upstream_id}");
-        let (text, _json) = self.request_get(&endpoint, &[]).await?;
-        Ok(text)
+        let (_text, json) = self.request_get(&endpoint, &[]).await?;
+        self.validate_release_payload(&json, action)
     }
 
     async fn get_balance(&self) -> Result<ProviderBalance, SmsError> {
@@ -1842,6 +1968,50 @@ mod tests {
     }
 
     #[test]
+    fn handler_api_release_response_must_match_action() {
+        let provider = HeroSmsProvider::new(handler_manifest()).unwrap();
+        assert_eq!(
+            provider.expected_release_response(ReleaseAction::Retry),
+            "ACCESS_RETRY_GET"
+        );
+        assert_eq!(
+            provider.expected_release_response(ReleaseAction::Finish),
+            "ACCESS_ACTIVATION"
+        );
+        assert_eq!(
+            provider.expected_release_response(ReleaseAction::Cancel),
+            "ACCESS_CANCEL"
+        );
+        assert_eq!(
+            provider.expected_release_response(ReleaseAction::Ban),
+            "ACCESS_CANCEL"
+        );
+    }
+
+    #[test]
+    fn handler_api_error_payload_formats_readable_message() {
+        let message = format_handler_api_error(
+            r#"{"title":"EARLY_CANCEL_DENIED","details":"Activation cannot be cancelled at this time. Minimum activation period must pass.","info":{"minActivationTime":120}}"#,
+        );
+        assert_eq!(
+            message,
+            "EARLY_CANCEL_DENIED: Activation cannot be cancelled at this time. Minimum activation period must pass. (minActivationTime=120s)"
+        );
+    }
+
+    #[test]
+    fn fivesim_error_text_is_normalized() {
+        assert_eq!(
+            normalize_fivesim_error("no free phones"),
+            "NO_FREE_PHONES: no free phones"
+        );
+        assert_eq!(
+            normalize_fivesim_error("order not found"),
+            "ORDER_NOT_FOUND: order not found"
+        );
+    }
+
+    #[test]
     fn herosms_offer_prices_expand_multiple_price_tiers() {
         let provider = HeroSmsProvider::new(handler_manifest()).unwrap();
         let prices = provider.parse_offer_prices(
@@ -1907,6 +2077,54 @@ mod tests {
             }
         }));
         assert_eq!(failed, crate::models::TicketStatus::Failed);
+    }
+
+    #[test]
+    fn fivesim_release_status_must_match_action() {
+        let provider = FiveSimProvider::new(five_sim_manifest()).unwrap();
+        let finished = json!({
+            "data": {
+                "state": "FINISHED"
+            }
+        });
+        let canceled = json!({
+            "data": {
+                "state": "CANCELED"
+            }
+        });
+        let banned = json!({
+            "data": {
+                "state": "BANNED"
+            }
+        });
+        let wrong = json!({
+            "data": {
+                "state": "PENDING"
+            }
+        });
+        assert_eq!(
+            provider
+                .validate_release_payload(&finished, ReleaseAction::Finish)
+                .unwrap(),
+            "FINISHED"
+        );
+        assert_eq!(
+            provider
+                .validate_release_payload(&canceled, ReleaseAction::Cancel)
+                .unwrap(),
+            "CANCELED"
+        );
+        assert_eq!(
+            provider
+                .validate_release_payload(&banned, ReleaseAction::Ban)
+                .unwrap(),
+            "BANNED"
+        );
+        assert!(
+            provider
+                .validate_release_payload(&wrong, ReleaseAction::Finish)
+                .is_err()
+        );
     }
 
     #[test]

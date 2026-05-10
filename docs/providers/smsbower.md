@@ -103,3 +103,34 @@
 - 更细粒度的国家 operator 元数据
 
 如果后续要把 `SmsBower` 的富国家 / operator 数据完整暴露给开发者，当前 `OptionItem` 模型需要继续扩展。
+
+---
+
+## 当前返回值校验现状
+
+`SmsBowerProvider` 的 `acquire / poll / release / get_balance` 当前复用了 `HeroSmsProvider` 的大部分返回值校验逻辑；价格接口则额外走 `getPricesV3`。
+
+对应实现：
+
+- [provider.rs](/Users/isulewli/Projects/MaDao/crates/sms-core/src/provider.rs:983)
+- [provider.rs](/Users/isulewli/Projects/MaDao/crates/sms-core/src/provider.rs:1040)
+
+### 已覆盖
+
+- `getNumberV2` 的 JSON 提取已兼容 `string / integer` 类型差异
+- `getStatus` 的 `STATUS_OK:{code}`、`STATUS_WAIT_CODE`、`STATUS_CANCEL` 等基础状态沿用 handler_api 兼容逻辑
+- `getPricesV3` 已作为优先价格数据源，失败时回退到 `getPrices`
+- `getCountries / getServicesList / getOperators` 已接入
+
+### 已知缺口
+
+- 当前保存的 `SmsBower` HTML 明确写到 `STATUS_WAIT_RETRY:$lastCode`，但未明确写到 `STATUS_WAIT_RESEND`；现实现里这两类都没有纳入等待态配置
+- `setStatus` 当前同样未校验 `ACCESS_RETRY_GET`、`ACCESS_ACTIVATION`、`ACCESS_CANCEL`
+- HTTP 非 `2xx` 的错误体当前仍按原始文本上抛，未做结构化解析
+- `getPricesV3` 当前只要 HTTP 成功且 JSON 可解析就继续处理，没有 provider 级错误对象分类
+
+### 建议优先补齐
+
+1. 先补 `SmsBower` 文档已明确给出的 `STATUS_WAIT_RETRY`，并把 `STATUS_WAIT_RESEND` 标记为“待更多上游证据确认”
+2. 为 `getPricesV3` 增加错误体分类与测试
+3. 把 `SmsBower` 的扩展错误语义补入共享文档，而不是只记在实现里

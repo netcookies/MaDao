@@ -148,7 +148,27 @@ fn normalize_manifest_defaults(mut manifest: ProviderManifest) -> ProviderManife
     if manifest.id == "smsbower" && manifest.defaults.country == "0" {
         manifest.defaults.country = "31".to_string();
     }
+    if let Some(handler_api) = manifest.handler_api.as_mut() {
+        if manifest.id == "herosms" {
+            ensure_wait_token(handler_api, "STATUS_WAIT_RETRY");
+            ensure_wait_token(handler_api, "STATUS_WAIT_RESEND");
+        }
+        if manifest.id == "smsbower" {
+            ensure_wait_token(handler_api, "STATUS_WAIT_RETRY");
+        }
+    }
     manifest
+}
+
+fn ensure_wait_token(config: &mut plugin_sdk::HandlerApiConfig, token: &str) {
+    if config
+        .wait_status_tokens
+        .iter()
+        .any(|item| item.eq_ignore_ascii_case(token))
+    {
+        return;
+    }
+    config.wait_status_tokens.push(token.to_string());
 }
 
 #[cfg(test)]
@@ -186,5 +206,54 @@ mod tests {
         let manifest = registry.manifest("smsbower").unwrap();
 
         assert_eq!(manifest.defaults.country, "31");
+    }
+
+    #[test]
+    fn normalizes_legacy_handler_wait_tokens() {
+        let base = std::env::temp_dir().join(format!("madao-registry-test-{}", Uuid::now_v7()));
+        fs::create_dir_all(&base).unwrap();
+        fs::copy(
+            repo_root().join("plugins/providers").join("herosms.toml"),
+            base.join("herosms.toml"),
+        )
+        .unwrap();
+        fs::copy(
+            repo_root().join("plugins/providers").join("smsbower.toml"),
+            base.join("smsbower.toml"),
+        )
+        .unwrap();
+
+        let hero_path = base.join("herosms.toml");
+        let hero_content = fs::read_to_string(&hero_path).unwrap();
+        fs::write(
+            &hero_path,
+            hero_content.replace(
+                "wait_status_tokens = [\"STATUS_WAIT_CODE\", \"STATUS_WAIT_RETRY\", \"STATUS_WAIT_RESEND\"]",
+                "wait_status_tokens = [\"STATUS_WAIT_CODE\"]",
+            ),
+        )
+        .unwrap();
+
+        let smsbower_path = base.join("smsbower.toml");
+        let smsbower_content = fs::read_to_string(&smsbower_path).unwrap();
+        fs::write(
+            &smsbower_path,
+            smsbower_content.replace(
+                "wait_status_tokens = [\"STATUS_WAIT_CODE\", \"STATUS_WAIT_RETRY\"]",
+                "wait_status_tokens = [\"STATUS_WAIT_CODE\"]",
+            ),
+        )
+        .unwrap();
+
+        let registry = ProviderRegistry::load_from_dir(&base).unwrap();
+        let hero = registry.manifest("herosms").unwrap();
+        let smsbower = registry.manifest("smsbower").unwrap();
+
+        let hero_tokens = &hero.handler_api.as_ref().unwrap().wait_status_tokens;
+        let smsbower_tokens = &smsbower.handler_api.as_ref().unwrap().wait_status_tokens;
+
+        assert!(hero_tokens.iter().any(|token| token == "STATUS_WAIT_RETRY"));
+        assert!(hero_tokens.iter().any(|token| token == "STATUS_WAIT_RESEND"));
+        assert!(smsbower_tokens.iter().any(|token| token == "STATUS_WAIT_RETRY"));
     }
 }

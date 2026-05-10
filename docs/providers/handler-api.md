@@ -354,3 +354,59 @@ code_json_pointers      = ["/sms/code", "/code", "/data/code", "/sms/0/code"]
 - 服务列表：[provider.rs](/Users/isulewli/Projects/MaDao/crates/sms-core/src/provider.rs:228)
 - 价格解析：[provider.rs](/Users/isulewli/Projects/MaDao/crates/sms-core/src/provider.rs:280)
 - 号码获取：[provider.rs](/Users/isulewli/Projects/MaDao/crates/sms-core/src/provider.rs:377)
+
+---
+
+## 当前校验缺口汇总
+
+虽然 `handler_api` 的共性文档已经基本齐全，但当前实现还存在几个跨 `HeroSMS / SmsBower` 的共性缺口：
+
+### 1. 等待态枚举不完整
+
+当前默认 `wait_status_tokens` 只有：
+
+- `STATUS_WAIT_CODE`
+
+当前已确认的上游等待态是：
+
+- `HeroSMS` OpenAPI：`STATUS_WAIT_RETRY:{lastCode}`、`STATUS_WAIT_RESEND`
+- `SmsBower` 保存页：`STATUS_WAIT_RETRY:{lastCode}`
+
+这意味着：
+
+- `STATUS_WAIT_RETRY` 至少应纳入 `HeroSMS / SmsBower` 的等待态配置
+- `STATUS_WAIT_RESEND` 当前可确认属于 `HeroSMS`，是否作为 `SmsBower` 共享默认值还需要更多文档或运行时样本佐证
+
+参考：
+
+- [plugin-sdk/src/lib.rs](/Users/isulewli/Projects/MaDao/crates/plugin-sdk/src/lib.rs:320)
+- [plugins/providers/herosms.toml](/Users/isulewli/Projects/MaDao/plugins/providers/herosms.toml:43)
+- [plugins/providers/smsbower.toml](/Users/isulewli/Projects/MaDao/plugins/providers/smsbower.toml:43)
+- [API Documentation - SMSBower.html](</Users/isulewli/Downloads/API Documentation - SMSBower.html>)
+
+### 2. `setStatus` 成功响应未做 action 级校验
+
+当前 release 逻辑只要 HTTP 成功就直接返回文本，没有校验：
+
+- `retry` 是否返回 `ACCESS_RETRY_GET`
+- `finish` 是否返回 `ACCESS_ACTIVATION`
+- `cancel` / `ban` 是否返回 `ACCESS_CANCEL`
+
+这会导致“HTTP 200 但业务语义不符”的场景被误判为成功。
+
+### 3. HTTP 错误体未结构化解析
+
+`HeroSMS` 的 OpenAPI 已经使用 `BaseErrorResponse { title, details, info }`。当前实现还只是把错误 body 作为原始字符串上抛，导致上层无法稳定识别：
+
+- `EARLY_CANCEL_DENIED`
+- `FREE_CANCELLATION_EXPIRED`
+- `OTP_RECEIVED`
+
+### 4. 文档与配置需同步收敛
+
+后续如果补齐上面的缺口，需要同步更新：
+
+- `plugin-sdk` 默认值
+- `herosms.toml`
+- `smsbower.toml`
+- provider 协议文档

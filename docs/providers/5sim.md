@@ -438,3 +438,42 @@ code_json_pointers     = ["/sms/0/code", "/sms/code", "/code", "/data/code"]
 # 轮询时视为失败的 status 枚举值
 failure_statuses       = ["CANCELED", "BANNED", "TIMEOUT"]
 ```
+
+---
+
+## 当前返回值校验现状
+
+`FiveSimProvider` 当前的返回值校验主要集中在 `request_get()`、`map_poll_payload()`、`release()`：
+
+- HTTP 发送失败直接包装成 `SmsError::Upstream(err.to_string())`
+- HTTP 非 `2xx` 时直接把响应文本原样上抛
+- HTTP `200` 但 body 不是 JSON 时，也会把原始文本作为 `SmsError::Upstream` 返回
+- `poll` 通过 `status` + `sms code` 联合映射到内部状态
+- `release` 当前只要 HTTP 成功就直接返回原始响应文本，未核对返回订单状态
+
+对应实现：
+
+- [provider.rs](/Users/isulewli/Projects/MaDao/crates/sms-core/src/provider.rs:1114)
+- [provider.rs](/Users/isulewli/Projects/MaDao/crates/sms-core/src/provider.rs:1277)
+- [provider.rs](/Users/isulewli/Projects/MaDao/crates/sms-core/src/provider.rs:1410)
+
+### 已覆盖
+
+- `buy` 成功响应中的 `id / phone / price` 已正确提取
+- `buy` 的 HTTP `200` 纯文本错误已避免误报为 “invalid json”
+- `poll` 已支持通过 `/sms/0/code` 等路径提取验证码
+- `CANCELED` / `BANNED` / `TIMEOUT` 已映射到 `Failed`
+- `Retry` 动作已明确禁止映射到 5SIM release
+
+### 已知缺口
+
+- `release` 当前未校验 `/finish`、`/cancel`、`/ban` 返回对象中的 `status` 是否分别为 `FINISHED`、`CANCELED`、`BANNED`
+- `poll` 当前对 `PENDING`、`RECEIVED`、`FINISHED` 的处理是“只要有 code 就成功，否则等待”，文档需要明确这是本项目策略，不是上游原生语义
+- 纯文本错误目前未做结构化分类，例如 `no free phones`、`not enough user balance`、`order not found`
+- HTTP 非 `2xx` 当前仍只把原始文本上抛，未为 UI 提供稳定错误类别
+
+### 建议优先补齐
+
+1. 为 `finish / cancel / ban` 增加目标状态校验
+2. 为常见纯文本错误增加统一分类
+3. 在文档里把 5SIM 的“状态映射策略”和“协议原始状态”明确区分开

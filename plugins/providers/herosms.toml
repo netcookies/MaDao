@@ -40,7 +40,7 @@ status_finish = 6
 status_cancel = 8
 balance_prefix = "ACCESS_BALANCE:"
 success_status_prefix = "STATUS_OK:"
-wait_status_tokens = ["STATUS_WAIT_CODE"]
+wait_status_tokens = ["STATUS_WAIT_CODE", "STATUS_WAIT_RETRY", "STATUS_WAIT_RESEND"]
 failure_status_tokens = [
     "STATUS_CANCEL",
     "BAD_STATUS",

@@ -318,7 +318,11 @@ fn default_success_status_prefix() -> String {
 }
 
 fn default_wait_status_tokens() -> Vec<String> {
-    vec!["STATUS_WAIT_CODE".to_string()]
+    vec![
+        "STATUS_WAIT_CODE".to_string(),
+        "STATUS_WAIT_RETRY".to_string(),
+        "STATUS_WAIT_RESEND".to_string(),
+    ]
 }
 
 fn default_failure_status_tokens() -> Vec<String> {
