@@ -62,7 +62,6 @@ import {
 import { LogsScreen } from './app/logs/LogsScreen';
 import { SettingsScreen } from './app/settings/SettingsScreen';
 import {
-  countryBadge,
   formatCountryLabel,
   formatProviderLabel,
   formatRelativeTime,
@@ -89,6 +88,7 @@ import { useSelectorFlow } from './hooks/useSelectorFlow';
 import {
   API_BASE,
   SOCKET_PATH,
+  clearNotifications,
   deleteRoutingPlan,
   fetchRoutingPlans,
   fetchProviderPrices,
@@ -98,6 +98,7 @@ import { getAppConfigDirectory, openAppConfigDirectory } from './services/appCon
 import { windowAction } from './services/windowApi';
 import { listenMenuCommand } from './services/menuBarApi';
 import { i18n } from './app/i18n';
+import { formatProviderErrorMessage } from './app/providerErrors';
 
 type SidebarItem = { id: ScreenId; label: string; Icon: typeof LayoutDashboard };
 
@@ -156,6 +157,7 @@ export function App() {
   const [configDirectory, setConfigDirectory] = useState('Loading…');
   const [snackbarOpen, setSnackbarOpen] = useState(false);
   const [statusSequence, setStatusSequence] = useState(0);
+  const notificationsPopoverRef = useRef<HTMLDivElement | null>(null);
   const {
     snapshot,
     setSnapshot,
@@ -201,8 +203,6 @@ export function App() {
     setAutoRefresh,
     showAdvancedEditor,
     setShowAdvancedEditor,
-    compactTables,
-    setCompactTables,
     sidebarCollapsed,
     setSidebarCollapsed,
     messageFilter,
@@ -235,6 +235,7 @@ export function App() {
     setLanguage,
   } = useConsoleUiState();
   const translate = i18n.getFixedT(language);
+  const formatError = (error: unknown) => formatProviderErrorMessage(error, language);
   const navItems: SidebarItem[] = [
     { id: 'overview', label: t('Overview'), Icon: LayoutDashboard },
     { id: 'providers', label: t('Providers'), Icon: Server },
@@ -545,14 +546,59 @@ export function App() {
     });
   }, [logsFilter, logsSearch, notifications, snapshot]);
 
+  const waitingTicketIds = useMemo(() => (
+    (snapshot?.tickets ?? [])
+      .filter((ticket) => ticket.provider !== 'mock')
+      .filter((ticket) => getTicketPhase(ticket.status) === 'waiting')
+      .map((ticket) => ticket.id)
+  ), [snapshot]);
+
   useEffect(() => {
-    const waitingTicket = filteredMessages.find((ticket) => getTicketPhase(ticket.status) === 'waiting');
-    if (!waitingTicket) return undefined;
+    if (waitingTicketIds.length === 0) return undefined;
     const timer = window.setInterval(() => {
-      void pollTicket(waitingTicket.id);
+      waitingTicketIds.forEach((ticketId) => {
+        void pollTicket(ticketId, { silent: true });
+      });
     }, 8000);
     return () => window.clearInterval(timer);
-  }, [filteredMessages]);
+  }, [pollTicket, waitingTicketIds]);
+
+  useEffect(() => {
+    if (!showNotifications) return undefined;
+
+    function handlePointerDown(event: PointerEvent) {
+      const target = event.target;
+      if (!(target instanceof Node)) return;
+      if (notificationsPopoverRef.current?.contains(target)) return;
+      setShowNotifications(false);
+    }
+
+    function handleKeyDown(event: KeyboardEvent) {
+      if (event.key === 'Escape') {
+        setShowNotifications(false);
+      }
+    }
+
+    document.addEventListener('pointerdown', handlePointerDown);
+    document.addEventListener('keydown', handleKeyDown);
+    return () => {
+      document.removeEventListener('pointerdown', handlePointerDown);
+      document.removeEventListener('keydown', handleKeyDown);
+    };
+  }, [setShowNotifications, showNotifications]);
+
+  async function handleClearLogs() {
+    try {
+      const feed = await clearNotifications();
+      setNotifications(feed.items.filter((entry) => !(
+        entry.scope === 'http' && entry.message.includes('POST /api/notifications -> 200')
+      )));
+      setLogsSearch('');
+      pushStatusMessage(translate('logs_cleared'));
+    } catch (error) {
+      pushStatusMessage(translate('failed_clear_logs', { error: formatError(error) }));
+    }
+  }
 
   const overviewStats = useMemo(() => {
     const providers = (snapshot?.providers ?? []).filter((provider) => provider.id !== 'mock');
@@ -674,7 +720,7 @@ export function App() {
         ? current
         : payload.plans[0]?.id || '');
     } catch (error) {
-      pushStatusMessage(translate('failed_load_routing_plans', { error: String(error) }));
+      pushStatusMessage(translate('failed_load_routing_plans', { error: formatError(error) }));
     }
   }
 
@@ -739,7 +785,7 @@ export function App() {
       setRoutingItemPriceLoading(false);
       pushStatusMessage(translate('saved_routing_plan', { name: saved.name }));
     } catch (error) {
-      pushStatusMessage(translate('failed_save_routing_plan', { error: String(error) }));
+      pushStatusMessage(translate('failed_save_routing_plan', { error: formatError(error) }));
     } finally {
       setBusyAction('');
     }
@@ -756,7 +802,7 @@ export function App() {
       setRoutingItemEditor(null);
       pushStatusMessage(translate('deleted_routing_plan', { plan: planId }));
     } catch (error) {
-      pushStatusMessage(translate('failed_delete_routing_plan', { error: String(error) }));
+      pushStatusMessage(translate('failed_delete_routing_plan', { error: formatError(error) }));
     } finally {
       setBusyAction('');
     }
@@ -967,18 +1013,32 @@ export function App() {
       setRoutingItemPriceOptions(prices.items);
       pushStatusMessage(translate('loaded_prices_for_provider', { provider: routingItemEditor.providerId }));
     } catch (error) {
-      pushStatusMessage(translate('failed_load_prices_for_provider', { provider: routingItemEditor.providerId, error: String(error) }));
+      pushStatusMessage(translate('failed_load_prices_for_provider', { provider: routingItemEditor.providerId, error: formatError(error) }));
     } finally {
       setRoutingItemPriceLoading(false);
     }
   }
 
   function quickFillRoutingItemPrice(kind: 'min' | 'max', price: number) {
-    if (!routingItemEditor) return;
-    setRoutingItemEditor({
-      ...routingItemEditor,
-      minPrice: kind === 'min' ? String(price) : routingItemEditor.minPrice,
-      maxPrice: kind === 'max' ? String(price) : routingItemEditor.maxPrice,
+    setRoutingItemEditor((current) => {
+      if (!current) return current;
+      return {
+        ...current,
+        minPrice: kind === 'min' ? String(price) : current.minPrice,
+        maxPrice: kind === 'max' ? String(price) : current.maxPrice,
+      };
+    });
+  }
+
+  function useExactRoutingItemPrice(price: number) {
+    setRoutingItemEditor((current) => {
+      if (!current) return current;
+      const nextValue = String(price);
+      return {
+        ...current,
+        minPrice: nextValue,
+        maxPrice: nextValue,
+      };
     });
   }
 
@@ -1251,7 +1311,7 @@ export function App() {
     try {
       await windowAction(action);
     } catch (error) {
-      pushStatusMessage(translate('window_action_failed', { error: String(error) }));
+      pushStatusMessage(translate('window_action_failed', { error: formatError(error) }));
     }
   }
 
@@ -1338,7 +1398,7 @@ export function App() {
           placeholder={t('Search logs...')}
         />
       ) : null}
-      <div className="relative">
+      <div ref={notificationsPopoverRef} className="relative">
         <IconButton
           variant="toolbar"
           icon={(
@@ -1460,7 +1520,7 @@ export function App() {
             actions={toolbarActions}
           />
         )}
-        compact={compactTables}
+        compact
         noPadding={activeScreen === 'providers' && providerView === 'workspace'}
         contentClassName="max-[760px]:pt-5"
       >
@@ -1528,6 +1588,7 @@ export function App() {
                 onApplyItemEditor={applyRoutingItemEditor}
                 onLoadItemPriceOptions={() => void loadRoutingItemPriceOptions()}
                 onUseItemPriceQuickFill={quickFillRoutingItemPrice}
+                onUseItemExactPrice={useExactRoutingItemPrice}
                 busyAction={busyAction}
               />
             )}
@@ -1538,7 +1599,7 @@ export function App() {
                 manifest={selectedManifest}
                 summary={selectedSummary}
                 section={activeProviderSection}
-                compact={compactTables}
+                compact
                 prices={sortedPrices}
                 balanceLabel={balances[selectedProvider] ?? '—'}
                 busyAction={busyAction}
@@ -1614,8 +1675,6 @@ export function App() {
                 setAutoRefresh={setAutoRefresh}
                 showAdvancedEditor={showAdvancedEditor}
                 setShowAdvancedEditor={setShowAdvancedEditor}
-                compactTables={compactTables}
-                setCompactTables={setCompactTables}
                 language={language}
                 setLanguage={setLanguage}
                 appearanceTheme={appearanceTheme}
@@ -1651,6 +1710,7 @@ export function App() {
                   filters={logFilters}
                   search={logsSearch}
                   onSearch={setLogsSearch}
+                  onClearLogs={() => void handleClearLogs()}
                 />
               )}
       </AppShell>

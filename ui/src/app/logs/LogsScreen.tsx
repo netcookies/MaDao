@@ -21,6 +21,7 @@ export type LogsScreenProps = {
   filters: Array<{ id: LogFilter; label: string }>;
   search: string;
   onSearch: (value: string) => void;
+  onClearLogs: () => void;
 };
 
 export function LogsScreen(props: LogsScreenProps) {
@@ -38,7 +39,7 @@ export function LogsScreen(props: LogsScreenProps) {
         subtitle={t('Real-time event stream for debugging and monitoring.')}
         align="center"
         actions={(
-          <AppButton variant="danger-outline" size="utility" onClick={() => props.onSearch('')}>
+          <AppButton variant="danger-outline" size="utility" onClick={props.onClearLogs}>
             <Trash2 size={14} />
             {t('Clear Logs')}
           </AppButton>
@@ -84,7 +85,7 @@ export function LogsScreen(props: LogsScreenProps) {
                 </span>
               </span>
               <span className="text-[12px] text-ds-text-secondary">{new Date(entry.timestamp).toLocaleTimeString(timeLocale)}</span>
-              <span className="text-[12px] text-ds-text-secondary">{formatScopeLabel(entry.scope, language)}</span>
+              <span className="break-words text-[12px] text-ds-text-secondary">{formatScopeLabel(entry.scope, language)}</span>
               <span className={cx(
                 'text-[13px]',
                 entry.level.toLowerCase() === 'error' && 'text-ds-state-danger',

@@ -795,6 +795,8 @@ function renderPageTarget(target: ScreenshotTarget, t: (key: string, options?: R
         onApplyItemEditor={noop}
         onLoadItemPriceOptions={noop}
         onUseItemPriceQuickFill={noop}
+        onUseItemExactPrice={noop}
+        onDuplicateItem={noop}
         busyAction=""
       />,
       {
@@ -821,8 +823,6 @@ function renderPageTarget(target: ScreenshotTarget, t: (key: string, options?: R
         setAutoRefresh={noop}
         showAdvancedEditor
         setShowAdvancedEditor={noop}
-        compactTables={false}
-        setCompactTables={noop}
         language={getRequestedLanguage()}
         setLanguage={noop}
         appearanceTheme="light"
@@ -856,6 +856,7 @@ function renderPageTarget(target: ScreenshotTarget, t: (key: string, options?: R
         ]}
         search=""
         onSearch={noop}
+        onClearLogs={noop}
       />,
     );
   }

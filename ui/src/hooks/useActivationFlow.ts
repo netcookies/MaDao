@@ -7,6 +7,7 @@ import {
   type SelectorKind,
 } from '../app/types';
 import { i18n } from '../app/i18n';
+import { formatProviderErrorMessage } from '../app/providerErrors';
 import { acquireActivation, failoverRoutingTicket, pollActivationTicket, releaseActivationTicket } from '../services/runtimeApi';
 
 type ActivationUiState = {
@@ -36,14 +37,22 @@ export function useActivationFlow(
 ) {
   const translate = i18n.getFixedT(ui.language);
 
-  async function pollTicket(ticketId: string) {
+  function getErrorMessage(error: unknown) {
+    return formatProviderErrorMessage(error, ui.language);
+  }
+
+  async function pollTicket(ticketId: string, options?: { silent?: boolean }) {
     try {
       ui.setBusyAction(`poll-${ticketId}`);
       await pollActivationTicket(ticketId);
-      ui.setStatusMessage(translate('ticket_refreshed', { ticket: ticketId }));
+      if (!options?.silent) {
+        ui.setStatusMessage(translate('ticket_refreshed', { ticket: ticketId }));
+      }
       await runtime.loadSnapshot();
     } catch (error) {
-      ui.setStatusMessage(translate('failed_refresh_ticket', { error: String(error) }));
+      if (!options?.silent) {
+        ui.setStatusMessage(translate('failed_refresh_ticket', { error: getErrorMessage(error) }));
+      }
     } finally {
       ui.setBusyAction('');
     }
@@ -68,8 +77,8 @@ export function useActivationFlow(
     } catch (error) {
       ui.setStatusMessage(
         action === 'retry'
-          ? translate('failed_move_ticket_to_next_route', { ticket: ticket.id, error: String(error) })
-          : translate('failed_update_ticket', { error: String(error) }),
+          ? translate('failed_move_ticket_to_next_route', { ticket: ticket.id, error: getErrorMessage(error) })
+          : translate('failed_update_ticket', { error: getErrorMessage(error) }),
       );
       await Promise.allSettled([runtime.loadSnapshot()]);
     } finally {
@@ -82,7 +91,7 @@ export function useActivationFlow(
       await navigator.clipboard.writeText(value);
       ui.setStatusMessage(translate('copied', { label }));
     } catch (error) {
-      ui.setStatusMessage(translate('copy_failed', { error: String(error) }));
+      ui.setStatusMessage(translate('copy_failed', { error: getErrorMessage(error) }));
     }
   }
 
@@ -120,7 +129,7 @@ export function useActivationFlow(
           : ui.activationForm.provider,
       );
     } catch (error) {
-      ui.setActivationError(String(error));
+      ui.setActivationError(getErrorMessage(error));
     } finally {
       ui.setActivationBusy(false);
     }

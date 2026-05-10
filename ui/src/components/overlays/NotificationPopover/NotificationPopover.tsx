@@ -29,7 +29,7 @@ export function NotificationPopover(props: NotificationPopoverProps) {
         <h2 className="m-0 font-text text-utility font-semibold tracking-[var(--ds-type-utility-tracking)] text-ds-text-primary">{title}</h2>
         {markAllAction}
       </header>
-      <div className="flex flex-col overflow-hidden">
+      <div className="flex max-h-[min(24rem,calc(100vh-8rem))] flex-col overflow-y-auto overscroll-contain">
         {items.length > 0 ? items.map((item) => (
           <div
             key={item.id}

@@ -80,6 +80,7 @@ export type RoutingScreenProps = {
   onApplyItemEditor: () => void;
   onLoadItemPriceOptions: () => void;
   onUseItemPriceQuickFill: (kind: 'min' | 'max', price: number) => void;
+  onUseItemExactPrice: (price: number) => void;
   busyAction: string;
 };
 
@@ -181,6 +182,7 @@ export function RoutingScreen(props: RoutingScreenProps) {
         onApply={props.onApplyItemEditor}
         onLoadPriceOptions={props.onLoadItemPriceOptions}
         onQuickFill={props.onUseItemPriceQuickFill}
+        onUseExactPrice={props.onUseItemExactPrice}
       />
     </>
   );
@@ -785,6 +787,7 @@ function RoutingItemEditorModal(props: {
   onApply: () => void;
   onLoadPriceOptions: () => void;
   onQuickFill: (kind: 'min' | 'max', price: number) => void;
+  onUseExactPrice: (price: number) => void;
 }) {
   const { t } = useTranslation();
   const [priceMode, setPriceMode] = useState<'any' | 'range'>('any');
@@ -944,8 +947,7 @@ function RoutingItemEditorModal(props: {
                 <div className="w-20 text-right font-mono text-[13px] text-ds-text-secondary">${item.price.toFixed(3)}</div>
                 <div className="flex items-center gap-2">
                   <AppButton variant="ghost" size="utility" onClick={() => {
-                    props.onQuickFill('min', item.price);
-                    props.onQuickFill('max', item.price);
+                    props.onUseExactPrice(item.price);
                     setPriceMode('range');
                   }}>{t('Use exact')}</AppButton>
                   <AppButton variant="ghost" size="utility" onClick={() => {

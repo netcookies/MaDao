@@ -31,8 +31,22 @@ export type ActivationAcquireResponse = {
 export const API_BASE = 'http://127.0.0.1:7822';
 export const SOCKET_PATH = '/tmp/madao-sms.sock';
 
+async function readErrorMessage(response: Response): Promise<string> {
+  const contentType = response.headers.get('content-type') ?? '';
+  if (contentType.includes('application/json')) {
+    try {
+      const payload = (await response.json()) as { message?: string };
+      if (payload.message) return payload.message;
+    } catch {
+      // Fallback to raw text below when JSON parsing fails.
+    }
+  }
+  const text = await response.text();
+  return text || response.statusText;
+}
+
 async function readJson<T>(response: Response): Promise<T> {
-  if (!response.ok) throw new Error(await response.text());
+  if (!response.ok) throw new Error(await readErrorMessage(response));
   return (await response.json()) as T;
 }
 
@@ -68,16 +82,13 @@ export async function saveProviderManifest(providerId: string, manifest: Provide
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(manifest),
   });
-  if (!response.ok) {
-    const error = (await response.json()) as { message?: string };
-    throw new Error(error.message ?? response.statusText);
-  }
+  if (!response.ok) throw new Error(await readErrorMessage(response));
   return (await response.json()) as ProviderManifestSaveResponse;
 }
 
 export async function reloadProviderRegistry(): Promise<void> {
   const response = await fetch(`${API_BASE}/api/provider-manifests/reload`, { method: 'POST' });
-  if (!response.ok) throw new Error(await response.text());
+  if (!response.ok) throw new Error(await readErrorMessage(response));
 }
 
 export async function fetchProviderCountries(providerId: string): Promise<OptionListResponse> {
@@ -120,6 +131,12 @@ export async function fetchNotifications(): Promise<NotificationFeed> {
   return readJson<NotificationFeed>(await fetch(`${API_BASE}/api/notifications`));
 }
 
+export async function clearNotifications(): Promise<NotificationFeed> {
+  return readJson<NotificationFeed>(await fetch(`${API_BASE}/api/notifications`, {
+    method: 'POST',
+  }));
+}
+
 export async function fetchRuntimeSettings(): Promise<RuntimeSettings> {
   return readJson<RuntimeSettings>(await fetch(`${API_BASE}/api/settings/runtime`));
 }
@@ -158,7 +175,7 @@ export async function pollActivationTicket(ticketId: string): Promise<void> {
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ ticket_id: ticketId }),
   });
-  if (!response.ok) throw new Error(await response.text());
+  if (!response.ok) throw new Error(await readErrorMessage(response));
 }
 
 export async function releaseActivationTicket(ticketId: string, action: 'finish' | 'cancel' | 'retry'): Promise<void> {
@@ -167,7 +184,7 @@ export async function releaseActivationTicket(ticketId: string, action: 'finish'
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ ticket_id: ticketId, action }),
   });
-  if (!response.ok) throw new Error(await response.text());
+  if (!response.ok) throw new Error(await readErrorMessage(response));
 }
 
 export async function failoverRoutingTicket(ticketId: string, failedItemId?: string, reason?: string): Promise<ActivationAcquireResponse> {
@@ -180,7 +197,7 @@ export async function failoverRoutingTicket(ticketId: string, failedItemId?: str
       reason,
     }),
   });
-  if (!response.ok) throw new Error(await response.text());
+  if (!response.ok) throw new Error(await readErrorMessage(response));
   return readJson<ActivationAcquireResponse>(response);
 }
 
@@ -190,7 +207,7 @@ export async function reorderProviderManifests(order: Array<{ id: string; priori
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ order }),
   });
-  if (!response.ok) throw new Error(await response.text());
+  if (!response.ok) throw new Error(await readErrorMessage(response));
 }
 
 export async function acquireActivation(body: Record<string, unknown>): Promise<void> {
@@ -199,8 +216,5 @@ export async function acquireActivation(body: Record<string, unknown>): Promise<
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(body),
   });
-  if (!response.ok) {
-    const error = (await response.json()) as { message?: string };
-    throw new Error(error.message ?? response.statusText);
-  }
+  if (!response.ok) throw new Error(await readErrorMessage(response));
 }

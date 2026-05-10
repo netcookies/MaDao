@@ -123,8 +123,9 @@ function iconSvg(simpleIcon: SimpleIcon) {
       aria-hidden="true"
       className="h-full w-full"
       fill="currentColor"
-      dangerouslySetInnerHTML={{ __html: `<path d="${simpleIcon.path}" />` }}
-    />
+    >
+      <path d={simpleIcon.path} />
+    </svg>
   );
 }
 

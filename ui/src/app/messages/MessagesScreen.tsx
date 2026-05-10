@@ -1,4 +1,4 @@
-import { Copy, Loader2 } from 'lucide-react';
+import { AlertCircle, Copy, Loader2 } from 'lucide-react';
 import { useEffect, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { AppButton, PageHeader, SegmentedControl } from '../ui-bridge';
@@ -11,6 +11,7 @@ import {
   getTicketPhase,
 } from '../../lib/formatters';
 import { ResourceBadge } from '../../components/primitives';
+import { formatProviderErrorMessage } from '../providerErrors';
 
 export type MessagesScreenProps = {
   tickets: TicketRecord[];
@@ -28,6 +29,17 @@ export function MessagesScreen(props: MessagesScreenProps) {
   const { t, i18n } = useTranslation();
   const language = (i18n.resolvedLanguage ?? i18n.language ?? 'en') as LanguageCode;
   const [now, setNow] = useState(() => Date.now());
+
+  function formatTicketMessage(message: string | null | undefined, fallback: string) {
+    if (!message) return fallback;
+    return i18n.exists(message) ? t(message) : message;
+  }
+
+  function formatTicketError(message: string | null | undefined) {
+    if (!message) return null;
+    return formatProviderErrorMessage(message, language);
+  }
+
   const visibleTickets = [...props.tickets]
     .sort((left, right) => {
       const leftTime = new Date(left.created_at ?? 0).getTime();
@@ -68,6 +80,7 @@ export function MessagesScreen(props: MessagesScreenProps) {
             ? getHeroCancelRemainingMs(ticket.created_at, now)
             : 0;
           const heroCancelLocked = heroCancelRemainingMs > 0;
+          const ticketError = formatTicketError(ticket.message);
 
           return (
             <div className="flex flex-col gap-5 rounded-[16px] border border-ds-border bg-ds-surface px-6 py-6 shadow-ds backdrop-blur-ds" key={ticket.id}>
@@ -125,11 +138,17 @@ export function MessagesScreen(props: MessagesScreenProps) {
                   <Loader2 size={32} className="animate-[d-spin_0.9s_linear_infinite] text-ds-state-warning" />
                   <span className="text-[15px] font-semibold tracking-[0] text-ds-state-warning">{t('Waiting for SMS...')}</span>
                   <span className="text-center text-[13px] tracking-[0.08em] text-ds-text-secondary">
-                    {ticket.message ?? t('Check provider dashboard')}
+                    {formatTicketMessage(ticket.message, t('Check provider dashboard'))}
                   </span>
                   {heroCancelLocked && (
                     <span className="text-center text-[12px] font-medium tracking-[0.04em] text-ds-state-warning">
                       {t('HeroSMS cancel unlocks in {{duration}}', { duration: formatDurationMmSs(heroCancelRemainingMs) })}
+                    </span>
+                  )}
+                  {!heroCancelLocked && ticketError && ticketError !== ticket.message && (
+                    <span className="inline-flex items-center gap-2 rounded-[999px] bg-ds-surface px-3 py-1 text-[12px] font-medium text-ds-text-secondary">
+                      <AlertCircle size={14} className="text-ds-state-warning" />
+                      {ticketError}
                     </span>
                   )}
                 </div>
@@ -138,7 +157,7 @@ export function MessagesScreen(props: MessagesScreenProps) {
                 <div className="flex w-full flex-col gap-2 rounded-[12px] bg-ds-surface-subtle px-6 py-4 opacity-80">
                   <strong className="text-[15px] font-semibold tracking-[0] text-ds-text-primary">{t('Activation canceled or expired')}</strong>
                   <p className="m-0 text-[14px] text-ds-text-secondary">
-                    {ticket.message ?? t('You were not charged for this request.')}
+                    {formatTicketMessage(ticket.message, t('You were not charged for this request.'))}
                   </p>
                 </div>
               )}

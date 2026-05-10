@@ -30,6 +30,7 @@ import {
 } from '../services/runtimeApi';
 import { refreshMenuBar } from '../services/menuBarApi';
 import { i18n } from '../app/i18n';
+import { formatProviderErrorMessage } from '../app/providerErrors';
 
 function normalizeOptionToken(value: string | null | undefined) {
   return (value ?? '').trim().toLowerCase();
@@ -102,6 +103,7 @@ export function useProviderRuntime(
   ui: UiState,
 ) {
   const translate = i18n.getFixedT(ui.language);
+  const formatError = (error: unknown) => formatProviderErrorMessage(error, ui.language);
 
   const manageableProviders = useMemo(
     () => Object.values(data.manifests).filter((provider) => provider.id !== 'mock' && provider.kind !== 'mock'),
@@ -351,7 +353,7 @@ export function useProviderRuntime(
       await persistProvider(providerId, manifest, translate('saved_provider_reloaded_refreshed', { provider: providerId }));
       ui.setShowManifestModal(false);
     } catch (error) {
-      ui.setStatusMessage(translate('save_failed', { error: String(error) }));
+      ui.setStatusMessage(translate('save_failed', { error: formatError(error) }));
     }
   }
 
@@ -397,7 +399,7 @@ export function useProviderRuntime(
         ...current,
         [providerId]: previousRaw,
       }));
-      ui.setStatusMessage(translate('failed_update_provider', { provider: providerId, error: String(error) }));
+      ui.setStatusMessage(translate('failed_update_provider', { provider: providerId, error: formatError(error) }));
     }
   }
 
@@ -408,7 +410,7 @@ export function useProviderRuntime(
       ui.setStatusMessage(translate('providers_reloaded'));
       await Promise.all([loadManifests(), loadSnapshot()]);
     } catch (error) {
-      ui.setStatusMessage(translate('reload_failed', { error: String(error) }));
+      ui.setStatusMessage(translate('reload_failed', { error: formatError(error) }));
     } finally {
       ui.setBusyAction('');
     }
@@ -422,7 +424,7 @@ export function useProviderRuntime(
       data.setOptionCacheOverview(await fetchOptionCacheOverview());
       ui.setStatusMessage(translate('runtime_settings_saved'));
     } catch (error) {
-      ui.setStatusMessage(translate('failed_save_runtime_settings', { error: String(error) }));
+      ui.setStatusMessage(translate('failed_save_runtime_settings', { error: formatError(error) }));
     } finally {
       ui.setBusyAction('');
     }
@@ -438,7 +440,7 @@ export function useProviderRuntime(
       }));
       ui.setStatusMessage(translate('balance_fetched_for_provider', { provider: providerId }));
     } catch (error) {
-      ui.setStatusMessage(translate('failed_fetch_balance', { error: String(error) }));
+      ui.setStatusMessage(translate('failed_fetch_balance', { error: formatError(error) }));
     } finally {
       ui.setBusyAction('');
     }
@@ -473,7 +475,7 @@ export function useProviderRuntime(
       await Promise.all([loadManifests(), loadSnapshot(), loadRuntimeSettings()]);
       ui.setStatusMessage(translate('refreshed_cache_and_balance_for_provider', { provider: providerId }));
     } catch (error) {
-      ui.setStatusMessage(translate('failed_refresh_provider', { provider: providerId, error: String(error) }));
+      ui.setStatusMessage(translate('failed_refresh_provider', { provider: providerId, error: formatError(error) }));
     } finally {
       ui.setBusyAction('');
     }
@@ -499,7 +501,7 @@ export function useProviderRuntime(
       }));
       ui.setStatusMessage(translate('prices_loaded_for_provider', { provider: providerId }));
     } catch (error) {
-      ui.setStatusMessage(translate('failed_fetch_prices', { error: String(error) }));
+      ui.setStatusMessage(translate('failed_fetch_prices', { error: formatError(error) }));
     } finally {
       ui.setBusyAction('');
     }
@@ -533,7 +535,7 @@ export function useProviderRuntime(
       ui.setStatusMessage(translate('priority_order_saved'));
       await loadManifests();
     } catch (error) {
-      ui.setStatusMessage(translate('failed_save_order', { error: String(error) }));
+      ui.setStatusMessage(translate('failed_save_order', { error: formatError(error) }));
     }
   }
 

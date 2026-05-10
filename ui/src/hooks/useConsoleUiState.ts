@@ -25,7 +25,6 @@ export function useConsoleUiState() {
   const [activeProviderSection, setActiveProviderSection] = useState<ProviderSectionId>('config');
   const [autoRefresh, setAutoRefresh] = useState(true);
   const [showAdvancedEditor, setShowAdvancedEditor] = useState(true);
-  const [compactTables, setCompactTables] = useState(false);
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   const [messageFilter, setMessageFilter] = useState<MessageFilter>('all');
   const [logsFilter, setLogsFilter] = useState<LogFilter>('all');
@@ -67,8 +66,6 @@ export function useConsoleUiState() {
     setAutoRefresh,
     showAdvancedEditor,
     setShowAdvancedEditor,
-    compactTables,
-    setCompactTables,
     sidebarCollapsed,
     setSidebarCollapsed,
     messageFilter,

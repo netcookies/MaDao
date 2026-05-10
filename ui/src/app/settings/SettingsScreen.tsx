@@ -12,14 +12,14 @@ import {
 import type { LanguageCode as AppLanguageCode, OptionCacheOverview } from '../types';
 
 export type AppearanceTheme = 'light' | 'dark' | 'system';
+declare const __APP_VERSION__: string;
+const APP_VERSION = __APP_VERSION__;
 
 export type SettingsScreenProps = {
   autoRefresh: boolean;
   setAutoRefresh: (value: boolean) => void;
   showAdvancedEditor: boolean;
   setShowAdvancedEditor: (value: boolean) => void;
-  compactTables: boolean;
-  setCompactTables: (value: boolean) => void;
   language: AppLanguageCode;
   setLanguage: (value: AppLanguageCode) => void;
   appearanceTheme: AppearanceTheme;
@@ -39,6 +39,13 @@ export function SettingsScreen(props: SettingsScreenProps) {
   const language = (i18n.resolvedLanguage ?? i18n.language ?? 'en') as AppLanguageCode;
   function handlePollIntervalStep(nextValue: number) {
     props.onOptionCachePollIntervalChange(Math.max(1, nextValue));
+  }
+  function handlePollIntervalInput(rawValue: string) {
+    const trimmed = rawValue.trim();
+    if (!trimmed) return;
+    const parsed = Number.parseInt(trimmed, 10);
+    if (!Number.isFinite(parsed)) return;
+    props.onOptionCachePollIntervalChange(Math.max(1, parsed));
   }
 
   return (
@@ -65,7 +72,6 @@ export function SettingsScreen(props: SettingsScreenProps) {
           <h3 className="m-0 pb-4 text-section-title font-semibold tracking-[var(--ds-type-section-title-tracking)] text-ds-text-primary">{t('General')}</h3>
           <ToggleSetting title={t('Auto Refresh')} description={t('Refresh runtime snapshot every 4 seconds.')} checked={props.autoRefresh} onChange={props.setAutoRefresh} />
           <ToggleSetting title={t('Advanced Manifest Access')} description={t('Allow opening the raw manifest editor modal.')} checked={props.showAdvancedEditor} onChange={props.setShowAdvancedEditor} />
-          <ToggleSetting title={t('Compact Tables')} description={t('Tighten spacing for activity, provider and inventory tables.')} checked={props.compactTables} onChange={props.setCompactTables} last />
         </div>
 
         <div className="flex flex-col gap-3 border-b border-solid border-ds-border border-x-0 border-t-0 px-6 py-4">
@@ -92,7 +98,7 @@ export function SettingsScreen(props: SettingsScreenProps) {
                   min={1}
                   step={1}
                   value={props.optionCachePollIntervalMinutes}
-                  onChange={(event) => props.onOptionCachePollIntervalChange(Number(event.target.value || 30))}
+                  onChange={(event) => handlePollIntervalInput(event.target.value)}
                   compact
                   aria-label={t('Polling interval in minutes')}
                   className="w-[88px]"
@@ -145,7 +151,7 @@ export function SettingsScreen(props: SettingsScreenProps) {
 
         <div className="flex items-center justify-between gap-4 border-solid border-ds-border border-b-0 border-x-0 border-t px-6 py-3">
           <span className="font-text text-utility font-normal tracking-[var(--ds-type-utility-tracking)] text-ds-text-secondary">{t('Version')}</span>
-          <span className="font-mono text-caption text-ds-text-secondary">v1.0.0</span>
+          <span className="font-mono text-caption text-ds-text-secondary">v{APP_VERSION}</span>
         </div>
       </div>
     </div>
