@@ -51,6 +51,16 @@ export function useSelectorFlow(
   const language = ui.language;
   const translate = i18n.getFixedT(language);
 
+  function dedupeSelectorOptions(options: SelectorState['options']) {
+    const seen = new Set<string>();
+    return options.filter((option) => {
+      const key = option.commitValue.trim().toLowerCase();
+      if (seen.has(key)) return false;
+      seen.add(key);
+      return true;
+    });
+  }
+
   function localizedServiceOption(option: OptionItem): OptionItem {
     return {
       ...option,
@@ -207,7 +217,7 @@ export function useSelectorFlow(
       resourceKind = 'country';
     }
     ui.setSelectorSearch('');
-    ui.setSelectorState({ kind, title, options, resourceKind });
+    ui.setSelectorState({ kind, title, options: dedupeSelectorOptions(options), resourceKind });
   }
 
   function applySelectorOption(option: SelectorState['options'][number]) {
