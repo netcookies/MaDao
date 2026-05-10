@@ -1,6 +1,6 @@
-# MaDao
+# 码到 / MaDao
 
-`MaDao` 是一个基于 `Rust + Tauri 2 + React` 的内部协议兼容控制台，面向团队自建平台的通知 / OTP 测试能力。
+`码到（MaDao）` 是一个基于 `Rust + Tauri 2 + React` 的内部协议兼容控制台，定位为“一站式接码助手”，面向团队自建平台的通知 / OTP 测试能力。
 
 当前版本保留了插件式 provider 架构，并支持通过配置兼容以下协议风格：
 
@@ -164,6 +164,9 @@ npx getdesign@latest add apple --out ./DESIGN.md
 ## 文档
 
 - [架构说明](docs/architecture.md)
+- [API 联动指南](docs/api-integration.md)
 - [Provider 协议兼容说明](docs/providers.md)
 - [Routing Plans 说明](docs/routing-plans.md)
 - [开发与验证说明](docs/development.md)
+- [自动发布说明](docs/release.md)
+- [贡献指南](CONTRIBUTING.md)

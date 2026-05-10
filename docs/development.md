@@ -28,6 +28,12 @@ git init
 
 当前仓库已经完成初始化提交，可继续按功能粒度提交后续修改。
 
+## 补充文档
+
+- app / daemon API 联动见 [docs/api-integration.md](api-integration.md)
+- 接入更多服务商与代码贡献见 [CONTRIBUTING.md](/Users/isulewli/Projects/MaDao/CONTRIBUTING.md)
+- 自动化多平台发布见 [docs/release.md](release.md)
+
 ## 常用命令
 
 ### Rust

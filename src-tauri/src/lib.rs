@@ -18,6 +18,7 @@ use tauri::tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent}
 
 const MENU_COMMAND_EVENT: &str = "menu-command";
 const TRAY_ID: &str = "madao-menu-bar";
+const APP_NAME: &str = "码到";
 const MENU_NEW_ACTIVATION_ID: &str = "menu.new_activation";
 const MENU_OPEN_MAIN_WINDOW_ID: &str = "menu.open_main_window";
 const MENU_PREFERENCES_ID: &str = "menu.preferences";
@@ -198,7 +199,7 @@ fn build_app_menu(app: &tauri::AppHandle) -> Result<Menu<tauri::Wry>, String> {
     let quit = MenuItem::with_id(
         app,
         MENU_QUIT_ID,
-        "Quit MadaoSMS",
+        &format!("Quit {APP_NAME}"),
         true,
         Some("CmdOrCtrl+Q"),
     )
@@ -222,7 +223,7 @@ fn build_app_menu(app: &tauri::AppHandle) -> Result<Menu<tauri::Wry>, String> {
     let logs = MenuItem::with_id(app, MENU_SCREEN_LOGS_ID, "Logs", true, None::<&str>)
         .map_err(|err| err.to_string())?;
 
-    let app_submenu = SubmenuBuilder::new(app, "MadaoSMS")
+    let app_submenu = SubmenuBuilder::new(app, APP_NAME)
         .item(&open_main_window)
         .separator()
         .item(&preferences)
@@ -323,7 +324,7 @@ fn build_tray_menu(
     let quit = MenuItem::with_id(
         app,
         MENU_QUIT_ID,
-        "Quit MadaoSMS",
+        &format!("Quit {APP_NAME}"),
         true,
         Some("CmdOrCtrl+Q"),
     )
@@ -383,7 +384,7 @@ fn sync_menu_bar(app: &tauri::AppHandle) -> Result<(), String> {
         tray.set_menu(Some(tray_menu))
             .map_err(|err| err.to_string())?;
         tray.set_tooltip(Some(format!(
-            "MaDao SMS Platform · {active_count} active providers"
+            "{APP_NAME} · {active_count} active providers"
         )))
         .map_err(|err| err.to_string())?;
         return Ok(());
@@ -397,7 +398,7 @@ fn sync_menu_bar(app: &tauri::AppHandle) -> Result<(), String> {
         .menu(&tray_menu)
         .show_menu_on_left_click(false)
         .tooltip(format!(
-            "MaDao SMS Platform · {active_count} active providers"
+            "{APP_NAME} · {active_count} active providers"
         ))
         .build(app)
         .map_err(|err| err.to_string())?;
@@ -621,6 +622,7 @@ pub fn run() {
             app.manage(Arc::clone(&service));
             let app_handle = app.handle().clone();
             let config = config.clone();
+            let initial_window_title = config.ui_title.clone();
             let cache_service = Arc::clone(&service);
             tauri::async_runtime::spawn(async move {
                 match spawn_http_server(service, &config).await {
@@ -642,7 +644,7 @@ pub fn run() {
                 }
             });
             if let Some(window) = app.get_webview_window("main") {
-                let _ = window.set_title("MaDao SMS Platform");
+                let _ = window.set_title(&initial_window_title);
             }
             let _ = app.set_dock_visibility(true);
             let menu = build_app_menu(&app.handle())?;

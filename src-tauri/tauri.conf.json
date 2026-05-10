@@ -1,7 +1,6 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
-  "productName": "MaDao SMS Platform",
-  "version": "0.1.0",
+  "productName": "码到",
   "identifier": "com.madao.sms",
   "build": {
     "beforeDevCommand": "npm run build",
@@ -12,7 +11,7 @@
     "windows": [
       {
         "label": "main",
-        "title": "MaDao SMS Platform",
+        "title": "码到 —— 一站式接码助手",
         "width": 1024,
         "height": 768,
         "resizable": true

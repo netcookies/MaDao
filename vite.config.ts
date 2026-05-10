@@ -1,11 +1,20 @@
+import { readFileSync } from 'node:fs';
+import { resolve } from 'node:path';
 import { defineConfig } from 'vite';
 import react from '@vitejs/plugin-react';
+
+function resolveAppVersion() {
+  const cargoTomlPath = resolve(__dirname, 'Cargo.toml');
+  const cargoToml = readFileSync(cargoTomlPath, 'utf8');
+  const workspaceVersion = cargoToml.match(/\[workspace\.package\][\s\S]*?version\s*=\s*"([^"]+)"/)?.[1];
+  return workspaceVersion ?? process.env.npm_package_version ?? process.env.CARGO_PKG_VERSION ?? '0.0.0';
+}
 
 export default defineConfig({
   plugins: [react()],
   root: 'ui',
   define: {
-    __APP_VERSION__: JSON.stringify(process.env.npm_package_version ?? '0.1.0'),
+    __APP_VERSION__: JSON.stringify(resolveAppVersion()),
   },
   build: {
     outDir: '../dist',
