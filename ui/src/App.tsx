@@ -271,6 +271,17 @@ export function App() {
     hint: t('Expand this candidate across all enabled providers'),
   };
 
+  function dedupeSelectorOptions(options: SelectorOptionViewModel[]) {
+    const seen = new Set<string>();
+    return options.filter((option) => {
+      const normalizedValue = option.commitValue.trim().toLowerCase();
+      const key = normalizedValue === 'any' ? '' : normalizedValue;
+      if (seen.has(key)) return false;
+      seen.add(key);
+      return true;
+    });
+  }
+
   function pushStatusMessage(message: string) {
     setStatusMessageState(message);
     setStatusSequence((current) => current + 1);
@@ -958,7 +969,7 @@ export function App() {
         kind: 'routing-item-country',
         title: t('Select Candidate Country'),
         resourceKind: 'country',
-        options: [
+        options: dedupeSelectorOptions([
           selectorOptionFromOptionItem({
             option: anyRouteCountryOption,
             language,
@@ -974,7 +985,7 @@ export function App() {
             resourceKind: 'country',
             providerId,
           })),
-        ],
+        ]),
       });
       return;
     }
@@ -982,7 +993,7 @@ export function App() {
     setSelectorState({
       kind: 'routing-item-operator',
       title: t('Select Candidate Carrier'),
-      options: [
+      options: dedupeSelectorOptions([
         selectorOptionFromOptionItem({
           option: anyRouteOperatorOption,
           language,
@@ -996,7 +1007,7 @@ export function App() {
           language,
           providerId,
         })),
-      ],
+      ]),
     });
   }
 

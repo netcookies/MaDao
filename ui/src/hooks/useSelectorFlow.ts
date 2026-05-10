@@ -54,7 +54,8 @@ export function useSelectorFlow(
   function dedupeSelectorOptions(options: SelectorState['options']) {
     const seen = new Set<string>();
     return options.filter((option) => {
-      const key = option.commitValue.trim().toLowerCase();
+      const normalizedValue = option.commitValue.trim().toLowerCase();
+      const key = normalizedValue === 'any' ? '' : normalizedValue;
       if (seen.has(key)) return false;
       seen.add(key);
       return true;
