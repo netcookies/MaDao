@@ -13,9 +13,10 @@ use crate::models::{
 };
 use crate::options::{
     OptionKind, ProviderOptionCacheStore, ProviderRawOptionAuditStore, build_cache_overview,
-    cache_state, load_option_cache_store, load_raw_option_audit_store, normalize_price_items,
-    normalize_provider_options, resolve_provider_value, save_option_cache_store,
-    save_raw_option_audit_store, with_cache_state,
+    cache_state, load_option_cache_store, load_raw_option_audit_store,
+    normalize_loaded_provider_options, normalize_price_items, normalize_provider_options,
+    resolve_provider_value, save_option_cache_store, save_raw_option_audit_store,
+    with_cache_state,
 };
 use crate::registry::ProviderRegistry;
 use chrono::Utc;
@@ -89,6 +90,24 @@ impl SmsService {
             .as_ref()
             .and_then(|path| load_option_cache_store(path).ok())
             .unwrap_or_default();
+        let provider_option_cache = {
+            let registry_ref = &registry;
+            let mut normalized_store = ProviderOptionCacheStore::default();
+            for (provider_id, entry) in provider_option_cache.entries {
+                if let Ok(manifest) = registry_ref.manifest(&provider_id) {
+                    normalized_store.entries.insert(
+                        provider_id.clone(),
+                        ProviderOptionCacheEntry {
+                            options: normalize_loaded_provider_options(&manifest, entry.options),
+                            ..entry
+                        },
+                    );
+                } else {
+                    normalized_store.entries.insert(provider_id, entry);
+                }
+            }
+            normalized_store
+        };
         let provider_raw_option_audit = provider_options_raw_path
             .as_ref()
             .and_then(|path| load_raw_option_audit_store(path).ok())
@@ -1964,6 +1983,49 @@ mod tests {
             after.handler_api.as_ref().map(|cfg| cfg.base_url.clone()),
             before.handler_api.as_ref().map(|cfg| cfg.base_url.clone())
         );
+    }
+
+
+    #[test]
+    fn persistent_service_recanoicalizes_legacy_cached_countries_on_load() {
+        let base = std::env::temp_dir().join(format!("madao-cache-migrate-{}", Uuid::now_v7()));
+        fs::create_dir_all(&base).unwrap();
+
+        let legacy_cache = r#"{
+  "entries": {
+    "smsbower": {
+      "provider": "smsbower",
+      "fetched_at": "2026-05-09T05:43:15.596832Z",
+      "options": {
+        "provider": "smsbower",
+        "raw_services": [],
+        "raw_countries": [],
+        "raw_operators": [],
+        "services": [],
+        "countries": [
+          {
+            "value": "1",
+            "label": "Ukraine",
+            "hint": "380",
+            "provider_value": "1",
+            "icon_url": null,
+            "provider_icon_url": null
+          }
+        ],
+        "operators": [],
+        "cache_state": "fresh",
+        "fetched_at": "2026-05-09T05:43:15.596832Z"
+      }
+    }
+  }
+}"#;
+        fs::write(base.join("provider-options-cache.json"), legacy_cache).unwrap();
+
+        let service = make_persistent_service(&base);
+        let cached = service.provider_cached_options("smsbower").unwrap();
+        assert_eq!(cached.countries[0].value, "ukraine");
+        assert_eq!(cached.countries[0].label, "Ukraine");
+        assert_eq!(cached.countries[0].provider_value.as_deref(), Some("1"));
     }
 
     #[test]

@@ -6,6 +6,7 @@ use crate::error::SmsError;
 use crate::models::{
     OptionCacheOverview, OptionCacheState, OptionItem, ProviderDynamicOptions,
     ProviderOptionCacheEntry, ProviderPriceItem, ProviderRawOptionAuditEntry, RuntimeSettings,
+    TicketRecord,
 };
 use chrono::{DateTime, Duration, Utc};
 use plugin_sdk::ProviderManifest;
@@ -32,6 +33,23 @@ pub fn load_option_cache_store(path: &Path) -> Result<ProviderOptionCacheStore, 
         .map_err(|err| SmsError::Io(format!("read provider option cache failed: {err}")))?;
     serde_json::from_str(&content)
         .map_err(|err| SmsError::Config(format!("parse provider option cache failed: {err}")))
+}
+
+pub fn normalize_loaded_provider_options(
+    manifest: &ProviderManifest,
+    mut options: ProviderDynamicOptions,
+) -> ProviderDynamicOptions {
+    let fetched_at = options.fetched_at.unwrap_or_else(Utc::now);
+    if options.raw_services.is_empty() {
+        options.raw_services = options.services.clone();
+    }
+    if options.raw_countries.is_empty() {
+        options.raw_countries = options.countries.clone();
+    }
+    if options.raw_operators.is_empty() {
+        options.raw_operators = options.operators.clone();
+    }
+    normalize_provider_options(manifest, options, fetched_at)
 }
 
 pub fn save_option_cache_store(
@@ -230,6 +248,47 @@ pub fn normalize_price_items(
             item
         })
         .collect()
+}
+
+
+pub fn normalize_ticket_record(
+    manifest: &ProviderManifest,
+    options: Option<&ProviderDynamicOptions>,
+    mut ticket: TicketRecord,
+) -> TicketRecord {
+    let raw_service = ticket.service.clone();
+    if let Some(mapped) = options
+        .and_then(|entry| {
+            entry.services.iter().find(|item| {
+                item.provider_value
+                    .as_ref()
+                    .map(|provider_value| normalize_token(provider_value) == normalize_token(&raw_service))
+                    .unwrap_or(false)
+            })
+        })
+    {
+        ticket.service = mapped.value.clone();
+    } else {
+        ticket.service = canonical_service_value(manifest, &raw_service, Some(&raw_service));
+    }
+
+    let raw_country = ticket.country.clone();
+    if let Some(mapped) = options
+        .and_then(|entry| {
+            entry.countries.iter().find(|item| {
+                item.provider_value
+                    .as_ref()
+                    .map(|provider_value| normalize_token(provider_value) == normalize_token(&raw_country))
+                    .unwrap_or(false)
+            })
+        })
+    {
+        ticket.country = mapped.value.clone();
+    } else {
+        ticket.country = canonical_country_value(&raw_country, Some(&raw_country), None);
+    }
+
+    ticket
 }
 
 pub fn resolve_provider_value(
@@ -558,8 +617,12 @@ fn title_case_token(input: &str) -> String {
 
 #[cfg(test)]
 mod tests {
-    use super::{canonical_country_value, canonical_service_value};
+    use super::{
+        canonical_country_value, canonical_service_value, normalize_loaded_provider_options,
+        normalize_ticket_record,
+    };
     use crate::models::ProviderRawOptionAuditEntry;
+    use crate::models::{OptionItem, ProviderDynamicOptions, TicketRecord};
     use plugin_sdk::{ProviderDefaults, ProviderKind, ProviderManifest};
     use serde::Deserialize;
     use std::collections::{BTreeMap, BTreeSet};
@@ -613,6 +676,43 @@ mod tests {
             canonical_country_value("18", Some("Viet nam"), Some("18")),
             "vietnam"
         );
+        assert_eq!(
+            canonical_country_value("12", Some("Ukraine"), Some("380")),
+            "ukraine"
+        );
+        assert_eq!(
+            canonical_country_value("103", Some("China"), Some("86")),
+            "china"
+        );
+    }
+
+
+    #[test]
+    fn normalize_loaded_provider_options_recanonicalizes_legacy_numeric_countries() {
+        let manifest = test_manifest();
+        let options = ProviderDynamicOptions {
+            provider: "test".to_string(),
+            raw_services: Vec::new(),
+            raw_countries: Vec::new(),
+            raw_operators: Vec::new(),
+            services: Vec::new(),
+            countries: vec![OptionItem {
+                value: "12".to_string(),
+                label: "Ukraine".to_string(),
+                hint: "380".to_string(),
+                provider_value: Some("12".to_string()),
+                icon_url: None,
+                provider_icon_url: None,
+            }],
+            operators: Vec::new(),
+            cache_state: crate::models::OptionCacheState::Fresh,
+            fetched_at: None,
+        };
+
+        let normalized = normalize_loaded_provider_options(&manifest, options);
+        assert_eq!(normalized.countries[0].value, "ukraine");
+        assert_eq!(normalized.countries[0].label, "Ukraine");
+        assert_eq!(normalized.countries[0].provider_value.as_deref(), Some("12"));
     }
 
     #[test]
@@ -626,6 +726,52 @@ mod tests {
             canonical_service_value(&manifest, "tg", Some("Telegram")),
             "telegram"
         );
+    }
+
+
+    #[test]
+    fn normalize_ticket_record_maps_provider_values_back_to_canonical_values() {
+        let mut manifest = test_manifest();
+        manifest.service_aliases.insert("openai".to_string(), "dr".to_string());
+
+        let options = ProviderDynamicOptions {
+            provider: "test".to_string(),
+            raw_services: Vec::new(),
+            raw_countries: Vec::new(),
+            raw_operators: Vec::new(),
+            services: vec![OptionItem {
+                value: "openai".to_string(),
+                label: "OpenAI (GPT)".to_string(),
+                hint: "dr".to_string(),
+                provider_value: Some("dr".to_string()),
+                icon_url: None,
+                provider_icon_url: None,
+            }],
+            countries: vec![OptionItem {
+                value: "usa".to_string(),
+                label: "United States".to_string(),
+                hint: "50".to_string(),
+                provider_value: Some("50".to_string()),
+                icon_url: None,
+                provider_icon_url: None,
+            }],
+            operators: Vec::new(),
+            cache_state: crate::models::OptionCacheState::Fresh,
+            fetched_at: None,
+        };
+
+        let ticket = TicketRecord::new(
+            "test".to_string(),
+            "dr".to_string(),
+            "50".to_string(),
+            "+15550000000".to_string(),
+            Some("upstream-1".to_string()),
+            Some(0.1),
+        );
+
+        let normalized = normalize_ticket_record(&manifest, Some(&options), ticket);
+        assert_eq!(normalized.service, "openai");
+        assert_eq!(normalized.country, "usa");
     }
 
     #[derive(Deserialize)]
