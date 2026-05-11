@@ -405,6 +405,7 @@ export function App() {
   );
 
   const optionCatalog = useMemo<OptionCatalog>(() => buildOptionCatalog(providerOptions), [providerOptions]);
+  const manifestsById = manifests;
 
   const {
     openSelector,
@@ -1535,15 +1536,16 @@ export function App() {
               <OverviewScreen
                 stats={overviewStats}
                 activity={recentActivity}
+                providers={manifestsById}
                 decorations={ticketDecorations}
                 onViewAll={() => setActiveScreen('messages')}
               />
             )}
 
             {activeScreen === 'providers' && providerView === 'list' && (
-              <ProvidersListScreen
-                providers={orderedProviders}
-                summaries={snapshot?.providers}
+                <ProvidersListScreen
+                  providers={orderedProviders}
+                  summaries={snapshot?.providers}
                 balances={balances}
                 onRefreshBalance={(id) => {
                   void fetchBalance(id);
@@ -1663,6 +1665,7 @@ export function App() {
             {activeScreen === 'messages' && (
                 <MessagesScreen
                   tickets={filteredMessages}
+                  providers={manifestsById}
                   decorations={ticketDecorations}
                   filter={messageFilter}
                   setFilter={setMessageFilter}

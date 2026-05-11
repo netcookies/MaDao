@@ -2,12 +2,12 @@ import { AlertCircle, Copy, Loader2 } from 'lucide-react';
 import { useEffect, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { AppButton, PageHeader, SegmentedControl } from '../ui-bridge';
-import type { LanguageCode, MessageFilter, TicketDecoration, TicketRecord } from '../types';
+import type { LanguageCode, MessageFilter, ProviderManifest, TicketDecoration, TicketRecord } from '../types';
 import {
   formatDurationMmSs,
   formatProviderLabel,
   formatServiceLabel,
-  getHeroCancelRemainingMs,
+  getCancelRemainingMs,
   getTicketPhase,
 } from '../../lib/formatters';
 import { ResourceBadge } from '../../components/primitives';
@@ -15,6 +15,7 @@ import { formatProviderErrorMessage } from '../providerErrors';
 
 export type MessagesScreenProps = {
   tickets: TicketRecord[];
+  providers?: Record<string, ProviderManifest>;
   decorations?: Record<string, TicketDecoration>;
   filter: MessageFilter;
   setFilter: (value: MessageFilter) => void;
@@ -49,17 +50,18 @@ export function MessagesScreen(props: MessagesScreenProps) {
     .slice(0, 8);
 
   useEffect(() => {
-    const needsHeroCancelCountdown = props.tickets.some((ticket) =>
-      ticket.provider.toLowerCase() === 'herosms'
-      && getTicketPhase(ticket.status) === 'waiting'
-      && getHeroCancelRemainingMs(ticket.created_at, now) > 0);
-    if (!needsHeroCancelCountdown) return undefined;
+    const needsCancelCountdown = props.tickets.some((ticket) => {
+      const cooldownSec = props.providers?.[ticket.provider]?.behavior?.cancel_cooldown_sec;
+      return getTicketPhase(ticket.status) === 'waiting'
+        && getCancelRemainingMs(ticket.created_at, cooldownSec, now) > 0;
+    });
+    if (!needsCancelCountdown) return undefined;
 
     const timer = window.setInterval(() => {
       setNow(Date.now());
     }, 1000);
     return () => window.clearInterval(timer);
-  }, [now, props.tickets]);
+  }, [now, props.providers, props.tickets]);
 
   return (
     <div className="flex flex-col gap-6">
@@ -74,13 +76,16 @@ export function MessagesScreen(props: MessagesScreenProps) {
           const phase = getTicketPhase(ticket.status);
           const isReceived = phase === 'received';
           const isWaiting = phase === 'waiting';
-          const isHeroSms = ticket.provider.toLowerCase() === 'herosms';
           const usesRoutingPlan = Boolean(ticket.routing_plan_id);
-          const heroCancelRemainingMs = isWaiting && isHeroSms
-            ? getHeroCancelRemainingMs(ticket.created_at, now)
+          const providerManifest = props.providers?.[ticket.provider];
+          const cancelCooldownSec = providerManifest?.behavior?.cancel_cooldown_sec;
+          const cancelRemainingMs = isWaiting
+            ? getCancelRemainingMs(ticket.created_at, cancelCooldownSec, now)
             : 0;
-          const heroCancelLocked = heroCancelRemainingMs > 0;
+          const cancelLocked = cancelRemainingMs > 0;
           const ticketError = formatTicketError(ticket.message);
+          const providerIconUrl = providerManifest?.ui?.icon_url;
+          const providerBadgeLabel = providerManifest?.ui?.badge_label;
 
           return (
             <div className="flex flex-col gap-5 rounded-[16px] border border-ds-border bg-ds-surface px-6 py-6 shadow-ds backdrop-blur-ds" key={ticket.id}>
@@ -140,12 +145,12 @@ export function MessagesScreen(props: MessagesScreenProps) {
                   <span className="text-center text-[13px] tracking-[0.08em] text-ds-text-secondary">
                     {formatTicketMessage(ticket.message, t('Check provider dashboard'))}
                   </span>
-                  {heroCancelLocked && (
+                  {cancelLocked && (
                     <span className="text-center text-[12px] font-medium tracking-[0.04em] text-ds-state-warning">
-                      {t('HeroSMS cancel unlocks in {{duration}}', { duration: formatDurationMmSs(heroCancelRemainingMs) })}
+                      {t('Cancel unlocks in {{duration}}', { duration: formatDurationMmSs(cancelRemainingMs) })}
                     </span>
                   )}
-                  {!heroCancelLocked && ticketError && ticketError !== ticket.message && (
+                  {!cancelLocked && ticketError && ticketError !== ticket.message && (
                     <span className="inline-flex items-center gap-2 rounded-[999px] bg-ds-surface px-3 py-1 text-[12px] font-medium text-ds-text-secondary">
                       <AlertCircle size={14} className="text-ds-state-warning" />
                       {ticketError}
@@ -165,7 +170,7 @@ export function MessagesScreen(props: MessagesScreenProps) {
               <div className="flex flex-col gap-3 pt-1 min-[760px]:flex-row min-[760px]:items-center min-[760px]:justify-between">
                 <div className="flex flex-col gap-1">
                   <span className="inline-flex items-center gap-2 text-[13px] leading-[1.43] text-ds-text-secondary">
-                    <ResourceBadge kind="provider" value={ticket.provider} size="sm" />
+                    <ResourceBadge kind="provider" value={ticket.provider} size="sm" iconUrl={providerIconUrl} fallbackLabel={providerBadgeLabel ?? undefined} />
                     <span>{t('Provider: {{provider}}', { provider: formatProviderLabel(ticket.provider, language) })}</span>
                   </span>
                   {usesRoutingPlan && (
@@ -192,10 +197,10 @@ export function MessagesScreen(props: MessagesScreenProps) {
                         variant="danger-outline"
                         size="utility"
                         onClick={() => props.onRelease(ticket, 'cancel')}
-                        disabled={props.busyAction === `cancel-${ticket.id}` || heroCancelLocked}
+                        disabled={props.busyAction === `cancel-${ticket.id}` || cancelLocked}
                       >
-                        {heroCancelLocked
-                          ? t('Cancel in {{duration}}', { duration: formatDurationMmSs(heroCancelRemainingMs) })
+                        {cancelLocked
+                          ? t('Cancel in {{duration}}', { duration: formatDurationMmSs(cancelRemainingMs) })
                           : t('Cancel & Refund')}
                       </AppButton>
                       <AppButton variant="success" size="utility" onClick={() => props.onBuyAnother(ticket)}>

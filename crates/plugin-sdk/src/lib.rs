@@ -27,6 +27,10 @@ pub struct ProviderManifest {
     #[serde(default)]
     pub defaults: ProviderDefaults,
     #[serde(default)]
+    pub ui: ProviderUiConfig,
+    #[serde(default)]
+    pub behavior: ProviderBehaviorConfig,
+    #[serde(default)]
     pub handler_api: Option<HandlerApiConfig>,
     #[serde(default)]
     pub five_sim: Option<FiveSimConfig>,
@@ -57,8 +61,6 @@ impl ProviderManifest {
 
     pub fn protocol_name(&self) -> &'static str {
         match self.kind {
-            ProviderKind::HandlerApi if self.id == "herosms" => "herosms",
-            ProviderKind::HandlerApi if self.id == "smsbower" => "smsbower",
             ProviderKind::HandlerApi => "handler_api",
             ProviderKind::FiveSim => "five_sim",
             ProviderKind::Mock => "mock",
@@ -90,6 +92,53 @@ impl ProviderManifest {
                 .unwrap_or(false),
             ProviderKind::Mock => true,
         }
+    }
+
+    pub fn protocol_display_name(&self) -> String {
+        self.ui
+            .protocol_label
+            .as_deref()
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
+            .map(ToOwned::to_owned)
+            .unwrap_or_else(|| match self.kind {
+                ProviderKind::HandlerApi => "Handler API".to_string(),
+                ProviderKind::FiveSim => "FiveSim".to_string(),
+                ProviderKind::Mock => "Mock".to_string(),
+            })
+    }
+
+    pub fn provider_badge_label(&self) -> String {
+        self.ui
+            .badge_label
+            .as_deref()
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
+            .map(ToOwned::to_owned)
+            .unwrap_or_else(|| {
+                self.name
+                    .chars()
+                    .find(|value| !value.is_whitespace())
+                    .map(|value| value.to_ascii_uppercase().to_string())
+                    .unwrap_or_else(|| "?".to_string())
+            })
+    }
+
+    pub fn provider_icon_url(&self) -> Option<String> {
+        self.ui
+            .icon_url
+            .as_deref()
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
+            .map(ToOwned::to_owned)
+    }
+
+    pub fn handler_api_profile(&self) -> &str {
+        self.handler_api
+            .as_ref()
+            .map(|config| config.profile.as_str())
+            .filter(|value| !value.trim().is_empty())
+            .unwrap_or("standard")
     }
 }
 
@@ -137,9 +186,27 @@ impl Default for ProviderDefaults {
     }
 }
 
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+pub struct ProviderUiConfig {
+    #[serde(default)]
+    pub protocol_label: Option<String>,
+    #[serde(default)]
+    pub icon_url: Option<String>,
+    #[serde(default)]
+    pub badge_label: Option<String>,
+}
+
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+pub struct ProviderBehaviorConfig {
+    #[serde(default)]
+    pub cancel_cooldown_sec: Option<u64>,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct HandlerApiConfig {
     pub base_url: String,
+    #[serde(default = "default_handler_api_profile")]
+    pub profile: String,
     #[serde(default)]
     pub api_key: String,
     #[serde(default = "default_get_balance_action")]
@@ -271,6 +338,10 @@ fn default_reuse_max() -> u32 {
 
 fn default_get_balance_action() -> String {
     "getBalance".to_string()
+}
+
+fn default_handler_api_profile() -> String {
+    "standard".to_string()
 }
 
 fn default_get_prices_action() -> String {

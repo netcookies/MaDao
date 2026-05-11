@@ -1789,10 +1789,7 @@ fn html_to_text(input: &str) -> String {
 pub fn build_provider(manifest: ProviderManifest) -> Result<Arc<dyn SmsProvider>, SmsError> {
     match manifest.kind {
         ProviderKind::Mock => Ok(Arc::new(MockProvider::new(manifest))),
-        ProviderKind::HandlerApi if manifest.id == "herosms" => {
-            Ok(Arc::new(HeroSmsProvider::new(manifest)?))
-        }
-        ProviderKind::HandlerApi if manifest.id == "smsbower" => {
+        ProviderKind::HandlerApi if manifest.handler_api_profile().eq_ignore_ascii_case("smsbower") => {
             Ok(Arc::new(SmsBowerProvider::new(manifest)?))
         }
         ProviderKind::HandlerApi => Ok(Arc::new(HeroSmsProvider::new(manifest)?)),
@@ -1823,8 +1820,11 @@ mod tests {
             description: None,
             service_aliases: BTreeMap::new(),
             defaults: Default::default(),
+            ui: Default::default(),
+            behavior: Default::default(),
             handler_api: Some(HandlerApiConfig {
                 base_url: "http://localhost/internal".to_string(),
+                profile: "standard".to_string(),
                 api_key: "secret".to_string(),
                 get_balance_action: "getBalance".to_string(),
                 get_prices_action: "getPrices".to_string(),
@@ -1862,6 +1862,8 @@ mod tests {
             description: None,
             service_aliases: BTreeMap::new(),
             defaults: Default::default(),
+            ui: Default::default(),
+            behavior: Default::default(),
             handler_api: None,
             five_sim: Some(FiveSimConfig {
                 base_url: "http://localhost/fivesim".to_string(),

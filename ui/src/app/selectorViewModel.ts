@@ -80,7 +80,8 @@ export function selectorOptionFromProvider(
   const option: OptionItem = {
     value: provider.id,
     label: formatProviderLabel(provider.name, language),
-    hint: provider.kind,
+    hint: provider.ui?.protocol_label ?? provider.kind,
+    icon_url: provider.ui?.icon_url ?? undefined,
   };
   return buildSelectorOptionViewModel({
     resourceKind: 'provider',

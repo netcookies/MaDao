@@ -639,6 +639,8 @@ mod tests {
             description: None,
             service_aliases: BTreeMap::new(),
             defaults: ProviderDefaults::default(),
+            ui: Default::default(),
+            behavior: Default::default(),
             handler_api: None,
             five_sim: None,
             mock: None,

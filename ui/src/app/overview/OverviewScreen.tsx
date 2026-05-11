@@ -2,7 +2,7 @@ import type { ReactNode } from 'react';
 import { Check, Send, Server } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import { AppButton, PageHeader } from '../ui-bridge';
-import type { LanguageCode, TicketDecoration, TicketRecord } from '../types';
+import type { LanguageCode, ProviderManifest, TicketDecoration, TicketRecord } from '../types';
 import { formatProviderLabel, formatServiceLabel } from '../../lib/formatters';
 import { ResourceBadge } from '../../components/primitives';
 
@@ -15,6 +15,7 @@ export type OverviewStats = {
 export type OverviewScreenProps = {
   stats: OverviewStats;
   activity: TicketRecord[];
+  providers?: Record<string, ProviderManifest>;
   decorations?: Record<string, TicketDecoration>;
   onViewAll: () => void;
 };
@@ -51,10 +52,14 @@ export function OverviewScreen(props: OverviewScreenProps) {
           </div>
           {props.activity.length > 0 ? (
             <div className="overflow-hidden rounded-b-[8px] bg-transparent">
-              {props.activity.map((item) => (
+              {props.activity.map((item) => {
+                const providerManifest = props.providers?.[item.provider];
+                const providerIconUrl = providerManifest?.ui?.icon_url;
+                const providerBadgeLabel = providerManifest?.ui?.badge_label;
+                return (
                 <div className="grid grid-cols-[130px_136px_minmax(0,1fr)_124px] items-center gap-3 border-b border-[var(--ds-color-divider-soft)] px-4 py-2 last:border-b-0" key={item.id}>
                   <span className="inline-flex min-w-0 items-center gap-2 overflow-hidden text-ellipsis whitespace-nowrap text-[13px] font-medium text-ds-text-primary/80">
-                    <ResourceBadge kind="provider" value={item.provider} size="sm" />
+                    <ResourceBadge kind="provider" value={item.provider} size="sm" iconUrl={providerIconUrl} fallbackLabel={providerBadgeLabel ?? undefined} />
                     <span className="truncate">{formatProviderLabel(item.provider, language)}</span>
                   </span>
                   <span className="min-w-0"><OverviewStatusTag status={item.status} language={language} /></span>
@@ -77,7 +82,8 @@ export function OverviewScreen(props: OverviewScreenProps) {
                     <span className="truncate">{formatServiceLabel(item.service, language)}</span>
                   </span>
                 </div>
-              ))}
+                );
+              })}
             </div>
           ) : (
             <div className="flex min-h-[140px] flex-col items-center justify-center gap-2 px-6 py-8 text-center">

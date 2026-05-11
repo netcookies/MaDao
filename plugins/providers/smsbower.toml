@@ -6,6 +6,11 @@ priority = 30
 homepage = "https://smsbower.app/"
 description = "兼容 SmsBower 的 handler_api.php 风格 provider。"
 
+[ui]
+protocol_label = "SMSBower"
+badge_label = "S"
+icon_url = "https://smsbower.app/favicon.ico"
+
 [service_aliases]
 chatgpt = "dr"
 codex = "dr"
@@ -27,6 +32,7 @@ reuse_max = 2
 
 [handler_api]
 base_url = "https://smsbower.page/stubs/handler_api.php"
+profile = "smsbower"
 api_key = ""
 get_balance_action = "getBalance"
 get_prices_action = "getPrices"

@@ -22,6 +22,7 @@
 - 定义 `ProviderManifest`
 - 定义 `ProviderKind`
 - 定义 `HandlerApiConfig / FiveSimConfig / MockConfig`
+- 定义 provider 的 `ui / behavior` 配置
 - 提供协议兼容所需的默认配置项
 
 这里是 provider manifest 的单一结构定义源。
@@ -37,6 +38,8 @@
 - `SmsService`
 
 这是系统的领域中心。
+
+同协议下的实现差异优先通过 manifest profile 选择，而不是通过 provider id 继续扩散硬编码。例如 `handler_api.profile = "smsbower"` 会选用 `SmsBower` 扩展实现。
 
 ### `crates/sms-server`
 
@@ -91,6 +94,13 @@ provider manifest (*.toml)
   -> HTTP / socket / Tauri
   -> React UI
 ```
+
+其中 manifest 不再只承载协议参数，也承载少量 provider-specific 元数据，例如：
+
+- UI 展示：协议标签、provider 图标、badge 文案
+- 行为差异：如取消冷却时间
+
+这类信息优先从 manifest 读取，避免前后端按 provider id 写死分支。
 
 ## 热重载流
 

@@ -30,9 +30,13 @@ export function ProvidersListScreen(props: ProvidersListScreenProps) {
           const summary = props.summaries?.find((item) => item.id === provider.id);
           const enableLocked = !provider.enabled && summary?.can_enable === false;
           const endpoint = summary?.primary_endpoint ?? provider.homepage ?? t('No endpoint');
-          const protocolTag = summary?.protocol
-            ?? (provider.id === 'herosms' || provider.id === 'smsbower' ? provider.id : provider.kind);
+          const protocolTag = summary?.protocol_label
+            ?? provider.ui?.protocol_label
+            ?? summary?.protocol
+            ?? provider.kind;
           const balanceLabel = props.balances?.[provider.id] ?? '—';
+          const providerIconUrl = summary?.icon_url ?? provider.ui?.icon_url;
+          const providerBadgeLabel = summary?.badge_label ?? provider.ui?.badge_label;
 
           return (
             <button
@@ -43,7 +47,7 @@ export function ProvidersListScreen(props: ProvidersListScreenProps) {
             >
               <div className="flex items-center justify-between">
                 <div className="flex items-center gap-2">
-                  <ResourceBadge kind="provider" value={provider.id} />
+                  <ResourceBadge kind="provider" value={provider.id} iconUrl={providerIconUrl} fallbackLabel={providerBadgeLabel ?? undefined} />
                   <span className="text-[14px] font-semibold text-ds-text-primary">
                     {formatProviderLabel(provider.name, language)}
                   </span>

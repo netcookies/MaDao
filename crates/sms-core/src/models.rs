@@ -251,12 +251,20 @@ pub struct ProviderSummary {
     pub enabled: bool,
     pub kind: String,
     pub protocol: String,
+    #[serde(default)]
+    pub protocol_label: Option<String>,
     pub primary_endpoint: Option<String>,
     pub default_service: String,
     pub default_country: String,
     pub homepage: Option<String>,
     pub description: Option<String>,
     pub priority: u32,
+    #[serde(default)]
+    pub icon_url: Option<String>,
+    #[serde(default)]
+    pub badge_label: Option<String>,
+    #[serde(default)]
+    pub cancel_cooldown_sec: Option<u64>,
     #[serde(default)]
     pub option_cache_state: OptionCacheState,
     #[serde(default)]

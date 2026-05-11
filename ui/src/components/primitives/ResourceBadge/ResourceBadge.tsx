@@ -129,7 +129,7 @@ function iconSvg(simpleIcon: SimpleIcon) {
   );
 }
 
-function ProviderGlyph(props: { provider: string }) {
+function ProviderGlyph(props: { provider: string; fallbackLabel?: string }) {
   const provider = normalizeValue(props.provider);
   const config = PROVIDER_ICON_MAP[provider];
 
@@ -151,7 +151,7 @@ function ProviderGlyph(props: { provider: string }) {
         config?.textClass ?? 'text-ds-text-primary',
       )}
     >
-      {config?.label ?? titleInitial(props.provider)}
+      {config?.label ?? props.fallbackLabel ?? titleInitial(props.provider)}
     </span>
   );
 }
@@ -218,6 +218,7 @@ export function ResourceBadge(props: {
   size?: 'sm' | 'md';
   className?: string;
   iconUrl?: string | null;
+  fallbackLabel?: string;
 }) {
   const [externalImageFailed, setExternalImageFailed] = useState(false);
   const sizeClass = props.size === 'sm'
@@ -228,7 +229,7 @@ export function ResourceBadge(props: {
   if (props.iconUrl && !externalImageFailed) {
     glyph = <ExternalImageGlyph src={props.iconUrl} onError={() => setExternalImageFailed(true)} />;
   }
-  else if (props.kind === 'provider') glyph = <ProviderGlyph provider={props.value} />;
+  else if (props.kind === 'provider') glyph = <ProviderGlyph provider={props.value} fallbackLabel={props.fallbackLabel} />;
   else if (props.kind === 'service') glyph = <ServiceGlyph service={props.value} />;
   else if (props.kind === 'country') glyph = <CountryGlyph country={props.value} />;
 

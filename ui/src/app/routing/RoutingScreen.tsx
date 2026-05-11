@@ -650,6 +650,8 @@ function SortableRoutingPlanItemRow(props: {
     : provider
       ? formatProviderLabel(provider.name, props.language)
       : t('Choose provider');
+  const providerIconUrl = provider?.ui?.icon_url;
+  const providerBadgeLabel = provider?.ui?.badge_label;
   const countryLabel = props.item.country ? formatCountryLabel(props.item.country, props.language) : t('Any country');
   const operatorLabel = formatOperatorLabel(props.item.operator || 'any', props.language);
   const isDropTarget = props.overItemId === props.item.id && props.activeItemId !== props.item.id;
@@ -690,7 +692,7 @@ function SortableRoutingPlanItemRow(props: {
           onClick={() => props.onOpenProviderPicker(props.item.id)}
           className="inline-flex w-full min-w-0 items-center gap-2 bg-transparent p-0 text-left text-[13px] font-medium text-ds-text-primary transition-colors duration-fast ease-[var(--ds-motion-transition-fast)] hover:text-ds-accent-blue"
         >
-          <ResourceBadge kind="provider" value={props.item.provider} size="sm" />
+          <ResourceBadge kind="provider" value={props.item.provider} size="sm" iconUrl={providerIconUrl} fallbackLabel={providerBadgeLabel ?? undefined} />
           <span className="truncate">{providerLabel}</span>
         </button>
         <div className="mt-1 flex flex-wrap gap-3 text-[12px] text-ds-text-secondary min-[900px]:hidden">
@@ -879,6 +881,9 @@ function RoutingItemEditorModal(props: {
   const providerLabel = editor.providerId === 'any'
     ? t('Any provider')
     : props.providers.find((provider) => provider.id === editor.providerId)?.name ?? editor.providerId;
+  const providerManifest = props.providers.find((provider) => provider.id === editor.providerId);
+  const providerIconUrl = providerManifest?.ui?.icon_url;
+  const providerBadgeLabel = providerManifest?.ui?.badge_label;
   const isRangeMode = priceMode === 'range';
   const priceInputClass = `min-h-[34px] w-full rounded-[10px] border px-3 py-2 text-[13px] leading-none transition-[background-color,color,border-color,opacity] duration-fast ease-[var(--ds-motion-transition-fast)] ${
     isRangeMode
@@ -907,7 +912,7 @@ function RoutingItemEditorModal(props: {
               value={providerLabel ? formatProviderLabel(providerLabel, props.language) : ''}
               valueContent={providerLabel ? (
                 <span className="inline-flex min-w-0 items-center gap-2">
-                  <ResourceBadge kind="provider" value={editor.providerId} size="sm" />
+                  <ResourceBadge kind="provider" value={editor.providerId} size="sm" iconUrl={providerIconUrl} fallbackLabel={providerBadgeLabel ?? undefined} />
                   <span className="truncate">{formatProviderLabel(providerLabel, props.language)}</span>
                 </span>
               ) : undefined}

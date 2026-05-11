@@ -30,7 +30,9 @@
 2. 填写 `id / name / kind / defaults`
 3. 配置对应的 `handler_api` 或 `five_sim` 段
 4. 根据真实响应补齐 `service_aliases`、`JSON pointer`、`status token`
-5. 用本地 API 冒烟验证
+5. 如有展示或行为差异，补充 `[ui]` / `[behavior]`
+6. 如需复用协议内现有实现分支，补充 profile，例如 `handler_api.profile = "smsbower"`
+6. 用本地 API 冒烟验证
 
 可直接参考：
 
@@ -71,8 +73,18 @@
 - `priority` 可参与排序
 - 敏感字段如 `api_key` 不提交真实值
 
+如果希望减少 app 本体改动，优先把 provider-specific 差异写进 manifest：
+
+- `[ui]`
+  - `protocol_label`
+  - `icon_url`
+  - `badge_label`
+- `[behavior]`
+  - `cancel_cooldown_sec`
+
 如果是 `handler_api` 风格，重点确认：
 
+- `profile`（如 `standard` / `smsbower`）
 - `balance_prefix`
 - `success_status_prefix`
 - `wait_status_tokens`

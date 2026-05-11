@@ -31,6 +31,9 @@ export function NewActivationModal(props: NewActivationModalProps) {
   const providerLabel = props.form.provider === ANY_PROVIDER_VALUE
     ? t('Any provider')
     : props.providers.find((provider) => provider.id === props.form.provider)?.name ?? props.form.provider;
+  const selectedProviderManifest = props.providers.find((provider) => provider.id === props.form.provider);
+  const selectedProviderIconUrl = selectedProviderManifest?.ui?.icon_url;
+  const selectedProviderBadgeLabel = selectedProviderManifest?.ui?.badge_label;
   const selectedServiceOption = props.serviceOptions?.find((item) => item.value === props.form.service);
   const selectedCountryOption = props.countryOptions?.find((item) => item.value === props.form.country);
 
@@ -81,7 +84,7 @@ export function NewActivationModal(props: NewActivationModalProps) {
             value={providerLabel}
             valueContent={providerLabel ? (
               <span className="inline-flex min-w-0 items-center gap-2">
-                <ResourceBadge kind="provider" value={props.form.provider || ANY_PROVIDER_VALUE} size="sm" />
+                <ResourceBadge kind="provider" value={props.form.provider || ANY_PROVIDER_VALUE} size="sm" iconUrl={selectedProviderIconUrl} fallbackLabel={selectedProviderBadgeLabel ?? undefined} />
                 <span className="truncate">{providerLabel}</span>
               </span>
             ) : undefined}

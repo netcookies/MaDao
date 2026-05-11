@@ -142,6 +142,13 @@ export function getHeroCancelRemainingMs(createdAt?: string, now = Date.now()) {
   return Math.max(0, createdAtMs + 120_000 - now);
 }
 
+export function getCancelRemainingMs(createdAt: string | undefined, cooldownSec: number | null | undefined, now = Date.now()) {
+  if (!createdAt || !cooldownSec || cooldownSec <= 0) return 0;
+  const createdAtMs = new Date(createdAt).getTime();
+  if (Number.isNaN(createdAtMs)) return 0;
+  return Math.max(0, createdAtMs + cooldownSec * 1000 - now);
+}
+
 export function formatDurationMmSs(durationMs: number) {
   const totalSeconds = Math.max(0, Math.ceil(durationMs / 1000));
   const minutes = Math.floor(totalSeconds / 60);

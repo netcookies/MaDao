@@ -6,6 +6,13 @@ priority = 20
 homepage = "https://hero-sms.com/"
 description = "兼容 HeroSMS 的 handler_api.php 风格 provider。"
 
+[ui]
+protocol_label = "HeroSMS"
+badge_label = "H"
+
+[behavior]
+cancel_cooldown_sec = 120
+
 [service_aliases]
 chatgpt = "dr"
 codex = "dr"
@@ -27,6 +34,7 @@ reuse_max = 2
 
 [handler_api]
 base_url = "https://hero-sms.com/stubs/handler_api.php"
+profile = "standard"
 api_key = ""
 get_balance_action = "getBalance"
 get_prices_action = "getPrices"

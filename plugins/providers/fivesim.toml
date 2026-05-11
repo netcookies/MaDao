@@ -6,6 +6,11 @@ priority = 10
 homepage = "https://5sim.net/"
 description = "兼容 5SIM REST API 的 provider。"
 
+[ui]
+protocol_label = "FiveSim"
+badge_label = "5"
+icon_url = "https://5sim.net/favicon.ico"
+
 [service_aliases]
 
 [defaults]

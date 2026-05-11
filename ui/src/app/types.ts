@@ -30,12 +30,16 @@ export type ProviderSummary = {
   enabled: boolean;
   kind: string;
   protocol: string;
+  protocol_label?: string | null;
   primary_endpoint?: string | null;
   default_service: string;
   default_country: string;
   homepage?: string | null;
   description?: string | null;
   priority: number;
+  icon_url?: string | null;
+  badge_label?: string | null;
+  cancel_cooldown_sec?: number | null;
   option_cache_state?: OptionCacheState;
   option_cache_fetched_at?: string | null;
   balance?: number | null;
@@ -103,6 +107,14 @@ export type ProviderManifest = {
     max_tries: number;
     poll_timeout_sec: number;
     reuse_max: number;
+  };
+  ui?: {
+    protocol_label?: string | null;
+    icon_url?: string | null;
+    badge_label?: string | null;
+  };
+  behavior?: {
+    cancel_cooldown_sec?: number | null;
   };
   handler_api?: Record<string, unknown>;
   five_sim?: Record<string, unknown>;
