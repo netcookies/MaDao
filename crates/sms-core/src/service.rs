@@ -4,20 +4,19 @@ use crate::models::{
     OptionCacheState, OptionItem, OptionListResponse, PollCodeRequest, PollCodeResponse,
     ProviderBalance, ProviderBalanceCacheEntry, ProviderDynamicOptions, ProviderManifestList,
     ProviderManifestSaveResponse, ProviderOperatorsQuery, ProviderOptionCacheEntry,
-    ProviderPriceQuery, ProviderPriceResponse, ProviderRawOptionAuditEntry,
-    ProviderReorderRequest, ProviderServicesQuery, ProviderSummary, ReleaseCodeRequest,
-    ReleaseCodeResponse, RoutingExecutionMode, RoutingFailoverRequest, RoutingPlan,
-    RoutingPlanItem, RoutingPlanList, RoutingPlanStore, RuntimeSettings, RuntimeSettingsUpdate,
-    RuntimeSnapshot, RuntimeStateStore, TicketCallbackListResponse,
-    TicketCallbackRegistrationRequest, TicketCallbackSubscription, TicketCodeCallbackPayload,
-    TicketListResponse, TicketRecord, TicketStatus,
+    ProviderPriceQuery, ProviderPriceResponse, ProviderRawOptionAuditEntry, ProviderReorderRequest,
+    ProviderServicesQuery, ProviderSummary, ReleaseCodeRequest, ReleaseCodeResponse,
+    RoutingExecutionMode, RoutingFailoverRequest, RoutingPlan, RoutingPlanItem, RoutingPlanList,
+    RoutingPlanStore, RuntimeSettings, RuntimeSettingsUpdate, RuntimeSnapshot, RuntimeStateStore,
+    TicketCallbackListResponse, TicketCallbackRegistrationRequest, TicketCallbackSubscription,
+    TicketCodeCallbackPayload, TicketListResponse, TicketRecord, TicketStatus,
 };
 use crate::options::{
     OptionKind, ProviderOptionCacheStore, ProviderRawOptionAuditStore, build_cache_overview,
     cache_state, load_option_cache_store, load_raw_option_audit_store,
     normalize_loaded_provider_options, normalize_price_items, normalize_provider_options,
-    normalize_ticket_record, resolve_provider_value,
-    save_option_cache_store, save_raw_option_audit_store, with_cache_state,
+    normalize_ticket_record, resolve_provider_value, save_option_cache_store,
+    save_raw_option_audit_store, with_cache_state,
 };
 use crate::registry::ProviderRegistry;
 use chrono::Utc;
@@ -840,7 +839,9 @@ impl SmsService {
             match response {
                 Ok(response) => return Ok(response),
                 Err(error) => {
-                    if let Some(provider_id) = (!provider_for_disable.is_empty()).then_some(provider_for_disable.clone()) {
+                    if let Some(provider_id) =
+                        (!provider_for_disable.is_empty()).then_some(provider_for_disable.clone())
+                    {
                         self.maybe_disable_provider_for_low_balance(&provider_id, &error);
                     }
                     self.log(
@@ -919,7 +920,9 @@ impl SmsService {
             .service
             .as_deref()
             .unwrap_or(provider.manifest().defaults.service.as_str());
-        let aliased_service = provider.manifest().resolve_service_alias(Some(canonical_service));
+        let aliased_service = provider
+            .manifest()
+            .resolve_service_alias(Some(canonical_service));
         let service = if cached_options
             .as_ref()
             .map(|entry| {
@@ -963,12 +966,15 @@ impl SmsService {
                 ))
             }
         });
-        let items = match provider.get_prices(ProviderPriceQuery {
-            provider: query.provider.clone(),
-            service: Some(service.clone()),
-            country,
-            operator,
-        }).await {
+        let items = match provider
+            .get_prices(ProviderPriceQuery {
+                provider: query.provider.clone(),
+                service: Some(service.clone()),
+                country,
+                operator,
+            })
+            .await
+        {
             Ok(items) => {
                 self.log_upstream_response(
                     &query.provider,
@@ -1083,9 +1089,8 @@ impl SmsService {
                 "unknown ticket {ticket_id}"
             )));
         }
-        let parsed_url = Url::parse(&request.url).map_err(|error| {
-            SmsError::InvalidRequest(format!("invalid callback url: {error}"))
-        })?;
+        let parsed_url = Url::parse(&request.url)
+            .map_err(|error| SmsError::InvalidRequest(format!("invalid callback url: {error}")))?;
         if !matches!(parsed_url.scheme(), "http" | "https") {
             return Err(SmsError::InvalidRequest(
                 "callback url must use http or https".to_string(),
@@ -1730,7 +1735,10 @@ impl SmsService {
                 Err(error) => self.log(
                     "balance",
                     "warn",
-                    format!("provider balance refresh failed for `{}`: {error}", manifest.id),
+                    format!(
+                        "provider balance refresh failed for `{}`: {error}",
+                        manifest.id
+                    ),
                 ),
             }
         }
@@ -1759,9 +1767,7 @@ impl SmsService {
             self.log(
                 "balance",
                 "warn",
-                format!(
-                    "provider `{provider_id}` auto-disabled after low balance error: {error}"
-                ),
+                format!("provider `{provider_id}` auto-disabled after low balance error: {error}"),
             );
         }
     }
@@ -1968,7 +1974,10 @@ impl SmsService {
             .map(|entry| entry.item.id.clone())
             .collect::<Vec<_>>();
         if first_round_ids != ticket.routing_candidate_item_ids {
-            for entry in attempts.iter_mut().filter(|entry| entry.round == first_round) {
+            for entry in attempts
+                .iter_mut()
+                .filter(|entry| entry.round == first_round)
+            {
                 entry.candidate_item_ids = ticket.routing_candidate_item_ids.clone();
             }
             attempts.sort_by_key(|entry| {
@@ -2737,7 +2746,9 @@ mod tests {
                             hint: "dr".to_string(),
                             provider_value: Some("247".to_string()),
                             icon_url: Some("https://smsbower.app/img/services/247.svg".to_string()),
-                            provider_icon_url: Some("https://smsbower.app/img/services/247.svg".to_string()),
+                            provider_icon_url: Some(
+                                "https://smsbower.app/img/services/247.svg".to_string(),
+                            ),
                         }],
                         raw_countries: Vec::new(),
                         raw_operators: Vec::new(),
@@ -2747,7 +2758,9 @@ mod tests {
                             hint: "dr".to_string(),
                             provider_value: Some("247".to_string()),
                             icon_url: Some("https://smsbower.app/img/services/247.svg".to_string()),
-                            provider_icon_url: Some("https://smsbower.app/img/services/247.svg".to_string()),
+                            provider_icon_url: Some(
+                                "https://smsbower.app/img/services/247.svg".to_string(),
+                            ),
                         }],
                         countries: Vec::new(),
                         operators: Vec::new(),
@@ -2792,7 +2805,11 @@ mod tests {
         );
 
         let snapshot = service.runtime_snapshot();
-        let provider = snapshot.providers.iter().find(|item| item.id == "fivesim").unwrap();
+        let provider = snapshot
+            .providers
+            .iter()
+            .find(|item| item.id == "fivesim")
+            .unwrap();
 
         assert_eq!(provider.balance, Some(12.34));
         assert_eq!(provider.balance_currency.as_deref(), Some("USD"));
@@ -2806,7 +2823,9 @@ mod tests {
         let content = fs::read_to_string(&fivesim_path).unwrap();
         fs::write(
             &fivesim_path,
-            content.replace("api_key = \"", "api_key = \"disabled-").replacen("disabled-", "", 1),
+            content
+                .replace("api_key = \"", "api_key = \"disabled-")
+                .replacen("disabled-", "", 1),
         )
         .unwrap();
         let content = fs::read_to_string(&fivesim_path).unwrap();
@@ -2829,7 +2848,11 @@ mod tests {
         service.refresh_all_provider_balances().await;
 
         let snapshot = service.runtime_snapshot();
-        let provider = snapshot.providers.iter().find(|item| item.id == "fivesim").unwrap();
+        let provider = snapshot
+            .providers
+            .iter()
+            .find(|item| item.id == "fivesim")
+            .unwrap();
         assert!(provider.balance.is_none());
 
         let logs = snapshot.logs;
@@ -2897,7 +2920,12 @@ mod tests {
         let reloaded = make_persistent_service(&base);
         let snapshot = reloaded.runtime_snapshot();
 
-        assert!(snapshot.logs.iter().any(|entry| entry.message == "persisted-log"));
+        assert!(
+            snapshot
+                .logs
+                .iter()
+                .any(|entry| entry.message == "persisted-log")
+        );
         assert!(snapshot.tickets.iter().any(|entry| entry.id == ticket.id));
     }
 
@@ -2905,15 +2933,8 @@ mod tests {
     async fn runtime_state_limits_ticket_growth() {
         let provider_dir = fixture_provider_dir();
         let registry = ProviderRegistry::load_from_dir(provider_dir).unwrap();
-        let service = SmsService::with_persistence_paths(
-            registry,
-            32,
-            None,
-            None,
-            None,
-            None,
-            None,
-        );
+        let service =
+            SmsService::with_persistence_paths(registry, 32, None, None, None, None, None);
 
         for index in 0..520_u32 {
             service.upsert_ticket(TicketRecord {
@@ -2979,7 +3000,10 @@ mod tests {
             })
             .await
             .unwrap();
-        assert_eq!(first_failover.routing_item_id.as_deref(), Some("mock-second"));
+        assert_eq!(
+            first_failover.routing_item_id.as_deref(),
+            Some("mock-second")
+        );
 
         let second_failover = service
             .failover_routing_attempt(RoutingFailoverRequest {
@@ -2989,7 +3013,10 @@ mod tests {
             })
             .await
             .unwrap();
-        assert_eq!(second_failover.routing_item_id.as_deref(), Some("mock-first"));
+        assert_eq!(
+            second_failover.routing_item_id.as_deref(),
+            Some("mock-first")
+        );
 
         let ticket = service.ticket(&second_failover.ticket_id).unwrap();
         assert_eq!(ticket.routing_current_round, Some(2));
@@ -3173,7 +3200,11 @@ mod tests {
             )
             .unwrap_err();
 
-        assert!(error.to_string().contains("callback url must use http or https"));
+        assert!(
+            error
+                .to_string()
+                .contains("callback url must use http or https")
+        );
     }
 
     #[test]

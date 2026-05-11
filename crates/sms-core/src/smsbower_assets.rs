@@ -30,11 +30,11 @@ fn normalize_img_path(path: &str) -> String {
 }
 
 fn decode_html_attr_json(encoded: &str) -> String {
-  encoded
-    .replace("&quot;", "\"")
-    .replace("&#34;", "\"")
-    .replace("&amp;", "&")
-    .replace("&#39;", "'")
+    encoded
+        .replace("&quot;", "\"")
+        .replace("&#34;", "\"")
+        .replace("&amp;", "&")
+        .replace("&#39;", "'")
 }
 
 fn extract_component_attr_json(html: &str, marker: &str, attr: &str) -> Result<Value, SmsError> {
@@ -113,12 +113,15 @@ pub async fn fetch_faq_services_map(
             .get("img_path")
             .and_then(Value::as_str)
             .map(normalize_img_path);
-        map.insert(code.clone(), SmsBowerFaqService {
-            id,
-            title,
-            activate_org_code: code,
-            img_path,
-        });
+        map.insert(
+            code.clone(),
+            SmsBowerFaqService {
+                id,
+                title,
+                activate_org_code: code,
+                img_path,
+            },
+        );
     }
     Ok(map)
 }
@@ -157,14 +160,17 @@ pub async fn fetch_faq_countries_map(
             .or_else(|| item.get("eng").and_then(coerce_str_value))
             .unwrap_or_else(|| code.clone());
         let icon_url = country_icon_url(iso_code.as_deref().unwrap_or(&id));
-        map.insert(code.clone(), SmsBowerFaqCountry {
-            id,
-            activate_org_code: code,
-            iso_code,
-            label,
-            hint,
-            icon_url,
-        });
+        map.insert(
+            code.clone(),
+            SmsBowerFaqCountry {
+                id,
+                activate_org_code: code,
+                iso_code,
+                label,
+                hint,
+                icon_url,
+            },
+        );
     }
     Ok(map)
 }

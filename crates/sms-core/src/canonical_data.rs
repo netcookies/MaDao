@@ -19,7 +19,10 @@ pub const CANONICAL_SERVICE_PATTERNS: &[(&str, &[&str])] = &[
 pub const CANONICAL_COUNTRY_TEXT_ALIASES: &[(&str, &[&str])] = &[
     ("any", &["any", "all countries", "auto select"]),
     ("local", &["local"]),
-    ("usa", &["usa", "united states", "united states virtual", "america"]),
+    (
+        "usa",
+        &["usa", "united states", "united states virtual", "america"],
+    ),
     ("uk", &["england", "uk", "united kingdom", "britain"]),
     ("china", &["china"]),
     ("bahrain", &["bahrain", "巴林"]),
@@ -51,7 +54,10 @@ pub const CANONICAL_COUNTRY_TEXT_ALIASES: &[(&str, &[&str])] = &[
     ("anguilla", &["anguilla", "安圭拉島"]),
     ("vietnam", &["vietnam", "viet nam"]),
     ("samoa", &["samoa", "萨摩亚"]),
-    ("sao tome and principe", &["sao tome and principe", "聖多美和普林西比"]),
+    (
+        "sao tome and principe",
+        &["sao tome and principe", "聖多美和普林西比"],
+    ),
     ("seychelles", &["seychelles", "塞舌爾共和國"]),
     ("solomon islands", &["solomon islands", "所罗门群岛"]),
     ("south sudan", &["south sudan", "南蘇丹"]),

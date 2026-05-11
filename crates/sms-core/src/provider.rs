@@ -4,8 +4,7 @@ use crate::models::{
     ProviderPriceItem, ProviderPriceQuery, ProviderServicesQuery, ReleaseAction, TicketRecord,
 };
 use crate::smsbower_assets::{
-    SmsBowerFaqService,
-    country_icon_url as smsbower_country_icon_url,
+    SmsBowerFaqService, country_icon_url as smsbower_country_icon_url,
     fallback_service_icon_url as smsbower_fallback_service_icon_url,
     fetch_faq_countries_map as smsbower_fetch_faq_countries_map,
     fetch_faq_services_map as smsbower_fetch_faq_services_map,
@@ -59,11 +58,7 @@ fn format_handler_api_error(text: &str) -> String {
         return trimmed.to_string();
     };
     let mut message = format!("{}: {}", payload.title, payload.details);
-    if let Some(min_activation_time) = payload
-        .info
-        .get("minActivationTime")
-        .and_then(coerce_u64)
-    {
+    if let Some(min_activation_time) = payload.info.get("minActivationTime").and_then(coerce_u64) {
         message.push_str(&format!(" (minActivationTime={min_activation_time}s)"));
     }
     message
@@ -92,9 +87,7 @@ fn normalize_fivesim_error(text: &str) -> String {
     let trimmed = text.trim();
     match trimmed.to_ascii_lowercase().as_str() {
         "no free phones" => "NO_FREE_PHONES: no free phones".to_string(),
-        "not enough user balance" => {
-            "INSUFFICIENT_BALANCE: not enough user balance".to_string()
-        }
+        "not enough user balance" => "INSUFFICIENT_BALANCE: not enough user balance".to_string(),
         "not enough rating" => "INSUFFICIENT_RATING: not enough rating".to_string(),
         "select country" => "SELECT_COUNTRY: select country".to_string(),
         "select operator" => "SELECT_OPERATOR: select operator".to_string(),
@@ -123,7 +116,10 @@ pub trait SmsProvider: Send + Sync {
 
     async fn get_balance(&self) -> Result<ProviderBalance, SmsError>;
 
-    async fn get_prices(&self, query: ProviderPriceQuery) -> Result<Vec<ProviderPriceItem>, SmsError>;
+    async fn get_prices(
+        &self,
+        query: ProviderPriceQuery,
+    ) -> Result<Vec<ProviderPriceItem>, SmsError>;
 
     async fn list_countries(&self) -> Result<Vec<OptionItem>, SmsError>;
 
@@ -209,8 +205,13 @@ impl SmsProvider for MockProvider {
         })
     }
 
-    async fn get_prices(&self, query: ProviderPriceQuery) -> Result<Vec<ProviderPriceItem>, SmsError> {
-        let resolved = self.manifest.resolve_service_alias(query.service.as_deref());
+    async fn get_prices(
+        &self,
+        query: ProviderPriceQuery,
+    ) -> Result<Vec<ProviderPriceItem>, SmsError> {
+        let resolved = self
+            .manifest
+            .resolve_service_alias(query.service.as_deref());
         Ok(vec![ProviderPriceItem {
             country: self.manifest.defaults.country.clone(),
             display_name: "Mock Country".to_string(),
@@ -389,7 +390,10 @@ impl HeroSmsProvider {
 
     fn parse_offer_prices(&self, service: &str, json: &Value) -> Vec<ProviderPriceItem> {
         let mut items = Vec::new();
-        let Some(service_map) = json.pointer(&format!("/data/{service}")).and_then(Value::as_object) else {
+        let Some(service_map) = json
+            .pointer(&format!("/data/{service}"))
+            .and_then(Value::as_object)
+        else {
             return items;
         };
 
@@ -674,12 +678,14 @@ impl SharedHandlerApiProvider {
                 Some(OptionItem {
                     provider_value: Some(value.clone()),
                     icon_url: Some(
-                        faq.map(|item| item.icon_url.clone())
-                            .unwrap_or_else(|| SmsBowerProvider::country_icon_url(fallback_icon_key)),
+                        faq.map(|item| item.icon_url.clone()).unwrap_or_else(|| {
+                            SmsBowerProvider::country_icon_url(fallback_icon_key)
+                        }),
                     ),
                     provider_icon_url: Some(
-                        faq.map(|item| item.icon_url.clone())
-                            .unwrap_or_else(|| SmsBowerProvider::country_icon_url(fallback_icon_key)),
+                        faq.map(|item| item.icon_url.clone()).unwrap_or_else(|| {
+                            SmsBowerProvider::country_icon_url(fallback_icon_key)
+                        }),
                     ),
                     value,
                     label: faq.map(|item| item.label.clone()).unwrap_or(label),
@@ -1040,8 +1046,13 @@ impl SmsProvider for HeroSmsProvider {
         })
     }
 
-    async fn get_prices(&self, query: ProviderPriceQuery) -> Result<Vec<ProviderPriceItem>, SmsError> {
-        let service = self.manifest.resolve_service_alias(query.service.as_deref());
+    async fn get_prices(
+        &self,
+        query: ProviderPriceQuery,
+    ) -> Result<Vec<ProviderPriceItem>, SmsError> {
+        let service = self
+            .manifest
+            .resolve_service_alias(query.service.as_deref());
         let country = query.country.as_deref();
         if let Ok(items) = self.request_offer_prices(&service, country).await {
             if !items.is_empty() {
@@ -1153,8 +1164,13 @@ impl SmsProvider for SmsBowerProvider {
         hero.list_countries().await
     }
 
-    async fn get_prices(&self, query: ProviderPriceQuery) -> Result<Vec<ProviderPriceItem>, SmsError> {
-        let service = self.manifest.resolve_service_alias(query.service.as_deref());
+    async fn get_prices(
+        &self,
+        query: ProviderPriceQuery,
+    ) -> Result<Vec<ProviderPriceItem>, SmsError> {
+        let service = self
+            .manifest
+            .resolve_service_alias(query.service.as_deref());
         let country = query.country.as_deref();
         if let Ok(items) = self.request_price_v3(&service, country).await {
             if !items.is_empty() {
@@ -1579,8 +1595,13 @@ impl SmsProvider for FiveSimProvider {
         })
     }
 
-    async fn get_prices(&self, query: ProviderPriceQuery) -> Result<Vec<ProviderPriceItem>, SmsError> {
-        let service = self.manifest.resolve_service_alias(query.service.as_deref());
+    async fn get_prices(
+        &self,
+        query: ProviderPriceQuery,
+    ) -> Result<Vec<ProviderPriceItem>, SmsError> {
+        let service = self
+            .manifest
+            .resolve_service_alias(query.service.as_deref());
         let (_text, json) = self
             .request_get(
                 &self.config.prices_endpoint,
@@ -1789,7 +1810,11 @@ fn html_to_text(input: &str) -> String {
 pub fn build_provider(manifest: ProviderManifest) -> Result<Arc<dyn SmsProvider>, SmsError> {
     match manifest.kind {
         ProviderKind::Mock => Ok(Arc::new(MockProvider::new(manifest))),
-        ProviderKind::HandlerApi if manifest.handler_api_profile().eq_ignore_ascii_case("smsbower") => {
+        ProviderKind::HandlerApi
+            if manifest
+                .handler_api_profile()
+                .eq_ignore_ascii_case("smsbower") =>
+        {
             Ok(Arc::new(SmsBowerProvider::new(manifest)?))
         }
         ProviderKind::HandlerApi => Ok(Arc::new(HeroSmsProvider::new(manifest)?)),

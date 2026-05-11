@@ -256,32 +256,32 @@ pub fn normalize_ticket_record(
     mut ticket: TicketRecord,
 ) -> TicketRecord {
     let raw_service = ticket.service.clone();
-    if let Some(mapped) = options
-        .and_then(|entry| {
-            entry.services.iter().find(|item| {
-                item.provider_value
-                    .as_ref()
-                    .map(|provider_value| normalize_token(provider_value) == normalize_token(&raw_service))
-                    .unwrap_or(false)
-            })
+    if let Some(mapped) = options.and_then(|entry| {
+        entry.services.iter().find(|item| {
+            item.provider_value
+                .as_ref()
+                .map(|provider_value| {
+                    normalize_token(provider_value) == normalize_token(&raw_service)
+                })
+                .unwrap_or(false)
         })
-    {
+    }) {
         ticket.service = mapped.value.clone();
     } else {
         ticket.service = canonical_service_value(manifest, &raw_service, Some(&raw_service));
     }
 
     let raw_country = ticket.country.clone();
-    if let Some(mapped) = options
-        .and_then(|entry| {
-            entry.countries.iter().find(|item| {
-                item.provider_value
-                    .as_ref()
-                    .map(|provider_value| normalize_token(provider_value) == normalize_token(&raw_country))
-                    .unwrap_or(false)
-            })
+    if let Some(mapped) = options.and_then(|entry| {
+        entry.countries.iter().find(|item| {
+            item.provider_value
+                .as_ref()
+                .map(|provider_value| {
+                    normalize_token(provider_value) == normalize_token(&raw_country)
+                })
+                .unwrap_or(false)
         })
-    {
+    }) {
         ticket.country = mapped.value.clone();
     } else {
         ticket.country = canonical_country_value(&raw_country, Some(&raw_country), None);
@@ -503,10 +503,16 @@ fn canonical_country_value(raw: &str, label: Option<&str>, hint: Option<&str>) -
             return label_normalized;
         }
     }
-    if !label_normalized.is_empty() && label_normalized != raw_normalized && !is_numeric_like(&label_normalized) {
+    if !label_normalized.is_empty()
+        && label_normalized != raw_normalized
+        && !is_numeric_like(&label_normalized)
+    {
         return label_normalized;
     }
-    if !hint_normalized.is_empty() && hint_normalized != raw_normalized && !is_numeric_like(&hint_normalized) {
+    if !hint_normalized.is_empty()
+        && hint_normalized != raw_normalized
+        && !is_numeric_like(&hint_normalized)
+    {
         return hint_normalized;
     }
 
@@ -532,7 +538,9 @@ fn service_label(canonical: &str) -> String {
 fn resolved_service_label(canonical: &str, source_label: &str) -> String {
     let fallback = source_label.trim();
     match canonical {
-        "openai" | "claude" | "telegram" | "whatsapp" | "paypal" | "discord" => service_label(canonical),
+        "openai" | "claude" | "telegram" | "whatsapp" | "paypal" | "discord" => {
+            service_label(canonical)
+        }
         _ if !fallback.is_empty() => fallback.to_string(),
         _ => service_label(canonical),
     }
@@ -550,10 +558,25 @@ fn resolved_country_label(canonical: &str, source_label: &str, source_hint: &str
     let fallback_label = source_label.trim();
     let fallback_hint = source_hint.trim();
     match canonical {
-        "any" | "local" | "usa" | "uk" | "germany" | "japan" | "canada" | "australia"
-        | "russia" | "argentina" | "vietnam" | "southafrica" | "bosnia and herzegovina"
-        | "trinidad and tobago" | "czech republic" | "north macedonia" | "south korea"
-        | "north korea" | "jordan" => country_label(canonical),
+        "any"
+        | "local"
+        | "usa"
+        | "uk"
+        | "germany"
+        | "japan"
+        | "canada"
+        | "australia"
+        | "russia"
+        | "argentina"
+        | "vietnam"
+        | "southafrica"
+        | "bosnia and herzegovina"
+        | "trinidad and tobago"
+        | "czech republic"
+        | "north macedonia"
+        | "south korea"
+        | "north korea"
+        | "jordan" => country_label(canonical),
         _ if !fallback_label.is_empty() && fallback_label != canonical => {
             fallback_label.to_string()
         }
@@ -712,7 +735,10 @@ mod tests {
         let normalized = normalize_loaded_provider_options(&manifest, options);
         assert_eq!(normalized.countries[0].value, "ukraine");
         assert_eq!(normalized.countries[0].label, "Ukraine");
-        assert_eq!(normalized.countries[0].provider_value.as_deref(), Some("12"));
+        assert_eq!(
+            normalized.countries[0].provider_value.as_deref(),
+            Some("12")
+        );
     }
 
     #[test]
@@ -731,7 +757,9 @@ mod tests {
     #[test]
     fn normalize_ticket_record_maps_provider_values_back_to_canonical_values() {
         let mut manifest = test_manifest();
-        manifest.service_aliases.insert("openai".to_string(), "dr".to_string());
+        manifest
+            .service_aliases
+            .insert("openai".to_string(), "dr".to_string());
 
         let options = ProviderDynamicOptions {
             provider: "test".to_string(),
@@ -784,15 +812,19 @@ mod tests {
 
     fn load_manifest(provider_id: &str) -> ProviderManifest {
         let root = repo_root();
-        let path = root.join("plugins/providers").join(format!("{provider_id}.toml"));
+        let path = root
+            .join("plugins/providers")
+            .join(format!("{provider_id}.toml"));
         let content = fs::read_to_string(path).expect("read provider manifest");
         toml::from_str(&content).expect("parse provider manifest")
     }
 
     fn englishish(value: &str) -> bool {
-        !value
-            .chars()
-            .any(|char| ('\u{4e00}'..='\u{9fff}').contains(&char) || ('\u{3040}'..='\u{30ff}').contains(&char) || ('\u{0400}'..='\u{04ff}').contains(&char))
+        !value.chars().any(|char| {
+            ('\u{4e00}'..='\u{9fff}').contains(&char)
+                || ('\u{3040}'..='\u{30ff}').contains(&char)
+                || ('\u{0400}'..='\u{04ff}').contains(&char)
+        })
     }
 
     fn normalize_label_key(value: &str) -> String {
@@ -814,7 +846,10 @@ mod tests {
         let store: RawAuditStore = serde_json::from_str(&content).expect("parse raw option audit");
 
         let target_groups = [
-            ("openai", &["OpenAI", "OpenAI (ChatGPT)", "OpenAI/ChatGPT"][..]),
+            (
+                "openai",
+                &["OpenAI", "OpenAI (ChatGPT)", "OpenAI/ChatGPT"][..],
+            ),
             ("claude", &["Claude", "ClaudeAI/Anthropic"][..]),
             ("telegram", &["Telegram"][..]),
             ("discord", &["Discord"][..]),
@@ -834,7 +869,10 @@ mod tests {
                 let manifest = load_manifest(provider_id);
                 for item in &entry.raw_services {
                     let label = item.label.trim();
-                    if labels.iter().any(|candidate| label.eq_ignore_ascii_case(candidate)) {
+                    if labels
+                        .iter()
+                        .any(|candidate| label.eq_ignore_ascii_case(candidate))
+                    {
                         observed.insert(
                             provider_id.clone(),
                             canonical_service_value(&manifest, &item.value, Some(&item.label)),
@@ -874,10 +912,8 @@ mod tests {
                 } else {
                     continue;
                 };
-                let group_key =
-                    canonical_service_value(&generic_manifest, chosen, Some(chosen));
-                let actual =
-                    canonical_service_value(&manifest, &item.value, Some(&item.label));
+                let group_key = canonical_service_value(&generic_manifest, chosen, Some(chosen));
+                let actual = canonical_service_value(&manifest, &item.value, Some(&item.label));
                 groups.entry(group_key).or_default().push((
                     provider_id.clone(),
                     item.value.clone(),
@@ -907,10 +943,7 @@ mod tests {
         assert!(
             mismatches.is_empty(),
             "service audit mismatches: {:?}",
-            mismatches
-                .into_iter()
-                .take(20)
-                .collect::<Vec<_>>()
+            mismatches.into_iter().take(20).collect::<Vec<_>>()
         );
     }
 
@@ -934,9 +967,9 @@ mod tests {
                     continue;
                 };
                 let group_seed = normalize_label_key(chosen);
-                let group_key =
-                    canonical_country_value(&group_seed, Some(chosen), Some(chosen));
-                let actual = canonical_country_value(&item.value, Some(&item.label), Some(&item.hint));
+                let group_key = canonical_country_value(&group_seed, Some(chosen), Some(chosen));
+                let actual =
+                    canonical_country_value(&item.value, Some(&item.label), Some(&item.hint));
                 groups.entry(group_key).or_default().push((
                     provider_id.clone(),
                     item.value.clone(),
@@ -966,10 +999,7 @@ mod tests {
         assert!(
             mismatches.is_empty(),
             "country audit mismatches: {:?}",
-            mismatches
-                .into_iter()
-                .take(20)
-                .collect::<Vec<_>>()
+            mismatches.into_iter().take(20).collect::<Vec<_>>()
         );
     }
 }
