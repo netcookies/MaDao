@@ -151,7 +151,7 @@ export async function saveRuntimeSettings(next: RuntimeSettingsUpdate): Promise<
 }
 
 export async function checkForUpdates(currentVersion: string): Promise<UpdateCheckResult> {
-  const releaseApiUrl = 'https://cdn.gh-proxy.org/https://api.github.com/repos/netcookies/MaDao/releases/latest';
+  const releaseApiUrl = 'https://api.github.com/repos/netcookies/MaDao/releases/latest';
   const response = await fetch(releaseApiUrl, {
     headers: {
       Accept: 'application/vnd.github+json',
@@ -175,7 +175,7 @@ export async function checkForUpdates(currentVersion: string): Promise<UpdateChe
     latest_version: latestVersion,
     has_update: latestVersion !== currentVersion,
     release_name: payload.name ?? null,
-    release_url: payload.html_url ? `https://cdn.gh-proxy.org/${payload.html_url}` : null,
+    release_url: payload.html_url ?? null,
     published_at: payload.published_at ?? null,
   };
 }

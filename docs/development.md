@@ -76,10 +76,10 @@ npm run build
 https://github.com/netcookies/MaDao
 ```
 
-前端实际请求会通过代理前缀访问 latest release API：
+前端实际请求 latest release API：
 
 ```text
-https://cdn.gh-proxy.org/https://api.github.com/repos/netcookies/MaDao/releases/latest
+https://api.github.com/repos/netcookies/MaDao/releases/latest
 ```
 
 ### 启动 daemon
