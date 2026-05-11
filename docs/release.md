@@ -119,14 +119,16 @@ cargo test -p sms-core
 
 实际生成格式以当次 Tauri bundler 输出为准。
 
-为避免 Windows WiX / GitHub Release assets 出现中文文件名，项目通过 `src-tauri/tauri.windows.conf.json` 对 Windows 平台单独覆盖 ASCII `productName`，并在上传 GitHub Release 附件时统一覆盖附件名模式：
+为避免安装包内部实际文件名与 GitHub Release assets 出现中文文件名，项目通过平台专用 Tauri 配置对桌面平台统一覆盖 ASCII `productName`，并在上传 GitHub Release 附件时统一覆盖附件名模式：
 
 ```text
+macOS productName: MaDao
+Linux productName: MaDao
 Windows productName: MaDao
 madao-vX.Y.Z-[platform]-[arch][setup].[ext]
 ```
 
-因此 Windows MSI / EXE 与 GitHub Release 附件名都不会使用中文，也不会回退成默认的 `-vX.Y.Z.*` 形式。
+因此 macOS `.app` / `.dmg`、Linux 包内应用名、Windows MSI / EXE 与 GitHub Release 附件名都不会使用中文，也不会回退成默认的 `-vX.Y.Z.*` 形式。
 
 ## macOS 签名说明
 
