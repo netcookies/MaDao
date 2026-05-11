@@ -104,6 +104,7 @@ impl SmsService {
                 auto_fallback: true,
                 option_cache_enabled: true,
                 option_cache_poll_interval_minutes: 30,
+                check_updates_on_launch: true,
             });
         let provider_option_cache = provider_options_path
             .as_ref()
@@ -1615,6 +1616,7 @@ impl SmsService {
         current.option_cache_enabled = update.option_cache_enabled;
         current.option_cache_poll_interval_minutes =
             update.option_cache_poll_interval_minutes.max(1);
+        current.check_updates_on_launch = update.check_updates_on_launch;
         if let Some(path) = &self.runtime_settings_path {
             let _ = save_runtime_settings(path, &current);
         }

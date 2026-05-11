@@ -11,3 +11,7 @@ export async function setWindowTitle(title: string) {
     // 浏览器模式下没有 Tauri window，静默忽略。
   }
 }
+
+export async function openExternalUrl(url: string) {
+  window.open(url, '_blank', 'noopener,noreferrer');
+}

@@ -165,7 +165,8 @@ curl -X PUT http://127.0.0.1:7822/api/providers/herosms/manifest \
   "routing_strategy": "ordered_priority",
   "auto_fallback": true,
   "option_cache_enabled": true,
-  "option_cache_poll_interval_minutes": 30
+  "option_cache_poll_interval_minutes": 30,
+  "check_updates_on_launch": true
 }
 ```
 

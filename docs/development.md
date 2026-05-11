@@ -63,6 +63,25 @@ npm run build
 - `ui/src/design-system/theme.css`
 - `ui/src/design-system/tailwind-theme.cjs`
 
+### 更新检查
+
+设置页支持：
+
+- `每次打开时检查更新`
+- `检查更新`
+
+更新信息来源于：
+
+```text
+https://github.com/netcookies/MaDao
+```
+
+前端实际请求会通过代理前缀访问 latest release API：
+
+```text
+https://cdn.gh-proxy.org/https://api.github.com/repos/netcookies/MaDao/releases/latest
+```
+
 ### 启动 daemon
 
 ```bash

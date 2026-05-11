@@ -14,6 +14,7 @@ import type {
   RuntimeSettings,
   RuntimeSettingsUpdate,
   Snapshot,
+  UpdateCheckResult,
 } from '../app/types';
 
 export type ActivationAcquireResponse = {
@@ -147,6 +148,36 @@ export async function saveRuntimeSettings(next: RuntimeSettingsUpdate): Promise<
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(next),
   }));
+}
+
+export async function checkForUpdates(currentVersion: string): Promise<UpdateCheckResult> {
+  const releaseApiUrl = 'https://cdn.gh-proxy.org/https://api.github.com/repos/netcookies/MaDao/releases/latest';
+  const response = await fetch(releaseApiUrl, {
+    headers: {
+      Accept: 'application/vnd.github+json',
+    },
+  });
+  if (!response.ok) {
+    throw new Error(`Update check failed: ${response.status} ${response.statusText}`);
+  }
+  const payload = (await response.json()) as {
+    tag_name?: string;
+    name?: string;
+    html_url?: string;
+    published_at?: string;
+  };
+  const latestVersion = String(payload.tag_name ?? '').replace(/^v/, '').trim();
+  if (!latestVersion) {
+    throw new Error('Update check failed: latest release tag is missing.');
+  }
+  return {
+    current_version: currentVersion,
+    latest_version: latestVersion,
+    has_update: latestVersion !== currentVersion,
+    release_name: payload.name ?? null,
+    release_url: payload.html_url ? `https://cdn.gh-proxy.org/${payload.html_url}` : null,
+    published_at: payload.published_at ?? null,
+  };
 }
 
 export async function fetchOptionCacheOverview(): Promise<OptionCacheOverview> {

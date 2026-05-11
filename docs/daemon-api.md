@@ -22,6 +22,14 @@ http://127.0.0.1:7822
 - `GET /api/notifications`
 - `GET /api/settings/runtime`
 - `POST /api/settings/runtime`
+
+`RuntimeSettings` 当前包括：
+
+- `routing_strategy`
+- `auto_fallback`
+- `option_cache_enabled`
+- `option_cache_poll_interval_minutes`
+- `check_updates_on_launch`
 - `GET /api/settings/option-cache`
 
 ### Activation

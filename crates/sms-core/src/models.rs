@@ -417,6 +417,8 @@ pub struct RuntimeSettings {
     pub auto_fallback: bool,
     pub option_cache_enabled: bool,
     pub option_cache_poll_interval_minutes: u32,
+    #[serde(default = "default_check_updates_on_launch")]
+    pub check_updates_on_launch: bool,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -425,6 +427,11 @@ pub struct RuntimeSettingsUpdate {
     pub auto_fallback: bool,
     pub option_cache_enabled: bool,
     pub option_cache_poll_interval_minutes: u32,
+    pub check_updates_on_launch: bool,
+}
+
+fn default_check_updates_on_launch() -> bool {
+    true
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

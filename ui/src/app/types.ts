@@ -186,12 +186,23 @@ export type RuntimeSettings = {
   auto_fallback: boolean;
   option_cache_enabled: boolean;
   option_cache_poll_interval_minutes: number;
+  check_updates_on_launch: boolean;
 };
 export type RuntimeSettingsUpdate = {
   routing_strategy: RoutingStrategy;
   auto_fallback: boolean;
   option_cache_enabled: boolean;
   option_cache_poll_interval_minutes: number;
+  check_updates_on_launch: boolean;
+};
+
+export type UpdateCheckResult = {
+  current_version: string;
+  latest_version: string;
+  has_update: boolean;
+  release_name?: string | null;
+  release_url?: string | null;
+  published_at?: string | null;
 };
 export type ProviderDynamicOptions = {
   provider: string;

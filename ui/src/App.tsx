@@ -49,11 +49,12 @@ import {
     type ScreenId,
     type SelectorKind,
     type SelectorOptionViewModel,
-    type SelectorState,
+  type SelectorState,
     type Snapshot,
     type StoreQueryState,
     type TicketDecoration,
     type TicketRecord,
+    type UpdateCheckResult,
   type AppearanceTheme,
   type LanguageCode,
   type LogFilter,
@@ -88,6 +89,7 @@ import { useSelectorFlow } from './hooks/useSelectorFlow';
 import {
   API_BASE,
   SOCKET_PATH,
+  checkForUpdates,
   clearNotifications,
   deleteRoutingPlan,
   fetchRoutingPlans,
@@ -95,7 +97,7 @@ import {
   saveRoutingPlan,
 } from './services/runtimeApi';
 import { getAppConfigDirectory, openAppConfigDirectory } from './services/appConfigApi';
-import { windowAction } from './services/windowApi';
+import { openExternalUrl, windowAction } from './services/windowApi';
 import { listenMenuCommand } from './services/menuBarApi';
 import { i18n } from './app/i18n';
 import { formatProviderErrorMessage } from './app/providerErrors';
@@ -157,6 +159,10 @@ export function App() {
   const [configDirectory, setConfigDirectory] = useState('Loading…');
   const [snackbarOpen, setSnackbarOpen] = useState(false);
   const [statusSequence, setStatusSequence] = useState(0);
+  const [updateCheckBusy, setUpdateCheckBusy] = useState(false);
+  const [runtimeSettingsLoaded, setRuntimeSettingsLoaded] = useState(false);
+  const [updateCheckResult, setUpdateCheckResult] = useState<UpdateCheckResult | null>(null);
+  const hasAutoCheckedUpdatesRef = useRef(false);
   const notificationsPopoverRef = useRef<HTMLDivElement | null>(null);
   const {
     snapshot,
@@ -303,6 +309,37 @@ export function App() {
     });
   }
 
+  async function handleCheckForUpdates(source: 'manual' | 'startup' = 'manual') {
+    try {
+      if (source === 'manual') {
+        setBusyAction('check-updates');
+      }
+      setUpdateCheckBusy(true);
+      const result = await checkForUpdates(__APP_VERSION__);
+      setUpdateCheckResult(result);
+      if (result.has_update) {
+        pushStatusMessage(translate('update_available', {
+          latest: result.latest_version,
+          current: result.current_version,
+        }));
+      } else if (source === 'manual') {
+        pushStatusMessage(translate('already_latest_version', {
+          current: result.current_version,
+        }));
+      }
+    } catch (error) {
+      setUpdateCheckResult(null);
+      if (source === 'manual') {
+        pushStatusMessage(translate('failed_check_updates', { error: formatError(error) }));
+      }
+    } finally {
+      setUpdateCheckBusy(false);
+      if (source === 'manual') {
+        setBusyAction('');
+      }
+    }
+  }
+
   const snackbarTone = useMemo(() => getSnackbarTone(statusMessage), [statusMessage]);
   const {
     visibleProviders,
@@ -431,8 +468,17 @@ export function App() {
   );
 
   useEffect(() => {
-    void Promise.all([loadSnapshot(), loadManifests(), loadRuntimeSettings(), loadRoutingPlans()]);
+    void Promise.all([loadSnapshot(), loadManifests(), loadRuntimeSettings(), loadRoutingPlans()])
+      .finally(() => setRuntimeSettingsLoaded(true));
   }, []);
+
+  useEffect(() => {
+    if (!runtimeSettingsLoaded) return;
+    if (hasAutoCheckedUpdatesRef.current) return;
+    if (!runtimeSettings.check_updates_on_launch) return;
+    hasAutoCheckedUpdatesRef.current = true;
+    void handleCheckForUpdates('startup');
+  }, [runtimeSettings.check_updates_on_launch, runtimeSettingsLoaded]);
 
   useEffect(() => {
     void getAppConfigDirectory()
@@ -1406,6 +1452,15 @@ export function App() {
           placeholder={t('Search logs...')}
         />
       ) : null}
+      {updateCheckResult?.has_update ? (
+        <button
+          type="button"
+          className="inline-flex min-h-0 items-center rounded-pill bg-ds-state-danger px-2 py-1 text-[10px] font-semibold uppercase tracking-[0.12em] text-white transition-opacity duration-fast ease-[var(--ds-motion-transition-fast)] hover:opacity-85"
+          onClick={() => void openExternalUrl('https://github.com/netcookies/MaDao/releases')}
+        >
+          NEW
+        </button>
+      ) : null}
       <div ref={notificationsPopoverRef} className="relative">
         <IconButton
           variant="toolbar"
@@ -1692,12 +1747,15 @@ export function App() {
                 optionCacheEnabled={runtimeSettings.option_cache_enabled}
                 optionCachePollIntervalMinutes={runtimeSettings.option_cache_poll_interval_minutes}
                 optionCacheOverview={optionCacheOverview}
+                checkUpdatesOnLaunch={runtimeSettings.check_updates_on_launch}
+                updateCheckBusy={updateCheckBusy}
                 onOptionCacheEnabledChange={(enabled) =>
                   void updateRuntimeSettings({
                     routing_strategy: runtimeSettings.routing_strategy,
                     auto_fallback: runtimeSettings.auto_fallback,
                     option_cache_enabled: enabled,
                     option_cache_poll_interval_minutes: runtimeSettings.option_cache_poll_interval_minutes,
+                    check_updates_on_launch: runtimeSettings.check_updates_on_launch,
                   })}
                 onOptionCachePollIntervalChange={(minutes) =>
                   void updateRuntimeSettings({
@@ -1705,7 +1763,17 @@ export function App() {
                     auto_fallback: runtimeSettings.auto_fallback,
                     option_cache_enabled: runtimeSettings.option_cache_enabled,
                     option_cache_poll_interval_minutes: minutes,
+                    check_updates_on_launch: runtimeSettings.check_updates_on_launch,
                   })}
+                onCheckUpdatesOnLaunchChange={(enabled) =>
+                  void updateRuntimeSettings({
+                    routing_strategy: runtimeSettings.routing_strategy,
+                    auto_fallback: runtimeSettings.auto_fallback,
+                    option_cache_enabled: runtimeSettings.option_cache_enabled,
+                    option_cache_poll_interval_minutes: runtimeSettings.option_cache_poll_interval_minutes,
+                    check_updates_on_launch: enabled,
+                  })}
+                onCheckForUpdates={() => void handleCheckForUpdates('manual')}
                 apiBase={API_BASE}
                 socketPath={SOCKET_PATH}
                 configDirectory={configDirectory}
