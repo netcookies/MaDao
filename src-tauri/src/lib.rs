@@ -79,11 +79,27 @@ fn menu_action_for_id(event_id: &str) -> MenuAction {
     }
 }
 
+#[cfg(target_os = "macos")]
+fn sync_dock_visibility<R: tauri::Runtime>(
+    app: &tauri::AppHandle<R>,
+    visible: bool,
+) -> tauri::Result<()> {
+    app.set_dock_visibility(visible)
+}
+
+#[cfg(not(target_os = "macos"))]
+fn sync_dock_visibility<R: tauri::Runtime>(
+    _app: &tauri::AppHandle<R>,
+    _visible: bool,
+) -> tauri::Result<()> {
+    Ok(())
+}
+
 fn show_main_window(app: &tauri::AppHandle) -> Result<(), String> {
     let window = app
         .get_webview_window("main")
         .ok_or_else(|| "main window not found".to_string())?;
-    let _ = app.set_dock_visibility(true);
+    let _ = sync_dock_visibility(app, true);
     let _ = window.unminimize();
     let _ = window.show();
     let _ = window.set_focus();
@@ -94,8 +110,7 @@ fn hide_main_window(app: &tauri::AppHandle) -> Result<(), String> {
     if let Some(window) = app.get_webview_window("main") {
         window.hide().map_err(|err| err.to_string())?;
     }
-    app.set_dock_visibility(false)
-        .map_err(|err| err.to_string())?;
+    sync_dock_visibility(app, false).map_err(|err| err.to_string())?;
     Ok(())
 }
 
@@ -399,9 +414,7 @@ fn sync_menu_bar(app: &tauri::AppHandle) -> Result<(), String> {
         .icon_as_template(true)
         .menu(&tray_menu)
         .show_menu_on_left_click(false)
-        .tooltip(format!(
-            "{APP_NAME} · {active_count} active providers"
-        ))
+        .tooltip(format!("{APP_NAME} · {active_count} active providers"))
         .build(app)
         .map_err(|err| err.to_string())?;
 
@@ -658,7 +671,7 @@ pub fn run() {
             if let Some(window) = app.get_webview_window("main") {
                 let _ = window.set_title(APP_WINDOW_TITLE);
             }
-            let _ = app.set_dock_visibility(true);
+            let _ = sync_dock_visibility(app.handle(), true);
             let menu = build_app_menu(&app.handle())?;
             let _ = app.set_menu(menu).map_err(|err| err.to_string())?;
             sync_menu_bar(&app.handle())?;

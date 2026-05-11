@@ -1,8 +1,11 @@
 use anyhow::Context;
 use directories::ProjectDirs;
+#[cfg(unix)]
 use plugin_sdk::ProviderManifest;
+#[cfg(unix)]
 use serde::Deserialize;
 use sms_core::config::ServerConfig;
+#[cfg(unix)]
 use sms_core::models::{
     AcquireCodeRequest, PollCodeRequest, ProviderPriceQuery, ReleaseCodeRequest,
     RoutingFailoverRequest, RoutingPlan,
@@ -13,7 +16,9 @@ use sms_server::spawn_http_server;
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
+#[cfg(unix)]
 use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
+#[cfg(unix)]
 use tokio::net::UnixListener;
 
 const DEFAULT_CONFIG_TEMPLATE_PATH: &str = "config/server.toml";
@@ -42,20 +47,30 @@ async fn main() -> anyhow::Result<()> {
         .await
         .with_context(|| format!("bind http listener failed: {}", config.http_bind))?;
 
-    let socket_path = config.socket_path.clone();
+    spawn_socket_server(Arc::clone(&service), &config.socket_path).await?;
+
+    println!("http listening on {}", http_addr);
+    log_socket_transport(&config.socket_path);
+
+    tokio::signal::ctrl_c()
+        .await
+        .context("wait for shutdown signal failed")
+}
+
+#[cfg(unix)]
+async fn spawn_socket_server(service: Arc<SmsService>, socket_path: &Path) -> anyhow::Result<()> {
     if socket_path.exists() {
-        let _ = std::fs::remove_file(&socket_path);
+        let _ = std::fs::remove_file(socket_path);
     }
-    let unix_listener = UnixListener::bind(&socket_path)
+    let unix_listener = UnixListener::bind(socket_path)
         .with_context(|| format!("bind unix socket failed: {}", socket_path.display()))?;
 
-    let socket_service = Arc::clone(&service);
     tokio::spawn(async move {
         loop {
             let Ok((stream, _addr)) = unix_listener.accept().await else {
                 break;
             };
-            let service = Arc::clone(&socket_service);
+            let service = Arc::clone(&service);
             tokio::spawn(async move {
                 let (reader, mut writer) = stream.into_split();
                 let mut lines = BufReader::new(reader).lines();
@@ -68,14 +83,28 @@ async fn main() -> anyhow::Result<()> {
         }
     });
 
-    println!("http listening on {}", http_addr);
-    println!("socket listening on {}", socket_path.display());
-
-    tokio::signal::ctrl_c()
-        .await
-        .context("wait for shutdown signal failed")
+    Ok(())
 }
 
+#[cfg(not(unix))]
+async fn spawn_socket_server(_service: Arc<SmsService>, _socket_path: &Path) -> anyhow::Result<()> {
+    Ok(())
+}
+
+#[cfg(unix)]
+fn log_socket_transport(socket_path: &Path) {
+    println!("socket listening on {}", socket_path.display());
+}
+
+#[cfg(not(unix))]
+fn log_socket_transport(socket_path: &Path) {
+    eprintln!(
+        "unix socket transport is disabled on this platform: {}",
+        socket_path.display()
+    );
+}
+
+#[cfg(unix)]
 async fn handle_socket_command(service: &SmsService, line: &str) -> String {
     if let Ok(command) = serde_json::from_str::<SocketCommand>(line) {
         return match command {
@@ -174,8 +203,12 @@ fn seed_default_providers(config_dir: &Path) -> anyhow::Result<()> {
 
     let cwd = std::env::current_dir().context("read current dir failed")?;
     let source_dir = cwd.join(DEFAULT_PROVIDER_TEMPLATE_DIR);
-    let entries = fs::read_dir(&source_dir)
-        .with_context(|| format!("read provider template dir failed: {}", source_dir.display()))?;
+    let entries = fs::read_dir(&source_dir).with_context(|| {
+        format!(
+            "read provider template dir failed: {}",
+            source_dir.display()
+        )
+    })?;
 
     for entry in entries {
         let entry = entry.context("read provider template entry failed")?;
@@ -202,6 +235,7 @@ fn seed_default_providers(config_dir: &Path) -> anyhow::Result<()> {
     Ok(())
 }
 
+#[cfg(unix)]
 #[derive(Debug, Deserialize)]
 #[serde(tag = "command", rename_all = "snake_case")]
 enum SocketCommand {
@@ -246,6 +280,7 @@ enum SocketCommand {
     ReloadProviders,
 }
 
+#[cfg(unix)]
 fn wrap_socket_result<T: serde::Serialize>(result: Result<T, sms_core::error::SmsError>) -> String {
     match result {
         Ok(value) => serde_json::json!({
@@ -261,6 +296,7 @@ fn wrap_socket_result<T: serde::Serialize>(result: Result<T, sms_core::error::Sm
     }
 }
 
+#[cfg(unix)]
 fn wrap_socket_plain_result<T: serde::Serialize>(
     result: Result<T, sms_core::error::SmsError>,
 ) -> String {
