@@ -7,6 +7,7 @@ import {
   formatDurationMmSs,
   formatProviderLabel,
   formatServiceLabel,
+  getElapsedDurationMs,
   getCancelRemainingMs,
   getTicketPhase,
 } from '../../lib/formatters';
@@ -50,12 +51,15 @@ export function MessagesScreen(props: MessagesScreenProps) {
     .slice(0, 8);
 
   useEffect(() => {
-    const needsCancelCountdown = props.tickets.some((ticket) => {
+    const needsLiveTimer = props.tickets.some((ticket) => {
       const cooldownSec = props.providers?.[ticket.provider]?.behavior?.cancel_cooldown_sec;
       return getTicketPhase(ticket.status) === 'waiting'
-        && getCancelRemainingMs(ticket.created_at, cooldownSec, now) > 0;
+        && (
+          getCancelRemainingMs(ticket.created_at, cooldownSec, now) > 0
+          || getElapsedDurationMs(ticket.created_at, now) >= 0
+        );
     });
-    if (!needsCancelCountdown) return undefined;
+    if (!needsLiveTimer) return undefined;
 
     const timer = window.setInterval(() => {
       setNow(Date.now());
@@ -82,6 +86,7 @@ export function MessagesScreen(props: MessagesScreenProps) {
           const cancelRemainingMs = isWaiting
             ? getCancelRemainingMs(ticket.created_at, cancelCooldownSec, now)
             : 0;
+          const elapsedDurationMs = getElapsedDurationMs(ticket.created_at, now);
           const cancelLocked = cancelRemainingMs > 0;
           const ticketError = formatTicketError(ticket.message);
           const providerIconUrl = providerManifest?.ui?.icon_url;
@@ -102,6 +107,11 @@ export function MessagesScreen(props: MessagesScreenProps) {
                   </strong>
                 </div>
                 <div className="flex flex-wrap items-center justify-start gap-3 min-[760px]:justify-end">
+                  <span className="inline-flex items-center rounded-md bg-ds-surface-subtle px-2.5 py-1 text-[12px] font-medium tracking-[0.04em] text-ds-text-secondary">
+                    {isWaiting
+                      ? t('Waiting {{duration}}', { duration: formatDurationMmSs(elapsedDurationMs) })
+                      : t('Elapsed {{duration}}', { duration: formatDurationMmSs(elapsedDurationMs) })}
+                  </span>
                   <div className="inline-flex items-center gap-2 rounded-md bg-ds-surface-subtle px-3 py-1.5">
                     <span className="inline-flex items-center gap-1.5 text-body-strong tracking-[var(--ds-type-body-strong-tracking)] text-ds-text-primary">
                       <ResourceBadge

@@ -156,6 +156,13 @@ export function formatDurationMmSs(durationMs: number) {
   return `${minutes}:${seconds.toString().padStart(2, '0')}`;
 }
 
+export function getElapsedDurationMs(createdAt: string | undefined, now = Date.now()) {
+  if (!createdAt) return 0;
+  const createdAtMs = new Date(createdAt).getTime();
+  if (Number.isNaN(createdAtMs)) return 0;
+  return Math.max(0, now - createdAtMs);
+}
+
 export function formatServiceLabel(service: string, language?: LanguageCode) {
   const normalized = service.toLowerCase();
   const currentLanguage = pickLanguage(language);
