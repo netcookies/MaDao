@@ -130,16 +130,6 @@ export function SettingsScreen(props: SettingsScreenProps) {
         <div className="flex flex-col gap-4 px-6 py-4">
           <h3 className="m-0 text-section-title font-semibold tracking-[var(--ds-type-section-title-tracking)] text-ds-text-primary">{t('Server Configuration')}</h3>
           <div className="flex items-center justify-between gap-4">
-            <span className="font-text text-utility font-normal tracking-[var(--ds-type-utility-tracking)] text-ds-text-secondary">{t('Check for updates on launch')}</span>
-            <ToggleSwitch checked={props.checkUpdatesOnLaunch} onChange={props.onCheckUpdatesOnLaunchChange} ariaLabel={t('Toggle check for updates on launch')} />
-          </div>
-          <div className="flex items-center justify-between gap-4">
-            <span className="font-text text-utility font-normal tracking-[var(--ds-type-utility-tracking)] text-ds-text-secondary">{t('Check for updates')}</span>
-            <AppButton variant="outline" size="utility" onClick={props.onCheckForUpdates} disabled={props.updateCheckBusy}>
-              {props.updateCheckBusy ? t('Checking…') : t('Check now')}
-            </AppButton>
-          </div>
-          <div className="flex items-center justify-between gap-4">
             <span className="font-text text-utility font-normal tracking-[var(--ds-type-utility-tracking)] text-ds-text-secondary">{t('HTTP Endpoint')}</span>
             <div className="inline-block rounded-xs border border-ds-border bg-ds-surface-subtle px-2.5 py-[5px] font-mono text-caption text-ds-text-secondary">
               {props.apiBase}
@@ -161,11 +151,20 @@ export function SettingsScreen(props: SettingsScreenProps) {
             <span className="font-text text-utility font-normal tracking-[var(--ds-type-utility-tracking)] text-ds-text-secondary">{t('Desktop Runtime')}</span>
             <span className="text-[13px] leading-[1.43] tracking-[-0.224px] text-ds-text-secondary">Tauri v2</span>
           </div>
-        </div>
-
-        <div className="flex items-center justify-between gap-4 border-solid border-ds-border border-b-0 border-x-0 border-t px-6 py-3">
-          <span className="font-text text-utility font-normal tracking-[var(--ds-type-utility-tracking)] text-ds-text-secondary">{t('Version')}</span>
-          <span className="font-mono text-caption text-ds-text-secondary">v{APP_VERSION}</span>
+          <div className="flex items-center justify-between gap-4 border-solid border-ds-border border-b-0 border-x-0 border-t pt-4">
+            <span className="font-text text-utility font-normal tracking-[var(--ds-type-utility-tracking)] text-ds-text-secondary">{t('Version')}</span>
+            <span className="font-mono text-caption text-ds-text-secondary">v{APP_VERSION}</span>
+          </div>
+          <div className="flex items-center justify-between gap-4">
+            <span className="font-text text-utility font-normal tracking-[var(--ds-type-utility-tracking)] text-ds-text-secondary">{t('Check for updates on launch')}</span>
+            <ToggleSwitch checked={props.checkUpdatesOnLaunch} onChange={props.onCheckUpdatesOnLaunchChange} ariaLabel={t('Toggle check for updates on launch')} />
+          </div>
+          <div className="flex items-center justify-between gap-4">
+            <span className="font-text text-utility font-normal tracking-[var(--ds-type-utility-tracking)] text-ds-text-secondary">{t('Check for updates')}</span>
+            <AppButton variant="outline" size="utility" onClick={props.onCheckForUpdates} disabled={props.updateCheckBusy}>
+              {props.updateCheckBusy ? t('Checking…') : t('Check now')}
+            </AppButton>
+          </div>
         </div>
       </div>
     </div>
