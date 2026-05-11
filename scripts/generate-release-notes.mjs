@@ -38,6 +38,34 @@ const RELEASE_COMMIT_PATTERNS = [
   /^bump version\b/i,
 ];
 
+function firstNonEmpty(...values) {
+  return values.find((value) => typeof value === 'string' && value.trim())?.trim() ?? '';
+}
+
+function normalizeProxyEnv(env, upperKey, lowerKey, npmKey) {
+  const value = firstNonEmpty(
+    env[upperKey],
+    env[lowerKey],
+    env[npmKey],
+  );
+  if (!value) {
+    return;
+  }
+  env[upperKey] = value;
+  env[lowerKey] = value;
+}
+
+function buildChildEnv() {
+  const env = { ...process.env };
+  normalizeProxyEnv(env, 'HTTP_PROXY', 'http_proxy', 'npm_config_proxy');
+  normalizeProxyEnv(env, 'HTTPS_PROXY', 'https_proxy', 'npm_config_https_proxy');
+  normalizeProxyEnv(env, 'ALL_PROXY', 'all_proxy', 'npm_config_all_proxy');
+  normalizeProxyEnv(env, 'NO_PROXY', 'no_proxy', 'npm_config_no_proxy');
+  return env;
+}
+
+const CHILD_ENV = buildChildEnv();
+
 function parseArgs(argv) {
   const args = {
     currentTag: '',
@@ -105,6 +133,7 @@ function capture(command, args, { allowFailure = false } = {}) {
   try {
     return execFileSync(command, args, {
       encoding: 'utf8',
+      env: CHILD_ENV,
       stdio: ['ignore', 'pipe', 'pipe'],
     }).trim();
   } catch (error) {

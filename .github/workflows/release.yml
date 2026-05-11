@@ -102,11 +102,11 @@ jobs:
         uses: tauri-apps/tauri-action@v0
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          TAURI_BUNDLE_NAME: ${{ needs.release_meta.outputs.release_asset_prefix }}
         with:
           tagName: ${{ needs.release_meta.outputs.current_tag }}
           releaseName: ${{ needs.release_meta.outputs.release_name }}
           releaseBody: ${{ needs.release_meta.outputs.release_body }}
           releaseDraft: false
           prerelease: ${{ fromJSON(needs.release_meta.outputs.prerelease) }}
+          assetNamePattern: ${{ needs.release_meta.outputs.release_asset_prefix }}-[platform]-[arch][setup].[ext]
           args: ${{ matrix.platform.args }}

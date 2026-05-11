@@ -16,6 +16,39 @@ const WORKSPACE_LOCK_PACKAGES = [
 ];
 
 const SEMVER_PATTERN = /^(?<major>0|[1-9]\d*)\.(?<minor>0|[1-9]\d*)\.(?<patch>0|[1-9]\d*)(?<prerelease>-[0-9A-Za-z.-]+)?$/;
+const PUSH_TOKEN_ENV_KEYS = ['GITHUB_TOKEN', 'GH_TOKEN'];
+
+function firstNonEmpty(...values) {
+  return values.find((value) => typeof value === 'string' && value.trim())?.trim() ?? '';
+}
+
+function shellEscape(value) {
+  return `'${String(value).replace(/'/g, `'\\''`)}'`;
+}
+
+function normalizeProxyEnv(env, upperKey, lowerKey, npmKey) {
+  const value = firstNonEmpty(
+    env[upperKey],
+    env[lowerKey],
+    env[npmKey],
+  );
+  if (!value) {
+    return;
+  }
+  env[upperKey] = value;
+  env[lowerKey] = value;
+}
+
+function buildChildEnv() {
+  const env = { ...process.env };
+  normalizeProxyEnv(env, 'HTTP_PROXY', 'http_proxy', 'npm_config_proxy');
+  normalizeProxyEnv(env, 'HTTPS_PROXY', 'https_proxy', 'npm_config_https_proxy');
+  normalizeProxyEnv(env, 'ALL_PROXY', 'all_proxy', 'npm_config_all_proxy');
+  normalizeProxyEnv(env, 'NO_PROXY', 'no_proxy', 'npm_config_no_proxy');
+  return env;
+}
+
+const CHILD_ENV = buildChildEnv();
 
 function printHelp() {
   process.stdout.write(
@@ -79,6 +112,7 @@ function capture(command, args, { allowFailure = false } = {}) {
   try {
     return execFileSync(command, args, {
       encoding: 'utf8',
+      env: CHILD_ENV,
       stdio: ['ignore', 'pipe', 'pipe'],
     }).trim();
   } catch (error) {
@@ -101,7 +135,7 @@ function capture(command, args, { allowFailure = false } = {}) {
 
 function run(command, args) {
   process.stdout.write(`> ${command} ${args.join(' ')}\n`);
-  execFileSync(command, args, { stdio: 'inherit' });
+  execFileSync(command, args, { env: CHILD_ENV, stdio: 'inherit' });
 }
 
 function git(args, options) {
@@ -223,6 +257,7 @@ function ensureOriginRemote() {
   if (!originUrl) {
     throw new Error('Git remote `origin` is not configured.');
   }
+  return originUrl;
 }
 
 function ensureLocalTagAbsent(tag) {
@@ -236,6 +271,43 @@ function ensureRemoteTagAbsent(tag) {
   if (remoteTag) {
     throw new Error(`Remote tag already exists on origin: ${tag}`);
   }
+}
+
+function resolvePushTarget(originUrl) {
+  const explicitPushUrl = firstNonEmpty(process.env.RELEASE_PUSH_URL);
+  if (explicitPushUrl) {
+    return {
+      actual: explicitPushUrl,
+      display: 'origin',
+      usesDirectUrl: true,
+    };
+  }
+
+  const token = firstNonEmpty(...PUSH_TOKEN_ENV_KEYS.map((key) => process.env[key]));
+  const githubHttpsMatch = originUrl.match(/^https:\/\/github\.com\/(.+)$/i);
+  if (token && githubHttpsMatch) {
+    return {
+      actual: `https://x-access-token:${encodeURIComponent(token)}@github.com/${githubHttpsMatch[1]}`,
+      display: 'origin',
+      usesDirectUrl: true,
+    };
+  }
+
+  return {
+    actual: 'origin',
+    display: 'origin',
+    usesDirectUrl: false,
+  };
+}
+
+function pushGitRef(pushTarget, ref) {
+  const args = pushTarget.usesDirectUrl
+    ? ['-c', 'credential.helper=', 'push', pushTarget.actual, ref]
+    : ['push', pushTarget.actual, ref];
+  process.stdout.write(`> git push ${pushTarget.display} ${ref}\n`);
+  const shell = firstNonEmpty(process.env.SHELL) || '/bin/sh';
+  const command = ['git', ...args].map(shellEscape).join(' ');
+  execFileSync(shell, ['-lc', command], { env: CHILD_ENV, stdio: 'inherit' });
 }
 
 function updateVersionFiles(nextVersion) {
@@ -322,8 +394,14 @@ function main() {
   const tag = `v${nextVersion}`;
   const branch = ensureBranch();
   ensureLocalTagAbsent(tag);
+  let pushTarget = {
+    actual: 'origin',
+    display: 'origin',
+    usesDirectUrl: false,
+  };
   if (!args.noPush) {
-    ensureOriginRemote();
+    const originUrl = ensureOriginRemote();
+    pushTarget = resolvePushTarget(originUrl);
     ensureRemoteTagAbsent(tag);
   }
   ensureCleanWorktree();
@@ -360,8 +438,8 @@ function main() {
   const notesPath = generateNotesPreview(tag, args.notesFile);
 
   if (!args.noPush) {
-    run('git', ['push', 'origin', branch]);
-    run('git', ['push', 'origin', tag]);
+    pushGitRef(pushTarget, branch);
+    pushGitRef(pushTarget, tag);
   }
 
   process.stdout.write(
