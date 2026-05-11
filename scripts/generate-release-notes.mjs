@@ -159,6 +159,10 @@ function readProductName() {
   }
 }
 
+function readProductSlug() {
+  return 'madao';
+}
+
 function resolveCurrentTag(args) {
   if (args.currentTag.trim()) {
     return args.currentTag.trim();
@@ -270,6 +274,21 @@ function groupCommitSubjects(subjects) {
   return groups;
 }
 
+function titleToEnglish(title) {
+  const mapping = new Map([
+    ['新功能', 'Features'],
+    ['优化改进', 'Improvements'],
+    ['问题修复', 'Fixes'],
+    ['文档更新', 'Documentation'],
+    ['测试与质量', 'Tests & Quality'],
+    ['工程与构建', 'Build & CI'],
+    ['工程与维护', 'Maintenance'],
+    ['回滚变更', 'Reverts'],
+    ['其他变更', 'Other Changes'],
+  ]);
+  return mapping.get(title) ?? title;
+}
+
 function buildDeterministicSummary(groups, previousTag) {
   const sections = [];
 
@@ -300,6 +319,54 @@ function buildDeterministicSummary(groups, previousTag) {
   ].join('\n');
 }
 
+function translateCommitItemToEnglish(item) {
+  return item
+    .replace(/为激活记录增加等待计时/g, 'Add per-activation wait timers')
+    .replace(/提升 provider 配置扩展能力/g, 'Improve provider configuration extensibility')
+    .replace(/新功能/g, 'Features')
+    .replace(/优化改进/g, 'Improvements')
+    .replace(/问题修复/g, 'Fixes')
+    .replace(/文档更新/g, 'Documentation')
+    .replace(/测试与质量/g, 'Tests and quality')
+    .replace(/工程与构建/g, 'Build and CI')
+    .replace(/工程与维护/g, 'Maintenance')
+    .replace(/回滚变更/g, 'Reverts')
+    .replace(/其他变更/g, 'Other changes')
+    .replace(/^routing:\s*/i, 'routing: ')
+    .replace(/^ui:\s*/i, 'ui: ')
+    .replace(/^runtime:\s*/i, 'runtime: ');
+}
+
+function buildDeterministicEnglishSummary(groups, previousTag) {
+  const sections = [];
+
+  if (!previousTag) {
+    sections.push('## Initial Release', '- Establish the first release baseline and publish automated desktop build artifacts.', '');
+  }
+
+  for (const title of GROUP_ORDER) {
+    const items = groups.get(title);
+    if (!items || items.length === 0) {
+      continue;
+    }
+    sections.push(`## ${titleToEnglish(title)}`);
+    for (const item of items) {
+      sections.push(`- ${translateCommitItemToEnglish(item)}`);
+    }
+    sections.push('');
+  }
+
+  const output = sections.join('\n').trim();
+  if (output) {
+    return output;
+  }
+
+  return [
+    '## Release Update',
+    '- Sync the version and publish updated desktop build artifacts.',
+  ].join('\n');
+}
+
 function buildDetailsSection(subjects) {
   if (subjects.length === 0) {
     return '';
@@ -310,6 +377,16 @@ function buildDetailsSection(subjects) {
     '<summary>提交明细</summary>',
     '',
     ...subjects.map((subject) => `- ${subject}`),
+    '</details>',
+  ].join('\n');
+}
+
+function buildEnglishSummaryDetails(englishSummary) {
+  return [
+    '<details>',
+    '<summary>English Release Notes</summary>',
+    '',
+    englishSummary,
     '</details>',
   ].join('\n');
 }
@@ -402,9 +479,11 @@ async function main() {
   const upperRef = resolveUpperRef(args, currentTag);
   const previousTag = resolvePreviousTag(args, currentTag, upperRef);
   const releaseName = `${readProductName()} ${currentTag}${isPrereleaseTag(currentTag) ? ' 预发布' : ''}`;
+  const releaseAssetPrefix = `${readProductSlug()}-${currentTag}`;
   const subjects = collectCommitSubjects(previousTag, upperRef);
   const groups = groupCommitSubjects(subjects);
   const deterministicSummary = buildDeterministicSummary(groups, previousTag);
+  const deterministicEnglishSummary = buildDeterministicEnglishSummary(groups, previousTag);
 
   let renderedSummary = deterministicSummary;
   if (!args.noAi) {
@@ -424,8 +503,9 @@ async function main() {
     }
   }
 
+  const englishDetailsSection = buildEnglishSummaryDetails(deterministicEnglishSummary);
   const detailsSection = buildDetailsSection(subjects);
-  const releaseBody = [renderedSummary.trim(), detailsSection.trim()].filter(Boolean).join('\n\n---\n\n').trim();
+  const releaseBody = [renderedSummary.trim(), englishDetailsSection.trim(), detailsSection.trim()].filter(Boolean).join('\n\n---\n\n').trim();
 
   if (args.notesFile.trim()) {
     const notesPath = resolve(args.notesFile);
@@ -439,6 +519,7 @@ async function main() {
       previous_tag: previousTag,
       prerelease: String(isPrereleaseTag(currentTag)),
       release_name: releaseName,
+      release_asset_prefix: releaseAssetPrefix,
       release_body: releaseBody,
     });
   }

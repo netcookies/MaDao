@@ -97,6 +97,8 @@ cargo test -p sms-core
 - 自动忽略 `chore: 发布 vX.Y.Z` 这类发布提交
 - 优先调用 GitHub Models 生成面向用户的中文说明
 - 如果 AI 不可用，则回退为基于 Conventional Commits 的稳定分组说明
+- 在发布正文最下方追加折叠的英文说明
+- 英文折叠段位于“提交明细”之前
 
 因此 CI 即使没有 AI 响应，也不会阻塞正式发布。
 
@@ -116,6 +118,14 @@ cargo test -p sms-core
 - Windows：如 `.msi` / `.exe`
 
 实际生成格式以当次 Tauri bundler 输出为准。
+
+为避免 release assets 出现中文文件名，CI 会统一将 Tauri bundle 名称设置为英文安全前缀：
+
+```text
+madao-vX.Y.Z
+```
+
+因此 GitHub Release 附件名不会使用中文。
 
 ## macOS 签名说明
 
