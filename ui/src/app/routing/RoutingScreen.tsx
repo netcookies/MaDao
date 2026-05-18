@@ -85,6 +85,7 @@ export type RoutingScreenProps = {
   onUseItemPriceQuickFill: (kind: 'min' | 'max', price: number) => void;
   onUseItemExactPrice: (price: number) => void;
   busyAction: string;
+  operatorSelectableProviderIds?: Set<string>;
 };
 
 function emptyPlan(): RoutingPlan {
@@ -171,6 +172,7 @@ export function RoutingScreen(props: RoutingScreenProps) {
         onOpenProviderPicker={props.onOpenProviderPicker}
         onOpenItemSelector={props.onOpenItemSelector}
         onOpenItemEditor={props.onOpenItemEditor}
+        operatorSelectableProviderIds={props.operatorSelectableProviderIds}
       />
       <RoutingItemEditorModal
         editor={props.itemEditor}
@@ -187,6 +189,7 @@ export function RoutingScreen(props: RoutingScreenProps) {
         onLoadPriceOptions={props.onLoadItemPriceOptions}
         onQuickFill={props.onUseItemPriceQuickFill}
         onUseExactPrice={props.onUseItemExactPrice}
+        operatorSelectableProviderIds={props.operatorSelectableProviderIds}
       />
     </>
   );
@@ -331,6 +334,7 @@ function RoutingPlanDetailScreen(props: {
   onOpenProviderPicker: (itemId: string) => void;
   onOpenItemSelector: (itemId: string, field: 'provider' | 'country' | 'operator', source?: 'row' | 'editor') => void;
   onOpenItemEditor: (itemId: string) => void;
+  operatorSelectableProviderIds?: Set<string>;
 }) {
   const { t } = useTranslation();
   const toggleLabel = props.plan.enabled ? t('Enabled') : t('Disabled');
@@ -607,6 +611,7 @@ function RoutingPlanDetailScreen(props: {
                     onDuplicateItem={props.onDuplicateItem}
                     onOpenItemEditor={props.onOpenItemEditor}
                     onRemoveItem={props.onRemoveItem}
+                    operatorSelectableProviderIds={props.operatorSelectableProviderIds}
                   />
                 ))}
               </SortableContext>
@@ -635,6 +640,7 @@ function SortableRoutingPlanItemRow(props: {
   onDuplicateItem: (itemId: string) => void;
   onOpenItemEditor: (itemId: string) => void;
   onRemoveItem: (itemId: string) => void;
+  operatorSelectableProviderIds?: Set<string>;
 }) {
   const { t } = useTranslation();
   const {
@@ -656,6 +662,8 @@ function SortableRoutingPlanItemRow(props: {
   const providerBadgeLabel = provider?.ui?.badge_label;
   const countryLabel = props.item.country ? formatCountryLabel(props.item.country, props.language) : t('Any country');
   const operatorLabel = formatOperatorLabel(props.item.operator || 'any', props.language);
+  const operatorSelectable = props.operatorSelectableProviderIds?.has(props.item.provider) ?? true;
+  const operatorDisabled = !operatorSelectable;
   const isDropTarget = props.overItemId === props.item.id && props.activeItemId !== props.item.id;
 
   return (
@@ -710,9 +718,13 @@ function SortableRoutingPlanItemRow(props: {
           <button
             type="button"
             onClick={() => props.onOpenItemSelector(props.item.id, 'operator', 'row')}
-            className="inline-flex min-w-0 items-center gap-1 bg-transparent p-0 text-left text-inherit hover:text-ds-accent-blue"
+            className={cx(
+              'inline-flex min-w-0 items-center gap-1 bg-transparent p-0 text-left text-inherit',
+              operatorDisabled ? 'cursor-not-allowed opacity-50' : 'hover:text-ds-accent-blue',
+            )}
+            disabled={operatorDisabled}
           >
-            <span className="truncate">{operatorLabel}</span>
+            <span className="truncate">{operatorDisabled ? t('Not supported') : operatorLabel}</span>
           </button>
           <span>{summarizePrice(props.item, t)}</span>
           {!props.item.enabled ? <span>{t('Disabled')}</span> : null}
@@ -734,9 +746,13 @@ function SortableRoutingPlanItemRow(props: {
         <button
           type="button"
           onClick={() => props.onOpenItemSelector(props.item.id, 'operator', 'row')}
-          className="inline-flex w-full min-w-0 items-center gap-2 bg-transparent p-0 text-left text-[12px] text-ds-text-secondary transition-colors duration-fast ease-[var(--ds-motion-transition-fast)] hover:text-ds-accent-blue"
+          className={cx(
+            'inline-flex w-full min-w-0 items-center gap-2 bg-transparent p-0 text-left text-[12px] text-ds-text-secondary transition-colors duration-fast ease-[var(--ds-motion-transition-fast)]',
+            operatorDisabled ? 'cursor-not-allowed opacity-50' : 'hover:text-ds-accent-blue',
+          )}
+          disabled={operatorDisabled}
         >
-          <span className="truncate">{operatorLabel}</span>
+          <span className="truncate">{operatorDisabled ? t('Not supported') : operatorLabel}</span>
         </button>
       </div>
 
@@ -854,6 +870,7 @@ function RoutingItemEditorModal(props: {
   onLoadPriceOptions: () => void;
   onQuickFill: (kind: 'min' | 'max', price: number) => void;
   onUseExactPrice: (price: number) => void;
+  operatorSelectableProviderIds?: Set<string>;
 }) {
   const { t } = useTranslation();
   const [priceMode, setPriceMode] = useState<'any' | 'range'>('any');
@@ -893,6 +910,7 @@ function RoutingItemEditorModal(props: {
     ? t('Any provider')
     : props.providers.find((provider) => provider.id === editor.providerId)?.name ?? editor.providerId;
   const providerManifest = props.providers.find((provider) => provider.id === editor.providerId);
+  const operatorSelectable = props.operatorSelectableProviderIds?.has(editor.providerId) ?? true;
   const providerIconUrl = providerManifest?.ui?.icon_url;
   const providerBadgeLabel = providerManifest?.ui?.badge_label;
   const isRangeMode = priceMode === 'range';
@@ -951,9 +969,9 @@ function RoutingItemEditorModal(props: {
             <SelectTrigger
               compact
               value={editor.operator ? formatOperatorLabel(editor.operator, props.language) : ''}
-              placeholder={editor.country ? t('Any carrier') : t('Select country first')}
-              disabled={!editor.country}
-              onClick={() => editor.country && props.onOpenSelector('operator')}
+              placeholder={operatorSelectable ? (editor.country ? t('Any carrier') : t('Select country first')) : t('Not supported')}
+              disabled={!editor.country || !operatorSelectable}
+              onClick={() => editor.country && operatorSelectable && props.onOpenSelector('operator')}
               className="w-full"
             />
           </ModalField>

@@ -427,6 +427,14 @@ export function App() {
     () => visibleProviders.map((provider) => provider.id).join('|'),
     [visibleProviders],
   );
+  const operatorSelectableProviderIds = useMemo(
+    () => new Set(
+      visibleProviders
+        .filter((provider) => provider.behavior?.operator_selectable !== false)
+        .map((provider) => provider.id),
+    ),
+    [visibleProviders],
+  );
 
   const {
     pollTicket,
@@ -1868,6 +1876,7 @@ export function App() {
                 onUseItemPriceQuickFill={quickFillRoutingItemPrice}
                 onUseItemExactPrice={useExactRoutingItemPrice}
                 busyAction={busyAction}
+                operatorSelectableProviderIds={operatorSelectableProviderIds}
               />
             )}
 
@@ -2036,6 +2045,7 @@ export function App() {
           form={activationForm}
           busy={activationBusy}
           error={activationError}
+          operatorHint={undefined}
           serviceOptions={filterCatalogItems(optionCatalog.services, activationForm.provider).map((item) => ({
             value: item.value,
             label: item.label,

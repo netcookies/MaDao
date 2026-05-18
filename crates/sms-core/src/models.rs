@@ -266,6 +266,8 @@ pub struct ProviderSummary {
     #[serde(default)]
     pub cancel_cooldown_sec: Option<u64>,
     #[serde(default)]
+    pub operator_selectable: bool,
+    #[serde(default)]
     pub option_cache_state: OptionCacheState,
     #[serde(default)]
     pub option_cache_fetched_at: Option<DateTime<Utc>>,

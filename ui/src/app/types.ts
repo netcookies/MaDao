@@ -40,6 +40,7 @@ export type ProviderSummary = {
   icon_url?: string | null;
   badge_label?: string | null;
   cancel_cooldown_sec?: number | null;
+  operator_selectable?: boolean;
   option_cache_state?: OptionCacheState;
   option_cache_fetched_at?: string | null;
   balance?: number | null;
@@ -115,6 +116,7 @@ export type ProviderManifest = {
   };
   behavior?: {
     cancel_cooldown_sec?: number | null;
+    operator_selectable?: boolean;
   };
   handler_api?: Record<string, unknown>;
   five_sim?: Record<string, unknown>;
@@ -174,6 +176,7 @@ export type SelectorOptionViewModel = {
   option: OptionItem;
   isSynthetic?: boolean;
   syntheticKind?: SelectorOptionSyntheticKind;
+  isDisabled?: boolean;
 };
 export type SelectorState = {
   kind: SelectorKind;

@@ -47,6 +47,14 @@ type SelectorRuntimeState = {
   updateStoreQuery: (providerId: string, patch: Record<string, string>) => void;
 };
 
+function operatorSelectionDisabled(provider?: ProviderManifest) {
+  return provider?.behavior?.operator_selectable === false;
+}
+
+function operatorDisabledLabel(language: 'en' | 'zh') {
+  return i18n.getFixedT(language)('Not supported');
+}
+
 export function useSelectorFlow(
   ui: SelectorUiState,
   runtime: SelectorRuntimeState,
@@ -220,6 +228,8 @@ export function useSelectorFlow(
       title = translate('Select Store Country');
       resourceKind = 'country';
     } else if (kind === 'store-operator') {
+      const provider = runtime.visibleProviders.find((entry) => entry.id === ui.selectedProvider);
+      const operatorLocked = operatorSelectionDisabled(provider);
       const priceDerivedOperators = await fetchPriceDerivedOperators(
         ui.selectedProvider,
         ui.storeQuery.service,
@@ -258,7 +268,9 @@ export function useSelectorFlow(
           ...priceDerivedOperatorOptions,
           ...fetchedOperatorOptions,
           ...catalogOperatorOptions,
-        ]),
+        ]).map((option) => operatorLocked && option.commitValue !== ''
+          ? { ...option, isDisabled: true, secondaryText: operatorDisabledLabel(language) }
+          : option),
       ];
       title = translate('Select Store Operator');
     } else if (kind === 'activation-service') {
@@ -291,6 +303,8 @@ export function useSelectorFlow(
       title = translate('Select Activation Country');
       resourceKind = 'country';
     } else if (kind === 'activation-operator') {
+      const provider = runtime.visibleProviders.find((entry) => entry.id === ui.activationForm.provider);
+      const operatorLocked = operatorSelectionDisabled(provider);
       const activationService = ui.activationForm.service?.trim() || undefined;
       const priceDerivedOperators = await fetchPriceDerivedOperators(
         ui.activationForm.provider,
@@ -330,7 +344,9 @@ export function useSelectorFlow(
           ...priceDerivedOperatorOptions,
           ...fetchedOperatorOptions,
           ...catalogOperatorOptions,
-        ]),
+        ]).map((option) => operatorLocked && option.commitValue !== ''
+          ? { ...option, isDisabled: true, secondaryText: operatorDisabledLabel(language) }
+          : option),
       ];
       title = translate('Select Activation Operator');
     } else if (kind === 'routing-service') {

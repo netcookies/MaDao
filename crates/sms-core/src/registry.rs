@@ -193,6 +193,7 @@ mod tests {
         assert_eq!(manifest.ui.protocol_label.as_deref(), Some("HeroSMS"));
         assert_eq!(manifest.ui.badge_label.as_deref(), Some("H"));
         assert_eq!(manifest.behavior.cancel_cooldown_sec, Some(120));
+        assert!(!manifest.behavior.operator_selectable);
         assert!(
             manifest
                 .handler_api
@@ -202,6 +203,22 @@ mod tests {
                 .iter()
                 .any(|token| token == "STATUS_WAIT_RESEND")
         );
+    }
+
+    #[test]
+    fn provider_behavior_defaults_operator_selectable_to_true() {
+        let base = std::env::temp_dir().join(format!("madao-registry-defaults-{}", Uuid::now_v7()));
+        fs::create_dir_all(&base).unwrap();
+        fs::copy(
+            repo_root().join("plugins/providers").join("fivesim.toml"),
+            base.join("fivesim.toml"),
+        )
+        .unwrap();
+
+        let registry = ProviderRegistry::load_from_dir(&base).unwrap();
+        let manifest = registry.manifest("fivesim").unwrap();
+
+        assert!(manifest.behavior.operator_selectable);
     }
 
     #[test]

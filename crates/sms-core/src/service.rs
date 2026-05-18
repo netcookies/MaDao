@@ -1709,6 +1709,7 @@ impl SmsService {
                 icon_url: manifest.provider_icon_url(),
                 badge_label: Some(manifest.provider_badge_label()),
                 cancel_cooldown_sec: manifest.behavior.cancel_cooldown_sec,
+                operator_selectable: manifest.behavior.operator_selectable,
                 option_cache_state: self
                     .provider_option_cache_state_with_settings(&manifest.id, &settings),
                 option_cache_fetched_at: self.provider_option_cache_fetched_at(&manifest.id),
@@ -2876,6 +2877,14 @@ mod tests {
         assert_eq!(provider.balance, Some(12.34));
         assert_eq!(provider.balance_currency.as_deref(), Some("USD"));
         assert!(provider.balance_fetched_at.is_some());
+        assert!(provider.operator_selectable);
+
+        let hero = snapshot
+            .providers
+            .iter()
+            .find(|item| item.id == "herosms")
+            .unwrap();
+        assert!(!hero.operator_selectable);
     }
 
     #[tokio::test]

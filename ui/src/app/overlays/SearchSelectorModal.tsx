@@ -44,8 +44,11 @@ export function SearchSelectorModal(props: SearchSelectorModalProps) {
         {props.options.map((option) => (
           <button
             key={option.id}
-            className="flex items-center justify-start gap-2 px-5 py-[9px] text-left transition-colors duration-fast ease-[var(--ds-motion-transition-fast)] hover:bg-[var(--ds-color-hover-subtle)]"
-            onClick={() => props.onSelect(option)}
+            className={option.isDisabled
+              ? 'flex items-center justify-start gap-2 px-5 py-[9px] text-left opacity-45'
+              : 'flex items-center justify-start gap-2 px-5 py-[9px] text-left transition-colors duration-fast ease-[var(--ds-motion-transition-fast)] hover:bg-[var(--ds-color-hover-subtle)]'}
+            onClick={() => !option.isDisabled && props.onSelect(option)}
+            disabled={option.isDisabled}
           >
             {(() => {
               const presentation = optionPresentation(option);
@@ -65,6 +68,9 @@ export function SearchSelectorModal(props: SearchSelectorModalProps) {
                     <strong className="text-utility tracking-[var(--ds-type-utility-tracking)] text-ds-text-primary">{presentation.primary}</strong>
                     {presentation.secondary ? (
                       <span className="text-caption tracking-[var(--ds-type-caption-tracking)] text-ds-text-secondary">{presentation.secondary}</span>
+                    ) : null}
+                    {option.isDisabled ? (
+                      <span className="text-caption tracking-[var(--ds-type-caption-tracking)] text-ds-text-secondary">{t('Not supported')}</span>
                     ) : null}
                   </>
                 );

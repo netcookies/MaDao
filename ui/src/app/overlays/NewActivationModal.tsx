@@ -32,6 +32,7 @@ export function NewActivationModal(props: NewActivationModalProps) {
     ? t('Any provider')
     : props.providers.find((provider) => provider.id === props.form.provider)?.name ?? props.form.provider;
   const selectedProviderManifest = props.providers.find((provider) => provider.id === props.form.provider);
+  const operatorSelectable = selectedProviderManifest?.behavior?.operator_selectable !== false;
   const selectedProviderIconUrl = selectedProviderManifest?.ui?.icon_url;
   const selectedProviderBadgeLabel = selectedProviderManifest?.ui?.badge_label;
   const selectedServiceOption = props.serviceOptions?.find((item) => item.value === props.form.service);
@@ -137,10 +138,10 @@ export function NewActivationModal(props: NewActivationModalProps) {
           <SelectTrigger
             compact
             value={props.form.operator ? formatOperatorLabel(props.form.operator, language) : ''}
-            placeholder={usesRoutingPlan ? t('controlled by routing plan') : props.form.country ? t('any') : t('Select country first')}
-            onClick={() => props.form.country && props.onOpenSelector('activation-operator')}
+            placeholder={usesRoutingPlan ? t('controlled by routing plan') : !operatorSelectable ? t('Not supported') : props.form.country ? t('any') : t('Select country first')}
+            onClick={() => props.form.country && operatorSelectable && props.onOpenSelector('activation-operator')}
             className="is-disabled-look"
-            disabled={usesRoutingPlan || !props.form.country}
+            disabled={usesRoutingPlan || !props.form.country || !operatorSelectable}
           />
         </ModalField>
         <ModalField label={t('PRICE RANGE')}>

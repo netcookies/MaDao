@@ -310,6 +310,7 @@ function WorkspaceStore(props: {
   const language = (i18n.resolvedLanguage ?? i18n.language ?? 'en') as LanguageCode;
   const currentServiceValue = props.storeQuery.service || props.manifest.defaults.service;
   const currentCountryValue = props.storeQuery.country;
+  const operatorSelectable = props.manifest.behavior?.operator_selectable !== false;
   const selectedServiceOption = findMatchingOption(props.serviceOptions, currentServiceValue);
   const selectedCountryOption = findMatchingOption(props.countryOptions, currentCountryValue);
   const resolvedServiceValue = selectedServiceOption?.value ?? currentServiceValue;
@@ -363,10 +364,10 @@ function WorkspaceStore(props: {
           <SelectTrigger
             compact={props.compact}
             value={props.storeQuery.operator ? formatOperatorLabel(props.storeQuery.operator, language) : ''}
-            placeholder={props.storeQuery.country ? t('All operators') : t('Select country first')}
+            placeholder={!operatorSelectable ? t('Not supported') : props.storeQuery.country ? t('All operators') : t('Select country first')}
             muted={!props.storeQuery.operator}
-            disabled={!props.storeQuery.country}
-            onClick={() => props.storeQuery.country && props.onOpenSelector('store-operator')}
+            disabled={!props.storeQuery.country || !operatorSelectable}
+            onClick={() => props.storeQuery.country && operatorSelectable && props.onOpenSelector('store-operator')}
           />
         </div>
       </div>

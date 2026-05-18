@@ -1,6 +1,10 @@
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
 
+fn default_true() -> bool {
+    true
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "snake_case")]
 pub enum ProviderKind {
@@ -196,10 +200,21 @@ pub struct ProviderUiConfig {
     pub badge_label: Option<String>,
 }
 
-#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ProviderBehaviorConfig {
     #[serde(default)]
     pub cancel_cooldown_sec: Option<u64>,
+    #[serde(default = "default_true")]
+    pub operator_selectable: bool,
+}
+
+impl Default for ProviderBehaviorConfig {
+    fn default() -> Self {
+        Self {
+            cancel_cooldown_sec: None,
+            operator_selectable: default_true(),
+        }
+    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

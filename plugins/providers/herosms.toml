@@ -12,6 +12,7 @@ badge_label = "H"
 
 [behavior]
 cancel_cooldown_sec = 120
+operator_selectable = false
 
 [service_aliases]
 chatgpt = "dr"

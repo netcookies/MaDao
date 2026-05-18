@@ -69,6 +69,7 @@ export function buildSelectorOptionViewModel(args: BuildOptionArgs): SelectorOpt
     option: args.option,
     isSynthetic: args.isSynthetic,
     syntheticKind: args.syntheticKind,
+    isDisabled: false,
   };
 }
 
@@ -138,6 +139,7 @@ export function selectorOptionFromOptionItem(args: {
   scope?: 'single_provider' | 'cross_provider';
   isSynthetic?: boolean;
   syntheticKind?: SelectorOptionViewModel['syntheticKind'];
+  isDisabled?: boolean;
 }) {
   return buildSelectorOptionViewModel({
     resourceKind: args.resourceKind,
@@ -148,5 +150,6 @@ export function selectorOptionFromOptionItem(args: {
     providerId: args.providerId,
     isSynthetic: args.isSynthetic,
     syntheticKind: args.syntheticKind,
+    isDisabled: args.isDisabled,
   });
 }
