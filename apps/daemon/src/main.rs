@@ -29,6 +29,7 @@ async fn main() -> anyhow::Result<()> {
     if let Ok(settings) = load_runtime_settings_file(&config_dir.join("runtime-settings.json")) {
         config = config.with_http_port(settings.http_port);
     }
+    config = config.with_http_bind_host("0.0.0.0");
     let service = Arc::new(SmsService::with_persistence_paths(
         registry,
         config.log_buffer,

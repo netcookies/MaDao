@@ -829,6 +829,7 @@ pub fn run() {
             if let Ok(settings) = load_runtime_settings_file(&runtime_settings_path) {
                 config = config.with_http_port(settings.http_port);
             }
+            config = config.with_http_bind_host("0.0.0.0");
             let registry =
                 ProviderRegistry::load_from_dir(&providers_dir).map_err(|err| err.to_string())?;
             let provider_options_path = config_path

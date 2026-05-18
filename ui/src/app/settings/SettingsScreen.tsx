@@ -168,8 +168,8 @@ export function SettingsScreen(props: SettingsScreenProps) {
             <h3 className="m-0 text-section-title font-semibold tracking-[var(--ds-type-section-title-tracking)] text-ds-text-primary">{t('Server Configuration')}</h3>
             <p className="m-0 text-[12px] leading-[1.45] text-ds-text-secondary">
               {props.isDesktopRuntime
-                ? t('Used for direct external HTTP access. Desktop UI itself uses the local socket.')
-                : t('Used for direct external daemon HTTP access. The web console continues to enter through the current page address.')}
+                ? t('The HTTP service listens on all interfaces for direct external access. Desktop UI itself still uses the local socket.')
+                : t('The HTTP service listens on all interfaces for direct external access. The web console still enters through the current page address.')}
             </p>
           </div>
           <ServerConfigRow

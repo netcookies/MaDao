@@ -32,6 +32,7 @@ Current `.env` support:
 
 ```dotenv
 MADAO_WEB_PORT=8080
+MADAO_DAEMON_HTTP_PORT=7822
 MADAO_HTTP_SECRET=
 ```
 
@@ -55,6 +56,9 @@ http://127.0.0.1:18080
 If `MADAO_HTTP_SECRET` is set, it overrides the persisted secret in `runtime-settings.json`.
 If it is empty or unset, the persisted secret is used.
 
+`MADAO_DAEMON_HTTP_PORT` controls the host-side published port for direct daemon HTTP access.
+The web console still enters through `MADAO_WEB_PORT`.
+
 ## What Docker Mode Changes
 
 - Backend HTTP bind becomes `0.0.0.0:7822`
@@ -64,6 +68,8 @@ If it is empty or unset, the persisted secret is used.
 - The web console requires HTTP secret login before the main app page is available
 - Protected HTTP routes rely on the authenticated session cookie
 - Persisted HTTP port changes take effect after daemon restart
+
+The direct daemon HTTP port published to the host can be configured separately with `MADAO_DAEMON_HTTP_PORT`.
 
 ## Persistent Data
 

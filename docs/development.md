@@ -58,7 +58,7 @@ VITE_RUNTIME_MODE=web npm run dev
 默认会通过 Vite 代理把 `/api` 和 `/health` 转发到：
 
 ```text
-http://127.0.0.1:7822
+http://0.0.0.0:7822
 ```
 
 当前前端样式栈为：
@@ -161,6 +161,11 @@ curl http://127.0.0.1:8080/api/provider-manifests
 - `docker compose up -d`
 - `daemon` 健康检查通过
 - `web -> daemon` 反向代理链路正常
+
+桌面模式下：
+
+- UI 通过本地 socket 与后端通信
+- 内嵌 HTTP 服务监听所有网卡地址，供外部直接访问
 
 ## Tauri / UI 现状
 

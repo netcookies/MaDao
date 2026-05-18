@@ -1,4 +1,4 @@
-http_bind = "127.0.0.1:7822"
+http_bind = "0.0.0.0:7822"
 socket_path = "/tmp/madao-sms.sock"
 provider_dir = "plugins/providers"
 log_buffer = 500

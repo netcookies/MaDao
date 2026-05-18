@@ -32,6 +32,7 @@ http://127.0.0.1:8080
 
 ```dotenv
 MADAO_WEB_PORT=8080
+MADAO_DAEMON_HTTP_PORT=7822
 MADAO_HTTP_SECRET=
 ```
 
@@ -55,6 +56,9 @@ http://127.0.0.1:18080
 如果设置了 `MADAO_HTTP_SECRET`，它会覆盖 `runtime-settings.json` 中持久化保存的 secret。
 如果为空或未设置，则使用持久化 secret。
 
+`MADAO_DAEMON_HTTP_PORT` 用来控制宿主机侧暴露出来的 daemon HTTP 直连端口。
+网页控制台入口仍然走 `MADAO_WEB_PORT`。
+
 ## Docker 模式会做什么
 
 - 后端 HTTP 监听地址改为 `0.0.0.0:7822`
@@ -64,6 +68,8 @@ http://127.0.0.1:18080
 - 网页控制台必须先通过 HTTP secret 登录，才能进入主页面
 - 受保护的 HTTP 路由依赖已登录会话 cookie
 - 持久化的 HTTP 端口修改后，需要重启 daemon 才会生效
+
+宿主机侧暴露出来的 daemon HTTP 直连端口，可通过 `MADAO_DAEMON_HTTP_PORT` 单独配置。
 
 ## 持久化数据
 

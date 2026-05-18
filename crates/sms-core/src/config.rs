@@ -41,4 +41,15 @@ impl ServerConfig {
         };
         next
     }
+
+    pub fn with_http_bind_host(&self, host: &str) -> Self {
+        let mut next = self.clone();
+        let port = self
+            .http_bind
+            .rsplit_once(':')
+            .and_then(|(_, port)| port.parse::<u16>().ok())
+            .unwrap_or(7822);
+        next.http_bind = format!("{host}:{port}");
+        next
+    }
 }

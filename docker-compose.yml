@@ -13,6 +13,8 @@ services:
       MADAO_HTTP_SECRET: ${MADAO_HTTP_SECRET:-}
     volumes:
       - madao-data:/var/lib/madao
+    ports:
+      - "${MADAO_DAEMON_HTTP_PORT:-7822}:7822"
     healthcheck:
       test: ["CMD", "curl", "-fsS", "http://127.0.0.1:7822/health"]
       interval: 15s
