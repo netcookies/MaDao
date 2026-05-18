@@ -145,6 +145,21 @@ impl ProviderRegistry {
 }
 
 fn normalize_manifest_defaults(manifest: ProviderManifest) -> ProviderManifest {
+    let mut manifest = manifest;
+    if manifest.id.eq_ignore_ascii_case("smsbower")
+        && matches!(manifest.kind, plugin_sdk::ProviderKind::HandlerApi)
+    {
+        if let Some(handler_api) = manifest.handler_api.as_mut() {
+            if handler_api.profile.trim().is_empty()
+                || handler_api.profile.eq_ignore_ascii_case("standard")
+            {
+                handler_api.profile = "smsbower".to_string();
+            }
+            if manifest.defaults.service.trim().eq_ignore_ascii_case("dr") {
+                manifest.defaults.service = "openai".to_string();
+            }
+        }
+    }
     manifest
 }
 
@@ -187,5 +202,63 @@ mod tests {
                 .iter()
                 .any(|token| token == "STATUS_WAIT_RESEND")
         );
+    }
+
+    #[test]
+    fn normalizes_legacy_smsbower_manifest_profile() {
+        let base = std::env::temp_dir().join(format!("madao-registry-smsbower-{}", Uuid::now_v7()));
+        fs::create_dir_all(&base).unwrap();
+        let legacy = r#"
+id = "smsbower"
+name = "SmsBower"
+kind = "handler_api"
+enabled = true
+priority = 30
+
+[service_aliases]
+openai = "dr"
+
+[defaults]
+service = "dr"
+country = "0"
+auto_pick_country = false
+verify_on_register = false
+reuse_phone = true
+max_price = 0.08
+min_price = 0.0
+min_balance = 1.0
+max_tries = 3
+poll_timeout_sec = 120
+reuse_max = 2
+
+[handler_api]
+base_url = "https://smsbower.page/stubs/handler_api.php"
+api_key = "secret"
+get_balance_action = "getBalance"
+get_prices_action = "getPrices"
+get_countries_action = "getCountries"
+get_number_action = "getNumberV2"
+get_status_action = "getStatus"
+set_status_action = "setStatus"
+status_ready = 1
+status_retry = 3
+status_finish = 6
+status_cancel = 8
+balance_prefix = "ACCESS_BALANCE:"
+success_status_prefix = "STATUS_OK:"
+wait_status_tokens = ["STATUS_WAIT_CODE"]
+failure_status_tokens = ["STATUS_CANCEL", "BAD_STATUS", "NO_ACTIVATION", "BAD_KEY", "BAD_SERVICE"]
+id_json_pointers = ["/activationId", "/activation_id", "/id"]
+phone_json_pointers = ["/phoneNumber", "/phone", "/number"]
+price_json_pointers = ["/activationCost", "/price"]
+balance_json_pointers = ["/balance", "/amount", "/data/balance", "/data/amount"]
+code_json_pointers = ["/sms/code", "/code", "/data/code", "/sms/0/code"]
+"#;
+        fs::write(base.join("smsbower.toml"), legacy).unwrap();
+
+        let registry = ProviderRegistry::load_from_dir(&base).unwrap();
+        let manifest = registry.manifest("smsbower").unwrap();
+        assert_eq!(manifest.handler_api_profile(), "smsbower");
+        assert_eq!(manifest.defaults.service, "openai");
     }
 }
