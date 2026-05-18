@@ -1062,7 +1062,7 @@ impl SmsService {
     pub async fn list_provider_operators(
         &self,
         provider_id: &str,
-        query: ProviderOperatorsQuery,
+        mut query: ProviderOperatorsQuery,
     ) -> Result<OptionListResponse, SmsError> {
         let provider = {
             let registry = self.registry.read();
@@ -1072,6 +1072,22 @@ impl SmsService {
             return Err(SmsError::InvalidRequest(format!(
                 "provider `{provider_id}` requires api_key before resource discovery"
             )));
+        }
+        let cached_options = self
+            .provider_option_cache
+            .read()
+            .entries
+            .get(provider_id)
+            .cloned();
+        if let Some(country) = query.country.as_ref().and_then(|value| {
+            let trimmed = value.trim();
+            if trimmed.is_empty() { None } else { Some(trimmed.to_string()) }
+        }) {
+            query.country = Some(resolve_provider_value(
+                cached_options.as_ref().map(|entry| &entry.options),
+                OptionKind::Country,
+                &country,
+            ));
         }
         let items = provider.list_operators(query).await?;
         Ok(OptionListResponse {

@@ -363,9 +363,10 @@ function WorkspaceStore(props: {
           <SelectTrigger
             compact={props.compact}
             value={props.storeQuery.operator ? formatOperatorLabel(props.storeQuery.operator, language) : ''}
-            placeholder={t('All operators')}
+            placeholder={props.storeQuery.country ? t('All operators') : t('Select country first')}
             muted={!props.storeQuery.operator}
-            onClick={() => props.onOpenSelector('store-operator')}
+            disabled={!props.storeQuery.country}
+            onClick={() => props.storeQuery.country && props.onOpenSelector('store-operator')}
           />
         </div>
       </div>

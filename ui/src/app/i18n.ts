@@ -580,6 +580,7 @@ const resources = {
       'e.g. telegram, openai, whatsapp': '例如 telegram、openai、whatsapp',
       'COUNTRY': '国家',
       'any — auto select': '任意 — 自动选择',
+      'Select country first': '请先选择国家',
       'OPERATOR': '运营商',
       'Controlled by routing plan items': '由路由项控制',
       'any': '任意',

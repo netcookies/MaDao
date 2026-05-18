@@ -1,4 +1,4 @@
-import type { LanguageCode, OptionCatalog, OptionCatalogItem, OptionItem, ProviderDynamicOptions } from './types';
+import type { LanguageCode, OptionCatalog, OptionCatalogItem, OptionItem, PricePanelMap, ProviderDynamicOptions } from './types';
 import { i18n } from './i18n';
 import { canonicalCountryValue, formatCountryLabel, formatServiceLabel } from '../lib/formatters';
 
@@ -110,7 +110,37 @@ function mergeCatalogItems(source: Map<string, OptionCatalogItem>, providerId: s
   });
 }
 
-export function buildOptionCatalog(providerOptions: Record<string, ProviderDynamicOptions>): OptionCatalog {
+function mergePriceOperators(
+  source: Map<string, OptionCatalogItem>,
+  providerId: string,
+  items: Array<{ operator: string; operator_label?: string | null }>,
+) {
+  items.forEach((item) => {
+    const value = item.operator.trim().toLowerCase();
+    if (!value || value === 'any' || value === 'default') return;
+    const label = (item.operator_label ?? item.operator).trim() || formatOperatorLabel(value);
+    const existing = source.get(value);
+    if (existing) {
+      if (!existing.providers.includes(providerId)) existing.providers.push(providerId);
+      existing.provider_values[providerId] = item.operator;
+      if (!existing.label && label) existing.label = label;
+      if (!existing.hint) existing.hint = 'price-derived';
+      return;
+    }
+    source.set(value, {
+      value,
+      label,
+      hint: 'price-derived',
+      providers: [providerId],
+      provider_values: { [providerId]: item.operator },
+    });
+  });
+}
+
+export function buildOptionCatalog(
+  providerOptions: Record<string, ProviderDynamicOptions>,
+  pricePanels?: PricePanelMap,
+): OptionCatalog {
   const services = new Map<string, OptionCatalogItem>();
   const countries = new Map<string, OptionCatalogItem>();
   const operators = new Map<string, OptionCatalogItem>();
@@ -119,6 +149,10 @@ export function buildOptionCatalog(providerOptions: Record<string, ProviderDynam
     mergeCatalogItems(services, providerId, options.services);
     mergeCatalogItems(countries, providerId, options.countries);
     mergeCatalogItems(operators, providerId, options.operators);
+  });
+
+  Object.entries(pricePanels ?? {}).forEach(([providerId, panel]) => {
+    mergePriceOperators(operators, providerId, panel.items);
   });
 
   return {

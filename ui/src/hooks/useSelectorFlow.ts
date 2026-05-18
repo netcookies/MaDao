@@ -14,6 +14,7 @@ import { i18n } from '../app/i18n';
 import { filterCatalogItems } from '../app/utils';
 import { formatCountryLabel, formatProviderLabel, formatServiceLabel } from '../lib/formatters';
 import { formatOperatorLabel } from '../app/utils';
+import { fetchProviderOperators, fetchProviderPrices } from '../services/runtimeApi';
 import {
   selectorOptionFromCatalogItem,
   selectorOptionFromOptionItem,
@@ -25,6 +26,7 @@ type SelectorUiState = {
   setSelectorState: (value: SelectorState | null) => void;
   setSelectorSearch: (value: string) => void;
   activationForm: ActivationFormState;
+  storeQuery: { service: string; country: string };
   setActivationForm: (value: ActivationFormState | ((prev: ActivationFormState) => ActivationFormState)) => void;
   selectedProvider: string;
   language: LanguageCode;
@@ -35,6 +37,7 @@ type SelectorRuntimeState = {
   visibleProviders: ProviderManifest[];
   providerOptions: Record<string, ProviderDynamicOptions>;
   optionCatalog: OptionCatalog;
+  setProviderOptions: (value: Record<string, ProviderDynamicOptions> | ((prev: Record<string, ProviderDynamicOptions>) => Record<string, ProviderDynamicOptions>)) => void;
   updateManifestField: (
     providerId: string,
     section: 'root' | 'defaults' | 'handler_api' | 'five_sim' | 'mock',
@@ -83,7 +86,66 @@ export function useSelectorFlow(
     };
   }
 
-  function openSelector(kind: SelectorKind) {
+  async function refreshOperatorsForProvider(providerId: string, country?: string): Promise<OptionItem[] | null> {
+    if (!providerId || providerId === 'any') return;
+    try {
+      const response = await fetchProviderOperators(providerId, {
+        country: country?.trim() ? country : undefined,
+      });
+      const operators = response.items
+        .map(localizedOperatorOption)
+        .filter((option) => {
+          const value = option.value.trim().toLowerCase();
+          return value !== '' && value !== 'any' && value !== 'default';
+        });
+      if (operators.length === 0) return null;
+      runtime.setProviderOptions((current) => {
+        const existing = current[providerId];
+        if (!existing) return current;
+        return {
+          ...current,
+          [providerId]: {
+            ...existing,
+            raw_operators: operators,
+            operators,
+          },
+        };
+      });
+      return operators;
+    } catch {
+      // Selector 打开时静默回退到现有 catalog，避免因单次上游失败打断交互。
+      return null;
+    }
+  }
+
+  async function fetchPriceDerivedOperators(
+    providerId: string,
+    service?: string,
+    country?: string,
+  ): Promise<OptionItem[] | null> {
+    if (!providerId || providerId === 'any' || !service?.trim()) return null;
+    try {
+      const response = await fetchProviderPrices(providerId, service, {
+        country: country?.trim() ? country : undefined,
+      });
+      const operators = response.items
+        .filter((item) => {
+          const value = item.operator.trim().toLowerCase();
+          return value !== '' && value !== 'any' && value !== 'default';
+        })
+        .map((item) => localizedOperatorOption({
+          value: item.operator,
+          label: item.operator_label ?? item.operator,
+          hint: 'price-derived',
+          provider_value: item.provider_operator ?? item.operator,
+        }));
+      return operators.length > 0 ? operators : null;
+    } catch {
+      return null;
+    }
+  }
+
+  async function openSelector(kind: SelectorKind) {
     const allCountriesOption: OptionItem = { value: '', label: translate('All countries'), hint: translate('Clear country filter') };
     const allOperatorsOption: OptionItem = { value: '', label: translate('All operators'), hint: translate('Clear operator filter') };
     const autoCountryOption: OptionItem = { value: '', label: translate('Any country'), hint: translate('Auto select country') };
@@ -158,6 +220,31 @@ export function useSelectorFlow(
       title = translate('Select Store Country');
       resourceKind = 'country';
     } else if (kind === 'store-operator') {
+      const priceDerivedOperators = await fetchPriceDerivedOperators(
+        ui.selectedProvider,
+        ui.storeQuery.service,
+        ui.storeQuery.country,
+      );
+      const fetchedOperators = await refreshOperatorsForProvider(ui.selectedProvider, ui.storeQuery.country);
+      const fetchedOperatorOptions = fetchedOperators
+        ? fetchedOperators.map((option) => selectorOptionFromOptionItem({
+          option,
+          language,
+          providerId: ui.selectedProvider,
+        }))
+        : [];
+      const priceDerivedOperatorOptions = priceDerivedOperators
+        ? priceDerivedOperators.map((option) => selectorOptionFromOptionItem({
+          option,
+          language,
+          providerId: ui.selectedProvider,
+        }))
+        : [];
+      const catalogOperatorOptions = filterCatalogItems(runtime.optionCatalog.operators, ui.selectedProvider).map((item) => selectorOptionFromCatalogItem({
+        item,
+        language,
+        providerId: ui.selectedProvider,
+      }));
       options = [
         selectorOptionFromOptionItem({
           option: allOperatorsOption,
@@ -167,11 +254,11 @@ export function useSelectorFlow(
           isSynthetic: true,
           syntheticKind: 'all_operators',
         }),
-        ...filterCatalogItems(runtime.optionCatalog.operators, ui.selectedProvider).map((item) => selectorOptionFromCatalogItem({
-          item,
-          language,
-          providerId: ui.selectedProvider,
-        })),
+        ...dedupeSelectorOptions([
+          ...priceDerivedOperatorOptions,
+          ...fetchedOperatorOptions,
+          ...catalogOperatorOptions,
+        ]),
       ];
       title = translate('Select Store Operator');
     } else if (kind === 'activation-service') {
@@ -204,11 +291,47 @@ export function useSelectorFlow(
       title = translate('Select Activation Country');
       resourceKind = 'country';
     } else if (kind === 'activation-operator') {
-      options = filterCatalogItems(runtime.optionCatalog.operators, ui.activationForm.provider).map((item) => selectorOptionFromCatalogItem({
+      const activationService = ui.activationForm.service?.trim() || undefined;
+      const priceDerivedOperators = await fetchPriceDerivedOperators(
+        ui.activationForm.provider,
+        activationService,
+        ui.activationForm.country,
+      );
+      const fetchedOperators = await refreshOperatorsForProvider(ui.activationForm.provider, ui.activationForm.country);
+      const fetchedOperatorOptions = fetchedOperators
+        ? fetchedOperators.map((option) => selectorOptionFromOptionItem({
+          option,
+          language,
+          providerId: ui.activationForm.provider,
+        }))
+        : [];
+      const priceDerivedOperatorOptions = priceDerivedOperators
+        ? priceDerivedOperators.map((option) => selectorOptionFromOptionItem({
+          option,
+          language,
+          providerId: ui.activationForm.provider,
+        }))
+        : [];
+      const catalogOperatorOptions = filterCatalogItems(runtime.optionCatalog.operators, ui.activationForm.provider).map((item) => selectorOptionFromCatalogItem({
         item,
         language,
         providerId: ui.activationForm.provider,
       }));
+      options = [
+        selectorOptionFromOptionItem({
+          option: allOperatorsOption,
+          language,
+          source: 'synthetic',
+          scope: 'single_provider',
+          isSynthetic: true,
+          syntheticKind: 'all_operators',
+        }),
+        ...dedupeSelectorOptions([
+          ...priceDerivedOperatorOptions,
+          ...fetchedOperatorOptions,
+          ...catalogOperatorOptions,
+        ]),
+      ];
       title = translate('Select Activation Operator');
     } else if (kind === 'routing-service') {
       resourceKind = 'service';

@@ -96,6 +96,7 @@ import {
   clearNotifications,
   deleteRoutingPlan,
   fetchRoutingPlans,
+  fetchProviderOperators,
   fetchProviderPrices,
   fetchHttpAuthStatus,
   loginHttpAccess,
@@ -459,7 +460,10 @@ export function App() {
     },
   );
 
-  const optionCatalog = useMemo<OptionCatalog>(() => buildOptionCatalog(providerOptions), [providerOptions]);
+  const optionCatalog = useMemo<OptionCatalog>(
+    () => buildOptionCatalog(providerOptions, pricePanels),
+    [providerOptions, pricePanels],
+  );
   const manifestsById = manifests;
 
   const {
@@ -471,6 +475,7 @@ export function App() {
       setSelectorState,
       setSelectorSearch,
       activationForm,
+      storeQuery: selectedStoreQuery,
       setActivationForm,
       selectedProvider,
       language,
@@ -480,6 +485,7 @@ export function App() {
       visibleProviders,
       providerOptions,
       optionCatalog,
+      setProviderOptions,
       updateManifestField,
       updateStoreQuery,
     },
@@ -1192,6 +1198,117 @@ export function App() {
       return;
     }
 
+    let liveOperatorOptions: SelectorOptionViewModel[] = [];
+    if (providerId && providerId !== ANY_PROVIDER_VALUE) {
+      try {
+        const operatorCountry = routingItemEditor?.itemId === itemId
+          ? routingItemEditor.country
+          : item.country;
+        const priceService = plan.service || visibleProviders.find((provider) => provider.id === providerId)?.defaults.service;
+        let priceDerivedOperatorOptions: SelectorOptionViewModel[] = [];
+        if (priceService?.trim()) {
+          const priceResponse = await fetchProviderPrices(providerId, priceService, {
+            country: operatorCountry.trim() ? operatorCountry : undefined,
+          });
+          priceDerivedOperatorOptions = dedupeSelectorOptions(
+            priceResponse.items
+              .filter((entry) => {
+                const value = entry.operator.trim().toLowerCase();
+                return value !== '' && value !== 'any' && value !== 'default';
+              })
+              .map((entry) => selectorOptionFromOptionItem({
+                option: {
+                  value: entry.operator,
+                  label: entry.operator_label ?? entry.operator,
+                  hint: 'price-derived',
+                  provider_value: entry.provider_operator ?? entry.operator,
+                },
+                language,
+                providerId,
+              })),
+          );
+        }
+        const response = await fetchProviderOperators(providerId, {
+          country: operatorCountry.trim() ? operatorCountry : undefined,
+        });
+        const liveOperators = response.items
+          .map((option) => ({
+            ...option,
+            label: formatOperatorLabel(option.value, language),
+          }))
+          .filter((option) => {
+            const value = option.value.trim().toLowerCase();
+            return value !== '' && value !== 'any' && value !== 'default';
+          });
+        if (liveOperators.length > 0) {
+          setProviderOptions((current) => {
+            const existing = current[providerId];
+            if (!existing) return current;
+            return {
+              ...current,
+              [providerId]: {
+                ...existing,
+                raw_operators: liveOperators,
+                operators: liveOperators,
+              },
+            };
+          });
+          liveOperatorOptions = dedupeSelectorOptions(
+            [
+              ...priceDerivedOperatorOptions,
+              ...liveOperators.map((option) => selectorOptionFromOptionItem({
+                option,
+                language,
+                providerId,
+              })),
+            ],
+          );
+        } else {
+          liveOperatorOptions = priceDerivedOperatorOptions;
+        }
+      } catch {
+        if (routingItemPriceOptions.length > 0) {
+          liveOperatorOptions = dedupeSelectorOptions(
+            routingItemPriceOptions
+              .filter((entry) => {
+                const value = entry.operator.trim().toLowerCase();
+                return value !== '' && value !== 'any' && value !== 'default';
+              })
+              .map((entry) => selectorOptionFromOptionItem({
+                option: {
+                  value: entry.operator,
+                  label: entry.operator_label ?? entry.operator,
+                  hint: 'price-derived',
+                  provider_value: entry.provider_operator ?? entry.operator,
+                },
+                language,
+                providerId,
+              })),
+          );
+        }
+      }
+    }
+
+    const routingPriceOperatorOptions = liveOperatorOptions.length > 0
+      ? liveOperatorOptions
+      : dedupeSelectorOptions(
+        routingItemPriceOptions
+          .filter((entry) => {
+            const value = entry.operator.trim().toLowerCase();
+            return value !== '' && value !== 'any' && value !== 'default';
+          })
+          .map((entry) => selectorOptionFromOptionItem({
+            option: {
+              value: entry.operator,
+              label: entry.operator_label ?? entry.operator,
+              hint: 'price-derived',
+              provider_value: entry.provider_operator ?? entry.operator,
+            },
+            language,
+            providerId,
+          })),
+      );
+
     setSelectorState({
       kind: 'routing-item-operator',
       title: t('Select Candidate Carrier'),
@@ -1204,6 +1321,7 @@ export function App() {
           isSynthetic: true,
           syntheticKind: 'all_operators',
         }),
+        ...routingPriceOperatorOptions,
         ...filterCatalogItems(optionCatalog.operators, providerId).map((option) => selectorOptionFromCatalogItem({
           item: option,
           language,

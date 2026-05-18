@@ -134,6 +134,7 @@ export type ProviderPriceItem = {
   stock: number;
 };
 export type ProviderPriceResponse = { provider: string; service: string; items: ProviderPriceItem[] };
+export type PricePanelMap = Record<string, ProviderPriceResponse>;
 export type OptionCacheState = 'missing' | 'fresh' | 'stale';
 export type OptionItem = {
   value: string;

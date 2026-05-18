@@ -12,7 +12,7 @@ import {
 import { restrictToParentElement, restrictToVerticalAxis } from '@dnd-kit/modifiers';
 import { SortableContext, useSortable, verticalListSortingStrategy } from '@dnd-kit/sortable';
 import { CSS } from '@dnd-kit/utilities';
-import { ChevronRight, Copy, GripVertical, Minus, Plus } from 'lucide-react';
+import { ChevronRight, ChevronsUpDown, Copy, GripVertical, Minus, Plus } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import { Modal } from '../../components/overlays';
 import { formatCountryLabel, formatProviderLabel, formatServiceLabel } from '../../lib/formatters';
@@ -47,6 +47,8 @@ export type RoutingItemEditorState = {
   minPrice: string;
   maxPrice: string;
 };
+
+type ItemPriceSortKey = 'price' | 'stock';
 
 export type RoutingScreenProps = {
   view: 'matrix' | 'detail';
@@ -855,6 +857,10 @@ function RoutingItemEditorModal(props: {
 }) {
   const { t } = useTranslation();
   const [priceMode, setPriceMode] = useState<'any' | 'range'>('any');
+  const [sort, setSort] = useState<{ key: ItemPriceSortKey; dir: 'asc' | 'desc' }>({
+    key: 'price',
+    dir: 'asc',
+  });
 
   const editor = props.editor;
 
@@ -876,6 +882,11 @@ function RoutingItemEditorModal(props: {
     }
     if (operatorTerm && !item.operator.toLowerCase().includes(operatorTerm)) return false;
     return true;
+  });
+  const sortedPriceItems = [...filteredPriceItems].sort((left, right) => {
+    const direction = sort.dir === 'asc' ? 1 : -1;
+    if (sort.key === 'stock') return (left.stock - right.stock) * direction;
+    return (left.price - right.price) * direction;
   });
 
   const providerLabel = editor.providerId === 'any'
@@ -940,8 +951,9 @@ function RoutingItemEditorModal(props: {
             <SelectTrigger
               compact
               value={editor.operator ? formatOperatorLabel(editor.operator, props.language) : ''}
-              placeholder={t('Any carrier')}
-              onClick={() => props.onOpenSelector('operator')}
+              placeholder={editor.country ? t('Any carrier') : t('Select country first')}
+              disabled={!editor.country}
+              onClick={() => editor.country && props.onOpenSelector('operator')}
               className="w-full"
             />
           </ModalField>
@@ -990,12 +1002,34 @@ function RoutingItemEditorModal(props: {
         <div className="border-t border-ds-border pt-4">
           <div className="mb-2 flex items-center justify-between">
             <span className="text-[11px] font-semibold uppercase tracking-[0.08em] text-ds-text-secondary">{t('Price Inventory')}</span>
-            <AppButton variant="outline" onClick={props.onLoadPriceOptions} disabled={props.loading}>
-              {props.loading ? t('Loading…') : t('Load Prices')}
-            </AppButton>
+            <div className="flex items-center gap-2">
+              <button
+                className="inline-flex items-center gap-1 rounded-md bg-transparent px-2 py-1 text-[12px] text-ds-text-secondary"
+                onClick={() => setSort((current) => ({
+                  key: 'price',
+                  dir: current.key === 'price' && current.dir === 'asc' ? 'desc' : 'asc',
+                }))}
+              >
+                <span>{t('Price')}</span>
+                <ChevronsUpDown size={12} />
+              </button>
+              <button
+                className="inline-flex items-center gap-1 rounded-md bg-transparent px-2 py-1 text-[12px] text-ds-text-secondary"
+                onClick={() => setSort((current) => ({
+                  key: 'stock',
+                  dir: current.key === 'stock' && current.dir === 'asc' ? 'desc' : 'asc',
+                }))}
+              >
+                <span>{t('Stock')}</span>
+                <ChevronsUpDown size={12} />
+              </button>
+              <AppButton variant="outline" onClick={props.onLoadPriceOptions} disabled={props.loading}>
+                {props.loading ? t('Loading…') : t('Load Prices')}
+              </AppButton>
+            </div>
           </div>
           <div className="max-h-[240px] overflow-y-auto rounded-xl border border-ds-border bg-ds-surface-subtle">
-            {filteredPriceItems.length > 0 ? filteredPriceItems.map((item) => (
+            {sortedPriceItems.length > 0 ? sortedPriceItems.map((item) => (
               <div
                 key={`${item.country}-${item.operator}-${item.price}`}
                 className="flex items-center gap-3 border-b border-ds-border px-4 py-3 last:border-b-0"

@@ -740,7 +740,13 @@ impl SharedHandlerApiProvider {
     async fn request_operators(&self, country: Option<&str>) -> Result<Vec<OptionItem>, SmsError> {
         let mut params = Vec::new();
         if let Some(country) = country.filter(|value| !value.is_empty()) {
-            params.push(("country", country.to_string()));
+            let faq_map = smsbower_fetch_faq_countries_map(&self.client).await.ok();
+            let mapped_country = faq_map
+                .as_ref()
+                .and_then(|items| items.get(country))
+                .map(|item| item.id.clone())
+                .unwrap_or_else(|| country.to_string());
+            params.push(("country", mapped_country));
         }
         let (_text, json) = self.request("getOperators", &params).await?;
         let Some(json) = json else {

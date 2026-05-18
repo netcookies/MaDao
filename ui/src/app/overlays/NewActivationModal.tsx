@@ -137,10 +137,10 @@ export function NewActivationModal(props: NewActivationModalProps) {
           <SelectTrigger
             compact
             value={props.form.operator ? formatOperatorLabel(props.form.operator, language) : ''}
-            placeholder={usesRoutingPlan ? t('controlled by routing plan') : t('any')}
-            onClick={() => props.onOpenSelector('activation-operator')}
+            placeholder={usesRoutingPlan ? t('controlled by routing plan') : props.form.country ? t('any') : t('Select country first')}
+            onClick={() => props.form.country && props.onOpenSelector('activation-operator')}
             className="is-disabled-look"
-            disabled={usesRoutingPlan}
+            disabled={usesRoutingPlan || !props.form.country}
           />
         </ModalField>
         <ModalField label={t('PRICE RANGE')}>
