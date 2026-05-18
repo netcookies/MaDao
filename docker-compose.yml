@@ -1,0 +1,36 @@
+services:
+  daemon:
+    build:
+      context: .
+      target: daemon
+    image: madao/daemon:local
+    restart: unless-stopped
+    environment:
+      MADAO_RUNTIME_MODE: docker
+      MADAO_CONFIG_DIR: /var/lib/madao
+      MADAO_HTTP_BIND: 0.0.0.0:7822
+      MADAO_SOCKET_PATH: /tmp/madao-sms.sock
+      MADAO_HTTP_SECRET: ${MADAO_HTTP_SECRET:-}
+    volumes:
+      - madao-data:/var/lib/madao
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "http://127.0.0.1:7822/health"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 15s
+
+  web:
+    build:
+      context: .
+      target: web
+    image: madao/web:local
+    restart: unless-stopped
+    depends_on:
+      daemon:
+        condition: service_healthy
+    ports:
+      - "${MADAO_WEB_PORT:-8080}:80"
+
+volumes:
+  madao-data:

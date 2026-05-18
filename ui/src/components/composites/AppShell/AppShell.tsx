@@ -48,7 +48,7 @@ export function AppShell(props: AppShellProps) {
           {toolbar}
           <main
             className={cx(
-              'flex-1 bg-ds-content min-[980px]:overflow-y-auto',
+              'flex-1 bg-ds-content overflow-x-hidden min-[980px]:overflow-y-auto',
               !noPadding && 'px-10 pb-8 pt-8 max-[760px]:px-5 max-[760px]:pb-5 max-[760px]:pt-5',
               !noPadding && compact && 'px-8 pb-8 pt-6',
               contentClassName,

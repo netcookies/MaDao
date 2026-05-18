@@ -30,4 +30,15 @@ impl ServerConfig {
         }
         Ok(config)
     }
+
+    pub fn with_http_port(&self, port: u16) -> Self {
+        let mut next = self.clone();
+        let current = self.http_bind.clone();
+        next.http_bind = if let Some((host, _)) = current.rsplit_once(':') {
+            format!("{host}:{port}")
+        } else {
+            format!("127.0.0.1:{port}")
+        };
+        next
+    }
 }

@@ -30,7 +30,7 @@ export function AppSidebar<T extends string>(props: AppSidebarProps<T>) {
 
   return (
     <aside className={cx(
-      'relative z-20 flex h-full flex-col bg-ds-sidebar backdrop-blur-ds transition-[width] duration-fast ease-[var(--ds-motion-transition-fast)] min-[980px]:overflow-visible',
+      'relative z-20 flex h-full flex-col border-b border-ds-border bg-ds-sidebar backdrop-blur-ds transition-[width] duration-fast ease-[var(--ds-motion-transition-fast)] max-[979px]:h-auto max-[979px]:border-r-0 min-[980px]:overflow-visible min-[980px]:border-b-0',
       collapsed ? 'min-[980px]:w-[64px]' : 'min-[980px]:w-sidebar',
     )}>
       {onToggleCollapsed ? (
@@ -45,7 +45,7 @@ export function AppSidebar<T extends string>(props: AppSidebarProps<T>) {
         </button>
       ) : null}
       <div className="flex min-h-0 flex-1 flex-col min-[980px]:overflow-y-auto">
-        <div className={cx('px-4 pb-2.5 pt-4', collapsed && 'px-3 pb-3')}>
+        <div className={cx('px-4 pb-2.5 pt-4 max-[979px]:pb-3', collapsed && 'px-3 pb-3')}>
           <div className={cx('flex items-start justify-between gap-3 bg-transparent py-1', collapsed && 'justify-center')}>
             <div className={cx('flex items-center gap-3', collapsed && 'justify-center')}>
               <img
@@ -77,7 +77,10 @@ export function AppSidebar<T extends string>(props: AppSidebarProps<T>) {
             ) : null}
           </div>
         </div>
-        <nav className={cx('flex flex-col gap-0.5 px-3 pb-4 pt-2', collapsed && 'px-2.5')}>
+        <nav className={cx(
+          'flex flex-col gap-0.5 px-3 pb-4 pt-2 max-[979px]:grid max-[979px]:grid-cols-2 max-[979px]:gap-2 max-[979px]:pb-4',
+          collapsed && 'px-2.5',
+        )}>
           {items.map((item) => {
             const active = item.id === activeId;
             const Icon = item.icon;
@@ -88,7 +91,7 @@ export function AppSidebar<T extends string>(props: AppSidebarProps<T>) {
                 aria-label={item.label}
                 title={collapsed ? item.label : undefined}
                 className={cx(
-                  'flex w-full items-center gap-2 rounded-[8px] px-3 py-1.5 text-left font-text text-[14px] font-normal leading-[1.25] tracking-[0] text-ds-text-primary transition-[background-color,border-color,color,opacity] duration-fast ease-[var(--ds-motion-transition-fast)] hover:bg-[var(--ds-color-interactive-hover)] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ds-accent-focus',
+                  'flex w-full items-center gap-2 rounded-[8px] px-3 py-1.5 text-left font-text text-[14px] font-normal leading-[1.25] tracking-[0] text-ds-text-primary transition-[background-color,border-color,color,opacity] duration-fast ease-[var(--ds-motion-transition-fast)] hover:bg-[var(--ds-color-interactive-hover)] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ds-accent-focus max-[979px]:min-h-[44px]',
                   collapsed && 'justify-center gap-0 px-0',
                   active && 'border border-[var(--ds-color-control-rail-border)] bg-[var(--ds-color-interactive-active)] font-semibold',
                 )}

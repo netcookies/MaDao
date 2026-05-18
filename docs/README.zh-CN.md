@@ -50,6 +50,7 @@
 - Rust / Cargo
 - Node.js
 - npm
+- Docker / Docker Compose（可选，用于网页部署）
 
 ### 构建前端
 
@@ -75,6 +76,15 @@ cargo run -p madao-sms-daemon
 cargo run -p madao-tauri
 ```
 
+### 一键部署 Docker 模式
+
+```bash
+cp .env.docker.example .env
+docker compose up -d --build
+```
+
+启动后访问 `http://127.0.0.1:8080`。
+
 ## 运行时说明
 
 默认情况下，daemon 会在用户配置目录初始化并读取运行时配置，而不是直接写仓库内模板：
@@ -88,6 +98,26 @@ cargo run -p madao-tauri
 
 - HTTP：`127.0.0.1:7822`
 - Unix socket：`/tmp/madao-sms.sock`
+
+Docker 模式下：
+
+- 网页端入口：`http://127.0.0.1:8080`
+- `compose` 内部后端地址：`daemon:7822`
+- 容器内运行配置目录：`/var/lib/madao`
+
+桌面模式下，应用 UI 现在通过本地 Unix socket 与后端通信，而不是直接走 HTTP API。
+
+独立 HTTP 访问用于浏览器 / API 场景：
+
+- 网页端必须先通过 HTTP secret 登录，才能进入主页面
+- 受保护的 HTTP API 路由需要已登录会话
+- HTTP secret 会持久化到 `runtime-settings.json`，支持重新随机生成，但不支持在 UI 中手动编辑
+
+Docker 模式下：
+
+- 可通过 `MADAO_HTTP_SECRET` 覆盖持久化的 HTTP secret
+- 如果没有设置 `MADAO_HTTP_SECRET`，则使用持久化配置中的 secret
+- 修改持久化的 HTTP 端口后，需要重启 daemon 才会生效
 
 ## 验证命令
 
@@ -111,6 +141,7 @@ curl http://127.0.0.1:7822/api/provider-manifests
 - [Provider 协议兼容说明](./providers.md)
 - [Routing Plans](./routing-plans.md)
 - [开发与验证说明](./development.md)
+- [Docker 部署说明](./docker.zh-CN.md)
 - [发布说明](./release.md)
 - [贡献指南](../CONTRIBUTING.md)
 

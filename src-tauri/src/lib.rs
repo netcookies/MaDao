@@ -1,13 +1,17 @@
 use plugin_sdk::ProviderManifest;
 use serde::Serialize;
 use sms_core::config::ServerConfig;
+use sms_core::models::RuntimeSettings;
+use sms_core::socket_api::SocketCommand;
 use sms_core::models::ProviderSummary;
 use sms_core::registry::ProviderRegistry;
 use sms_core::service::SmsService;
-use sms_server::spawn_http_server;
+use sms_server::{spawn_http_server, spawn_socket_server};
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
+use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
+use tokio::net::UnixStream;
 use tauri::Emitter;
 use tauri::Manager;
 use tauri::WebviewWindow;
@@ -567,6 +571,205 @@ async fn set_window_title(window: WebviewWindow, title: String) -> Result<(), St
     window.set_title(&title).map_err(|err| err.to_string())
 }
 
+#[tauri::command]
+async fn socket_request(
+    app: tauri::AppHandle,
+    command: String,
+    payload: Option<serde_json::Value>,
+) -> Result<serde_json::Value, String> {
+    let config_dir = app
+        .path()
+        .app_config_dir()
+        .map_err(|err| format!("resolve app config dir failed: {err}"))?;
+    let config_path = config_dir.join("config.toml");
+    let config = ServerConfig::load_from_file(&config_path).map_err(|err| err.to_string())?;
+    let socket_command = socket_command_from_payload(&command, payload)?;
+    let request = serde_json::to_string(&socket_command).map_err(|err| err.to_string())?;
+    let stream = UnixStream::connect(&config.socket_path)
+        .await
+        .map_err(|err| format!("connect socket failed: {err}"))?;
+    let (reader, mut writer) = stream.into_split();
+    writer
+        .write_all(request.as_bytes())
+        .await
+        .map_err(|err| format!("write socket request failed: {err}"))?;
+    writer
+        .write_all(b"\n")
+        .await
+        .map_err(|err| format!("write socket newline failed: {err}"))?;
+    let mut lines = BufReader::new(reader).lines();
+    let line = lines
+        .next_line()
+        .await
+        .map_err(|err| format!("read socket response failed: {err}"))?
+        .ok_or_else(|| "socket response ended unexpectedly".to_string())?;
+    serde_json::from_str(&line).map_err(|err| format!("parse socket response failed: {err}"))
+}
+
+fn socket_command_from_payload(
+    command: &str,
+    payload: Option<serde_json::Value>,
+) -> Result<SocketCommand, String> {
+    let payload = payload.unwrap_or(serde_json::Value::Null);
+    match command {
+        "snapshot" => Ok(SocketCommand::Snapshot),
+        "provider_manifests" => Ok(SocketCommand::ProviderManifests),
+        "routing_plans" => Ok(SocketCommand::RoutingPlans),
+        "save_routing_plan" => Ok(SocketCommand::SaveRoutingPlan {
+            plan: serde_json::from_value(payload.get("plan").cloned().ok_or_else(|| "missing plan".to_string())?)
+                .map_err(|err| err.to_string())?,
+        }),
+        "delete_routing_plan" => Ok(SocketCommand::DeleteRoutingPlan {
+            plan_id: payload
+                .get("plan_id")
+                .and_then(|value| value.as_str())
+                .ok_or_else(|| "missing plan_id".to_string())?
+                .to_string(),
+        }),
+        "save_provider_manifest" => Ok(SocketCommand::SaveProviderManifest {
+            provider: payload
+                .get("provider")
+                .and_then(|value| value.as_str())
+                .ok_or_else(|| "missing provider".to_string())?
+                .to_string(),
+            manifest: serde_json::from_value(
+                payload
+                    .get("manifest")
+                    .cloned()
+                    .ok_or_else(|| "missing manifest".to_string())?,
+            )
+            .map_err(|err| err.to_string())?,
+        }),
+        "reload_providers" => Ok(SocketCommand::ReloadProviders),
+        "provider_countries" => Ok(SocketCommand::ProviderCountries {
+            provider: payload
+                .get("provider")
+                .and_then(|value| value.as_str())
+                .ok_or_else(|| "missing provider".to_string())?
+                .to_string(),
+        }),
+        "provider_services" => Ok(SocketCommand::ProviderServices {
+            provider: payload
+                .get("provider")
+                .and_then(|value| value.as_str())
+                .ok_or_else(|| "missing provider".to_string())?
+                .to_string(),
+            request: serde_json::from_value(
+                payload
+                    .get("request")
+                    .cloned()
+                    .unwrap_or_else(|| serde_json::json!({})),
+            )
+            .map_err(|err| err.to_string())?,
+        }),
+        "refresh_provider_options" => Ok(SocketCommand::RefreshProviderOptions {
+            provider: payload
+                .get("provider")
+                .and_then(|value| value.as_str())
+                .ok_or_else(|| "missing provider".to_string())?
+                .to_string(),
+        }),
+        "provider_options_cache" => Ok(SocketCommand::ProviderOptionsCache {
+            provider: payload
+                .get("provider")
+                .and_then(|value| value.as_str())
+                .ok_or_else(|| "missing provider".to_string())?
+                .to_string(),
+        }),
+        "provider_operators" => Ok(SocketCommand::ProviderOperators {
+            provider: payload
+                .get("provider")
+                .and_then(|value| value.as_str())
+                .ok_or_else(|| "missing provider".to_string())?
+                .to_string(),
+            request: serde_json::from_value(
+                payload
+                    .get("request")
+                    .cloned()
+                    .unwrap_or_else(|| serde_json::json!({})),
+            )
+            .map_err(|err| err.to_string())?,
+        }),
+        "notifications" => Ok(SocketCommand::Notifications),
+        "clear_notifications" => Ok(SocketCommand::ClearNotifications),
+        "runtime_settings" => Ok(SocketCommand::RuntimeSettings),
+        "update_runtime_settings" => Ok(SocketCommand::UpdateRuntimeSettings {
+            request: serde_json::from_value(
+                payload
+                    .get("request")
+                    .cloned()
+                    .ok_or_else(|| "missing request".to_string())?,
+            )
+            .map_err(|err| err.to_string())?,
+        }),
+        "regenerate_http_secret" => Ok(SocketCommand::RegenerateHttpSecret),
+        "runtime_access_info" => Ok(SocketCommand::RuntimeAccessInfo),
+        "option_cache_overview" => Ok(SocketCommand::OptionCacheOverview),
+        "balance" => Ok(SocketCommand::Balance {
+            provider: payload
+                .get("provider")
+                .and_then(|value| value.as_str())
+                .ok_or_else(|| "missing provider".to_string())?
+                .to_string(),
+        }),
+        "prices" => Ok(SocketCommand::Prices {
+            request: serde_json::from_value(
+                payload
+                    .get("request")
+                    .cloned()
+                    .ok_or_else(|| "missing request".to_string())?,
+            )
+            .map_err(|err| err.to_string())?,
+        }),
+        "poll" => Ok(SocketCommand::Poll {
+            request: serde_json::from_value(
+                payload
+                    .get("request")
+                    .cloned()
+                    .ok_or_else(|| "missing request".to_string())?,
+            )
+            .map_err(|err| err.to_string())?,
+        }),
+        "release" => Ok(SocketCommand::Release {
+            request: serde_json::from_value(
+                payload
+                    .get("request")
+                    .cloned()
+                    .ok_or_else(|| "missing request".to_string())?,
+            )
+            .map_err(|err| err.to_string())?,
+        }),
+        "routing_failover" => Ok(SocketCommand::RoutingFailover {
+            request: serde_json::from_value(
+                payload
+                    .get("request")
+                    .cloned()
+                    .ok_or_else(|| "missing request".to_string())?,
+            )
+            .map_err(|err| err.to_string())?,
+        }),
+        "reorder_providers" => Ok(SocketCommand::ReorderProviders {
+            request: serde_json::from_value(
+                payload
+                    .get("request")
+                    .cloned()
+                    .ok_or_else(|| "missing request".to_string())?,
+            )
+            .map_err(|err| err.to_string())?,
+        }),
+        "acquire" => Ok(SocketCommand::Acquire {
+            request: serde_json::from_value(
+                payload
+                    .get("request")
+                    .cloned()
+                    .ok_or_else(|| "missing request".to_string())?,
+            )
+            .map_err(|err| err.to_string())?,
+        }),
+        other => Err(format!("unsupported socket command: {other}")),
+    }
+}
+
 pub fn run() {
     tauri::Builder::default()
         .enable_macos_default_menu(false)
@@ -579,7 +782,8 @@ pub fn run() {
             app_config_directory,
             open_app_config_directory,
             window_action,
-            set_window_title
+            set_window_title,
+            socket_request
         ])
         .on_tray_icon_event(|app, event| {
             if event.id().as_ref() != TRAY_ID {
@@ -616,14 +820,17 @@ pub fn run() {
         })
         .setup(move |app| {
             let (config_path, providers_dir) = init_user_config(&app.handle())?;
-            let config =
+            let mut config =
                 ServerConfig::load_from_file(&config_path).map_err(|err| err.to_string())?;
-            let registry =
-                ProviderRegistry::load_from_dir(&providers_dir).map_err(|err| err.to_string())?;
             let runtime_settings_path = config_path
                 .parent()
                 .ok_or_else(|| "resolve config parent dir failed".to_string())?
                 .join(RUNTIME_SETTINGS_FILE_NAME);
+            if let Ok(settings) = load_runtime_settings_file(&runtime_settings_path) {
+                config = config.with_http_port(settings.http_port);
+            }
+            let registry =
+                ProviderRegistry::load_from_dir(&providers_dir).map_err(|err| err.to_string())?;
             let provider_options_path = config_path
                 .parent()
                 .ok_or_else(|| "resolve config parent dir failed".to_string())?
@@ -645,12 +852,14 @@ pub fn run() {
                 Some(provider_options_raw_path),
                 None,
             ));
+            service.ensure_runtime_settings_persisted();
             app.manage(Arc::clone(&service));
             let app_handle = app.handle().clone();
             let config = config.clone();
+            let socket_path = config.socket_path.clone();
             let cache_service = Arc::clone(&service);
             tauri::async_runtime::spawn(async move {
-                match spawn_http_server(service, &config).await {
+                match spawn_http_server(service, &config, None).await {
                     Ok((addr, _handle)) => {
                         eprintln!("embedded http server listening on {addr}");
                     }
@@ -658,6 +867,14 @@ pub fn run() {
                         eprintln!("embedded http server failed to start: {error}");
                         let _ = app_handle.emit("runtime-error", error.to_string());
                     }
+                }
+            });
+            let socket_service = Arc::clone(&cache_service);
+            tauri::async_runtime::spawn(async move {
+                if let Err(error) = spawn_socket_server(socket_service, &socket_path).await {
+                    eprintln!("embedded socket server failed to start: {error}");
+                } else {
+                    eprintln!("embedded socket server listening on {}", socket_path.display());
                 }
             });
             tauri::async_runtime::spawn(async move {
@@ -679,6 +896,11 @@ pub fn run() {
         })
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
+}
+
+fn load_runtime_settings_file(path: &Path) -> Result<RuntimeSettings, String> {
+    let content = fs::read_to_string(path).map_err(|err| err.to_string())?;
+    serde_json::from_str(&content).map_err(|err| err.to_string())
 }
 
 #[cfg(test)]

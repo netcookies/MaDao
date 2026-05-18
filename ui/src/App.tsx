@@ -5,7 +5,7 @@ import { useTranslation } from 'react-i18next';
 import {
   Bell, Bot, ChevronLeft, Copy, LayoutDashboard,
   Loader2, MessageSquare, Plus, Search, Send, Server, Settings,
-  Shield, ShoppingCart, Shuffle, Sliders, Smartphone, Square, Terminal, User, Wallet, X,
+  Shield, ShoppingCart, Shuffle, Sliders, Smartphone, Square, Terminal, User, Wallet, X, LogOut,
 } from 'lucide-react';
 import {
   AppShell,
@@ -27,6 +27,7 @@ import { LanguageProvider } from './app/language';
 import { NewActivationModal } from './app/overlays/NewActivationModal';
 import { ManifestModal } from './app/overlays/ManifestModal';
 import { SearchSelectorModal } from './app/overlays/SearchSelectorModal';
+import { HttpLoginScreen } from './app/auth/HttpLoginScreen';
 import { OverviewScreen } from './app/overview/OverviewScreen';
 import { ProviderWorkspaceScreen } from './app/providers/ProviderWorkspaceScreen';
 import { ProvidersListScreen } from './app/providers/ProvidersListScreen';
@@ -88,12 +89,17 @@ import { useConsoleUiState } from './hooks/useConsoleUiState';
 import { useSelectorFlow } from './hooks/useSelectorFlow';
 import {
   API_BASE,
+  IS_DESKTOP_RUNTIME,
+  IS_WEB_RUNTIME,
   SOCKET_PATH,
   checkForUpdates,
   clearNotifications,
   deleteRoutingPlan,
   fetchRoutingPlans,
   fetchProviderPrices,
+  fetchHttpAuthStatus,
+  loginHttpAccess,
+  logoutHttpAccess,
   saveRoutingPlan,
 } from './services/runtimeApi';
 import { getAppConfigDirectory, openAppConfigDirectory } from './services/appConfigApi';
@@ -156,12 +162,22 @@ function getSnackbarTone(message: string): SnackbarTone {
 
 export function App() {
   const { t } = useTranslation();
-  const [configDirectory, setConfigDirectory] = useState('Loading…');
+  const [configDirectory, setConfigDirectory] = useState(IS_DESKTOP_RUNTIME ? 'Loading…' : 'Unavailable');
   const [snackbarOpen, setSnackbarOpen] = useState(false);
   const [statusSequence, setStatusSequence] = useState(0);
   const [updateCheckBusy, setUpdateCheckBusy] = useState(false);
   const [runtimeSettingsLoaded, setRuntimeSettingsLoaded] = useState(false);
   const [updateCheckResult, setUpdateCheckResult] = useState<UpdateCheckResult | null>(null);
+  const [runtimeAccessInfo, setRuntimeAccessInfo] = useState({
+    http_port: 7822,
+    http_secret_overridden: false,
+    requires_http_login: true,
+  });
+  const [httpSecretInput, setHttpSecretInput] = useState('');
+  const [httpAuthBusy, setHttpAuthBusy] = useState(false);
+  const [httpAuthReady, setHttpAuthReady] = useState(IS_DESKTOP_RUNTIME);
+  const [httpAuthenticated, setHttpAuthenticated] = useState(IS_DESKTOP_RUNTIME);
+  const [httpAuthError, setHttpAuthError] = useState('');
   const hasAutoCheckedUpdatesRef = useRef(false);
   const notificationsPopoverRef = useRef<HTMLDivElement | null>(null);
   const {
@@ -359,6 +375,8 @@ export function App() {
     saveProvider,
     reloadProviders,
     updateRuntimeSettings,
+    reloadRuntimeAccessInfo,
+    refreshHttpSecret,
     fetchBalance,
     fetchVisibleBalances,
     refreshProvider,
@@ -470,6 +488,24 @@ export function App() {
   useEffect(() => {
     void Promise.all([loadSnapshot(), loadManifests(), loadRuntimeSettings(), loadRoutingPlans()])
       .finally(() => setRuntimeSettingsLoaded(true));
+  }, []);
+
+  useEffect(() => {
+    void reloadRuntimeAccessInfo().then((info) => {
+      if (info) setRuntimeAccessInfo(info);
+    });
+  }, []);
+
+  useEffect(() => {
+    if (!IS_WEB_RUNTIME) return;
+    void fetchHttpAuthStatus()
+      .then((status) => {
+        setHttpAuthenticated(status.authenticated);
+      })
+      .catch(() => {
+        setHttpAuthenticated(false);
+      })
+      .finally(() => setHttpAuthReady(true));
   }, []);
 
   useEffect(() => {
@@ -1406,8 +1442,45 @@ export function App() {
         setActiveScreen(id);
         if (id === 'providers') setProviderView('list');
       }}
+      footer={IS_WEB_RUNTIME ? (
+        <div className="mt-auto px-3 pb-4 pt-2">
+          <button
+            type="button"
+            className="flex w-full items-center gap-2 rounded-[8px] px-3 py-2 text-left text-[13px] text-ds-text-secondary transition-colors duration-fast ease-[var(--ds-motion-transition-fast)] hover:bg-[var(--ds-color-interactive-hover)] hover:text-ds-text-primary"
+            onClick={() => {
+              void logoutHttpAccess()
+                .then(() => {
+                  setHttpAuthenticated(false);
+                  setHttpSecretInput('');
+                  setHttpAuthError('');
+                })
+                .catch((error) => {
+                  pushStatusMessage(translate('failed_logout_http_access', { error: formatError(error) }));
+                });
+            }}
+          >
+            <LogOut size={15} />
+            <span>{t('Logout')}</span>
+          </button>
+        </div>
+      ) : null}
     />
   );
+
+  async function handleHttpLogin() {
+    try {
+      setHttpAuthBusy(true);
+      setHttpAuthError('');
+      const status = await loginHttpAccess(httpSecretInput);
+      setHttpAuthenticated(status.authenticated);
+      setHttpSecretInput('');
+      await Promise.all([loadSnapshot(), loadManifests(), loadRuntimeSettings(), loadRoutingPlans()]);
+    } catch (error) {
+      setHttpAuthError(formatError(error));
+    } finally {
+      setHttpAuthBusy(false);
+    }
+  }
 
   const toolbarNavigation = activeScreen === 'providers' && providerView === 'workspace'
     ? (
@@ -1550,8 +1623,13 @@ export function App() {
           {busyAction === 'reload' ? t('Reloading…') : t('Reload Providers')}
         </AppButton>
       ) : activeScreen === 'settings' ? (
-        <AppButton variant="primary" size="utility" onClick={() => void openAppConfigDirectory()}>
-          {t('Open Folder')}
+        <AppButton
+          variant="primary"
+          size="utility"
+          onClick={() => void openAppConfigDirectory()}
+          disabled={!IS_DESKTOP_RUNTIME}
+        >
+          {IS_DESKTOP_RUNTIME ? t('Open Folder') : t('Managed in container')}
         </AppButton>
       ) : activeScreen === 'logs' ? (
         <AppButton
@@ -1569,6 +1647,24 @@ export function App() {
       )}
     </>
   );
+
+  if (IS_WEB_RUNTIME && !httpAuthReady) {
+    return null;
+  }
+
+  if (IS_WEB_RUNTIME && !httpAuthenticated) {
+    return (
+      <LanguageProvider language={language}>
+        <HttpLoginScreen
+          secret={httpSecretInput}
+          setSecret={setHttpSecretInput}
+          busy={httpAuthBusy}
+          error={httpAuthError}
+          onSubmit={() => void handleHttpLogin()}
+        />
+      </LanguageProvider>
+    );
+  }
 
   return (
     <LanguageProvider language={language}>
@@ -1749,6 +1845,11 @@ export function App() {
                 optionCacheOverview={optionCacheOverview}
                 checkUpdatesOnLaunch={runtimeSettings.check_updates_on_launch}
                 updateCheckBusy={updateCheckBusy}
+                isDesktopRuntime={IS_DESKTOP_RUNTIME}
+                isWebRuntime={IS_WEB_RUNTIME}
+                httpPort={runtimeSettings.http_port}
+                httpSecret={runtimeSettings.http_secret}
+                httpSecretOverridden={runtimeAccessInfo.http_secret_overridden}
                 onOptionCacheEnabledChange={(enabled) =>
                   void updateRuntimeSettings({
                     routing_strategy: runtimeSettings.routing_strategy,
@@ -1756,6 +1857,7 @@ export function App() {
                     option_cache_enabled: enabled,
                     option_cache_poll_interval_minutes: runtimeSettings.option_cache_poll_interval_minutes,
                     check_updates_on_launch: runtimeSettings.check_updates_on_launch,
+                    http_port: runtimeSettings.http_port,
                   })}
                 onOptionCachePollIntervalChange={(minutes) =>
                   void updateRuntimeSettings({
@@ -1764,6 +1866,7 @@ export function App() {
                     option_cache_enabled: runtimeSettings.option_cache_enabled,
                     option_cache_poll_interval_minutes: minutes,
                     check_updates_on_launch: runtimeSettings.check_updates_on_launch,
+                    http_port: runtimeSettings.http_port,
                   })}
                 onCheckUpdatesOnLaunchChange={(enabled) =>
                   void updateRuntimeSettings({
@@ -1772,7 +1875,22 @@ export function App() {
                     option_cache_enabled: runtimeSettings.option_cache_enabled,
                     option_cache_poll_interval_minutes: runtimeSettings.option_cache_poll_interval_minutes,
                     check_updates_on_launch: enabled,
+                    http_port: runtimeSettings.http_port,
                   })}
+                onHttpPortChange={(port) =>
+                  void updateRuntimeSettings({
+                    routing_strategy: runtimeSettings.routing_strategy,
+                    auto_fallback: runtimeSettings.auto_fallback,
+                    option_cache_enabled: runtimeSettings.option_cache_enabled,
+                    option_cache_poll_interval_minutes: runtimeSettings.option_cache_poll_interval_minutes,
+                    check_updates_on_launch: runtimeSettings.check_updates_on_launch,
+                    http_port: port,
+                  })}
+                onRegenerateHttpSecret={() =>
+                  void refreshHttpSecret().then((info) => {
+                    if (info) setRuntimeAccessInfo(info);
+                  })}
+                regenerateSecretBusy={busyAction === 'regenerate-http-secret'}
                 onCheckForUpdates={() => void handleCheckForUpdates('manual')}
                 apiBase={API_BASE}
                 socketPath={SOCKET_PATH}

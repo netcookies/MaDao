@@ -1,0 +1,200 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>码到 登录</title>
+    <style>
+      body {
+        margin: 0;
+        min-height: 100vh;
+        display: grid;
+        place-items: center;
+        background: #e8ecf0;
+        color: #1d1d1f;
+        font-family: "Inter", "SF Pro Text", system-ui, sans-serif;
+      }
+      .card {
+        width: min(420px, calc(100vw - 32px));
+        border: 1px solid rgba(0,0,0,0.08);
+        border-radius: 20px;
+        background: rgba(255,255,255,0.88);
+        padding: 28px 24px;
+        box-shadow: 0 8px 40px rgba(0,0,0,0.12);
+        backdrop-filter: blur(18px);
+      }
+      h1 {
+        margin: 0 0 10px;
+        font-size: 24px;
+      }
+      p {
+        margin: 0;
+        line-height: 1.5;
+        color: #6e6e73;
+      }
+      a {
+        color: #007aff;
+        text-decoration: none;
+      }
+      form {
+        display: grid;
+        gap: 16px;
+        margin-top: 20px;
+      }
+      label {
+        display: grid;
+        gap: 8px;
+        font-size: 12px;
+        color: #6e6e73;
+        text-transform: uppercase;
+        letter-spacing: 0.08em;
+        font-weight: 600;
+      }
+      input {
+        min-height: 44px;
+        border-radius: 9999px;
+        border: 1px solid rgba(0,0,0,0.08);
+        padding: 0 16px;
+        font-size: 14px;
+        outline: none;
+        background: rgba(255,255,255,0.95);
+      }
+      button {
+        min-height: 44px;
+        border: 0;
+        border-radius: 9999px;
+        background: #007aff;
+        color: white;
+        font-size: 14px;
+        font-weight: 600;
+        cursor: pointer;
+      }
+      .error {
+        margin-top: 6px;
+        color: #d93025;
+        font-size: 13px;
+        line-height: 1.45;
+      }
+      .toolbar {
+        display: flex;
+        justify-content: flex-end;
+        margin-bottom: 14px;
+      }
+      .lang {
+        display: inline-flex;
+        gap: 8px;
+      }
+      .lang button {
+        min-height: 32px;
+        padding: 0 12px;
+        background: rgba(120,120,128,0.14);
+        color: #1d1d1f;
+        font-size: 12px;
+      }
+      .lang button.active {
+        background: #007aff;
+        color: white;
+      }
+    </style>
+  </head>
+  <body>
+    <div class="card">
+      <div class="toolbar">
+        <div class="lang">
+          <button type="button" id="lang-zh" class="active">中文</button>
+          <button type="button" id="lang-en">EN</button>
+        </div>
+      </div>
+      <h1 id="title">需要登录</h1>
+      <p id="subtitle">请输入当前配置的 HTTP secret，登录后访问主控制台。</p>
+      <form id="login-form">
+        <label>
+          <span id="secret-label">密钥</span>
+          <input id="secret" type="password" autocomplete="current-password" placeholder="粘贴访问密钥" />
+        </label>
+        <button type="submit" id="submit-button">登录</button>
+      </form>
+      <p id="error" class="error" hidden></p>
+    </div>
+    <script>
+      const form = document.getElementById('login-form');
+      const secretInput = document.getElementById('secret');
+      const errorNode = document.getElementById('error');
+      const titleNode = document.getElementById('title');
+      const subtitleNode = document.getElementById('subtitle');
+      const secretLabelNode = document.getElementById('secret-label');
+      const submitButton = document.getElementById('submit-button');
+      const langZhButton = document.getElementById('lang-zh');
+      const langEnButton = document.getElementById('lang-en');
+
+      const messages = {
+        zh: {
+          title: '需要登录',
+          subtitle: '请输入当前配置的 HTTP secret，登录后访问主控制台。',
+          secretLabel: '密钥',
+          placeholder: '粘贴访问密钥',
+          submit: '登录',
+          emptySecret: '请输入密钥。',
+          loginFailed: '登录失败。',
+        },
+        en: {
+          title: 'Login Required',
+          subtitle: 'Enter the configured HTTP secret to access the web console.',
+          secretLabel: 'Secret',
+          placeholder: 'Paste access secret',
+          submit: 'Sign In',
+          emptySecret: 'Please enter the secret.',
+          loginFailed: 'Login failed.',
+        }
+      };
+
+      let language = localStorage.getItem('madao-login-language') === 'en' ? 'en' : 'zh';
+
+      function applyLanguage(nextLanguage) {
+        language = nextLanguage;
+        localStorage.setItem('madao-login-language', language);
+        const copy = messages[language];
+        document.documentElement.lang = language === 'zh' ? 'zh-CN' : 'en';
+        titleNode.textContent = copy.title;
+        subtitleNode.textContent = copy.subtitle;
+        secretLabelNode.textContent = copy.secretLabel;
+        secretInput.placeholder = copy.placeholder;
+        submitButton.textContent = copy.submit;
+        langZhButton.classList.toggle('active', language === 'zh');
+        langEnButton.classList.toggle('active', language === 'en');
+      }
+
+      langZhButton.addEventListener('click', () => applyLanguage('zh'));
+      langEnButton.addEventListener('click', () => applyLanguage('en'));
+
+      form.addEventListener('submit', async (event) => {
+        event.preventDefault();
+        errorNode.hidden = true;
+        const secret = secretInput.value.trim();
+        if (!secret) {
+          errorNode.textContent = messages[language].emptySecret;
+          errorNode.hidden = false;
+          return;
+        }
+        try {
+          const response = await fetch('/auth/login', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            credentials: 'include',
+            body: JSON.stringify({ secret }),
+          });
+          if (!response.ok) {
+            const payload = await response.json().catch(() => ({ message: messages[language].loginFailed }));
+            throw new Error(payload.message || messages[language].loginFailed);
+          }
+          window.location.href = '/app';
+        } catch (error) {
+          errorNode.textContent = error.message || messages[language].loginFailed;
+          errorNode.hidden = false;
+        }
+      });
+
+      applyLanguage(language);
+    </script>
+  </body>
+  </html>

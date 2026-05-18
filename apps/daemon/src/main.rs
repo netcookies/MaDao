@@ -1,38 +1,34 @@
 use anyhow::Context;
 use directories::ProjectDirs;
-#[cfg(unix)]
-use plugin_sdk::ProviderManifest;
-#[cfg(unix)]
-use serde::Deserialize;
 use sms_core::config::ServerConfig;
-#[cfg(unix)]
-use sms_core::models::{
-    AcquireCodeRequest, PollCodeRequest, ProviderPriceQuery, ReleaseCodeRequest,
-    RoutingFailoverRequest, RoutingPlan,
-};
+use sms_core::models::RuntimeSettings;
 use sms_core::registry::ProviderRegistry;
 use sms_core::service::SmsService;
-use sms_server::spawn_http_server;
+use sms_server::{spawn_http_server, spawn_socket_server};
+use std::env;
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
-#[cfg(unix)]
-use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
-#[cfg(unix)]
-use tokio::net::UnixListener;
 
 const DEFAULT_CONFIG_TEMPLATE_PATH: &str = "config/server.toml";
 const DEFAULT_PROVIDER_TEMPLATE_DIR: &str = "plugins/providers";
+const DEFAULT_DOCKER_CONFIG_DIR: &str = "/var/lib/madao";
+const DEFAULT_DOCKER_HTTP_BIND: &str = "0.0.0.0:7822";
+const DEFAULT_DOCKER_SOCKET_PATH: &str = "/tmp/madao-sms.sock";
+const RUNTIME_MODE_DOCKER: &str = "docker";
 
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
     let cli_config_path = std::env::args().nth(1).map(PathBuf::from);
     let config_path = prepare_config_path(cli_config_path.as_deref())?;
-    let config = ServerConfig::load_from_file(&config_path)?;
+    let mut config = ServerConfig::load_from_file(&config_path)?;
     let registry = ProviderRegistry::load_from_dir(&config.provider_dir)?;
     let config_dir = config_path
         .parent()
         .context("resolve config directory failed")?;
+    if let Ok(settings) = load_runtime_settings_file(&config_dir.join("runtime-settings.json")) {
+        config = config.with_http_port(settings.http_port);
+    }
     let service = Arc::new(SmsService::with_persistence_paths(
         registry,
         config.log_buffer,
@@ -42,53 +38,47 @@ async fn main() -> anyhow::Result<()> {
         Some(config_dir.join("provider-options-raw.json")),
         Some(config_dir.join("routing-plans.json")),
     ));
+    service.ensure_runtime_settings_persisted();
+    let http_secret_override = env::var("MADAO_HTTP_SECRET")
+        .ok()
+        .map(|value| value.trim().to_string())
+        .filter(|value| !value.is_empty());
 
-    let (http_addr, _http_handle) = spawn_http_server(Arc::clone(&service), &config)
-        .await
-        .with_context(|| format!("bind http listener failed: {}", config.http_bind))?;
+    let (http_addr, _http_handle) = spawn_http_server(
+        Arc::clone(&service),
+        &config,
+        http_secret_override,
+    )
+    .await
+    .with_context(|| format!("bind http listener failed: {}", config.http_bind))?;
 
     spawn_socket_server(Arc::clone(&service), &config.socket_path).await?;
 
     println!("http listening on {}", http_addr);
+
+    if is_docker_runtime() && config.http_bind != DEFAULT_DOCKER_HTTP_BIND {
+        let internal_config = ServerConfig {
+            http_bind: DEFAULT_DOCKER_HTTP_BIND.to_string(),
+            ..config.clone()
+        };
+        let _ = spawn_http_server(
+            Arc::clone(&service),
+            &internal_config,
+            env::var("MADAO_HTTP_SECRET")
+                .ok()
+                .map(|value| value.trim().to_string())
+                .filter(|value| !value.is_empty()),
+        )
+        .await
+        .with_context(|| format!("bind internal docker http listener failed: {}", internal_config.http_bind))?;
+        println!("internal http listening on {}", internal_config.http_bind);
+    }
+
     log_socket_transport(&config.socket_path);
 
     tokio::signal::ctrl_c()
         .await
         .context("wait for shutdown signal failed")
-}
-
-#[cfg(unix)]
-async fn spawn_socket_server(service: Arc<SmsService>, socket_path: &Path) -> anyhow::Result<()> {
-    if socket_path.exists() {
-        let _ = std::fs::remove_file(socket_path);
-    }
-    let unix_listener = UnixListener::bind(socket_path)
-        .with_context(|| format!("bind unix socket failed: {}", socket_path.display()))?;
-
-    tokio::spawn(async move {
-        loop {
-            let Ok((stream, _addr)) = unix_listener.accept().await else {
-                break;
-            };
-            let service = Arc::clone(&service);
-            tokio::spawn(async move {
-                let (reader, mut writer) = stream.into_split();
-                let mut lines = BufReader::new(reader).lines();
-                while let Ok(Some(line)) = lines.next_line().await {
-                    let payload = handle_socket_command(&service, &line).await;
-                    let _ = writer.write_all(payload.as_bytes()).await;
-                    let _ = writer.write_all(b"\n").await;
-                }
-            });
-        }
-    });
-
-    Ok(())
-}
-
-#[cfg(not(unix))]
-async fn spawn_socket_server(_service: Arc<SmsService>, _socket_path: &Path) -> anyhow::Result<()> {
-    Ok(())
 }
 
 #[cfg(unix)]
@@ -104,67 +94,6 @@ fn log_socket_transport(socket_path: &Path) {
     );
 }
 
-#[cfg(unix)]
-async fn handle_socket_command(service: &SmsService, line: &str) -> String {
-    if let Ok(command) = serde_json::from_str::<SocketCommand>(line) {
-        return match command {
-            SocketCommand::Ping => serde_json::json!({ "status": "pong" }).to_string(),
-            SocketCommand::Snapshot => serde_json::to_string(&service.runtime_snapshot())
-                .unwrap_or_else(|_| "{}".to_string()),
-            SocketCommand::Acquire { request } => {
-                wrap_socket_result(service.acquire_code(request).await)
-            }
-            SocketCommand::Poll { request } => wrap_socket_result(service.poll_code(request).await),
-            SocketCommand::Release { request } => {
-                wrap_socket_result(service.release_code(request).await)
-            }
-            SocketCommand::RoutingFailover { request } => {
-                wrap_socket_result(service.failover_routing_attempt(request).await)
-            }
-            SocketCommand::Balance { provider } => {
-                wrap_socket_result(service.get_balance(&provider).await)
-            }
-            SocketCommand::Prices { request } => {
-                wrap_socket_result(service.get_prices(request).await)
-            }
-            SocketCommand::ProviderManifests => {
-                wrap_socket_plain_result(Ok(service.list_provider_manifests()))
-            }
-            SocketCommand::RoutingPlans => {
-                wrap_socket_plain_result(Ok(service.list_routing_plans()))
-            }
-            SocketCommand::RoutingPlan { plan_id } => {
-                wrap_socket_plain_result(service.routing_plan(&plan_id))
-            }
-            SocketCommand::SaveRoutingPlan { plan } => {
-                wrap_socket_plain_result(service.save_routing_plan(plan))
-            }
-            SocketCommand::DeleteRoutingPlan { plan_id } => {
-                wrap_socket_plain_result(service.delete_routing_plan(&plan_id))
-            }
-            SocketCommand::ProviderManifest { provider } => {
-                wrap_socket_plain_result(service.provider_manifest(&provider))
-            }
-            SocketCommand::SaveProviderManifest { provider, manifest } => {
-                wrap_socket_plain_result(service.save_provider_manifest(&provider, manifest).await)
-            }
-            SocketCommand::ReloadProviders => {
-                wrap_socket_plain_result(service.reload_provider_registry())
-            }
-        };
-    }
-    let snapshot = service.runtime_snapshot();
-    match line.trim() {
-        "ping" => serde_json::json!({ "status": "pong" }).to_string(),
-        "snapshot" => serde_json::to_string(&snapshot).unwrap_or_else(|_| "{}".to_string()),
-        other => serde_json::json!({
-            "status": "error",
-            "message": format!("unknown socket command: {other}")
-        })
-        .to_string(),
-    }
-}
-
 fn prepare_config_path(explicit_path: Option<&Path>) -> anyhow::Result<PathBuf> {
     if let Some(path) = explicit_path {
         return Ok(path.to_path_buf());
@@ -175,25 +104,68 @@ fn prepare_config_path(explicit_path: Option<&Path>) -> anyhow::Result<PathBuf> 
         .with_context(|| format!("create daemon config dir failed: {}", config_dir.display()))?;
     let config_path = config_dir.join("config.toml");
 
-    if !config_path.exists() {
-        let cwd = std::env::current_dir().context("read current dir failed")?;
-        let template_path = cwd.join(DEFAULT_CONFIG_TEMPLATE_PATH);
-        let mut config = ServerConfig::load_from_file(&template_path)
-            .with_context(|| format!("load config template failed: {}", template_path.display()))?;
-        config.provider_dir = PathBuf::from("providers");
-        let content = toml::to_string_pretty(&config).context("serialize daemon config failed")?;
-        fs::write(&config_path, content)
-            .with_context(|| format!("write daemon config failed: {}", config_path.display()))?;
-    }
+    let cwd = env::current_dir().context("read current dir failed")?;
+    let template_path = cwd.join(DEFAULT_CONFIG_TEMPLATE_PATH);
+    ensure_runtime_config(&config_path, &template_path)?;
 
     seed_default_providers(&config_dir)?;
     Ok(config_path)
 }
 
 fn daemon_config_dir() -> anyhow::Result<PathBuf> {
+    if is_docker_runtime() {
+        return Ok(PathBuf::from(
+            env::var("MADAO_CONFIG_DIR").unwrap_or_else(|_| DEFAULT_DOCKER_CONFIG_DIR.to_string()),
+        ));
+    }
     ProjectDirs::from("com", "madao", "sms")
         .map(|dirs| dirs.config_dir().to_path_buf())
         .context("resolve daemon config dir failed")
+}
+
+fn ensure_runtime_config(
+    config_path: &Path,
+    template_path: &Path,
+) -> anyhow::Result<()> {
+    if config_path.exists() && !is_docker_runtime() {
+        return Ok(());
+    }
+
+    let mut config = if config_path.exists() {
+        ServerConfig::load_from_file(config_path)
+            .with_context(|| format!("load daemon config failed: {}", config_path.display()))?
+    } else {
+        ServerConfig::load_from_file(template_path)
+            .with_context(|| format!("load config template failed: {}", template_path.display()))?
+    };
+
+    config.provider_dir = PathBuf::from("providers");
+
+    if is_docker_runtime() {
+        config.http_bind = env::var("MADAO_HTTP_BIND")
+            .unwrap_or_else(|_| DEFAULT_DOCKER_HTTP_BIND.to_string());
+        config.socket_path = PathBuf::from(
+            env::var("MADAO_SOCKET_PATH")
+                .unwrap_or_else(|_| DEFAULT_DOCKER_SOCKET_PATH.to_string()),
+        );
+    }
+
+    let content = toml::to_string_pretty(&config).context("serialize daemon config failed")?;
+    fs::write(config_path, content)
+        .with_context(|| format!("write daemon config failed: {}", config_path.display()))?;
+
+    Ok(())
+}
+
+fn is_docker_runtime() -> bool {
+    env::var("MADAO_RUNTIME_MODE")
+        .map(|value| value.trim().eq_ignore_ascii_case(RUNTIME_MODE_DOCKER))
+        .unwrap_or(false)
+}
+
+fn load_runtime_settings_file(path: &Path) -> anyhow::Result<RuntimeSettings> {
+    let content = fs::read_to_string(path)?;
+    Ok(serde_json::from_str(&content)?)
 }
 
 fn seed_default_providers(config_dir: &Path) -> anyhow::Result<()> {
@@ -233,72 +205,4 @@ fn seed_default_providers(config_dir: &Path) -> anyhow::Result<()> {
     }
 
     Ok(())
-}
-
-#[cfg(unix)]
-#[derive(Debug, Deserialize)]
-#[serde(tag = "command", rename_all = "snake_case")]
-enum SocketCommand {
-    Ping,
-    Snapshot,
-    Acquire {
-        request: AcquireCodeRequest,
-    },
-    Poll {
-        request: PollCodeRequest,
-    },
-    Release {
-        request: ReleaseCodeRequest,
-    },
-    RoutingFailover {
-        request: RoutingFailoverRequest,
-    },
-    Balance {
-        provider: String,
-    },
-    Prices {
-        request: ProviderPriceQuery,
-    },
-    ProviderManifests,
-    RoutingPlans,
-    RoutingPlan {
-        plan_id: String,
-    },
-    SaveRoutingPlan {
-        plan: RoutingPlan,
-    },
-    DeleteRoutingPlan {
-        plan_id: String,
-    },
-    ProviderManifest {
-        provider: String,
-    },
-    SaveProviderManifest {
-        provider: String,
-        manifest: ProviderManifest,
-    },
-    ReloadProviders,
-}
-
-#[cfg(unix)]
-fn wrap_socket_result<T: serde::Serialize>(result: Result<T, sms_core::error::SmsError>) -> String {
-    match result {
-        Ok(value) => serde_json::json!({
-            "status": "ok",
-            "data": value
-        })
-        .to_string(),
-        Err(error) => serde_json::json!({
-            "status": "error",
-            "message": error.to_string()
-        })
-        .to_string(),
-    }
-}
-
-#[cfg(unix)]
-fn wrap_socket_plain_result<T: serde::Serialize>(
-    result: Result<T, sms_core::error::SmsError>,
-) -> String {
-    wrap_socket_result(result)
 }

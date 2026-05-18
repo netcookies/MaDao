@@ -236,11 +236,11 @@ export function SettingChoiceRow(props: {
   control: ReactNode;
 }) {
   return (
-    <div className="flex items-center justify-between gap-4 py-4">
+    <div className="flex flex-col gap-3 py-4 min-[720px]:flex-row min-[720px]:items-center min-[720px]:justify-between">
       <span className="font-text text-utility font-normal tracking-[var(--ds-type-utility-tracking)] text-ds-text-primary opacity-70">
         {props.label}
       </span>
-      <div className="inline-flex min-h-9 items-center">{props.control}</div>
+      <div className="inline-flex min-h-9 items-center max-[719px]:flex-wrap">{props.control}</div>
     </div>
   );
 }
@@ -255,7 +255,7 @@ export function ToggleSetting(props: {
   return (
     <div
       className={cx(
-        'flex items-center justify-between gap-4 py-4',
+        'flex flex-col gap-4 py-4 min-[720px]:flex-row min-[720px]:items-center min-[720px]:justify-between',
         !props.last && 'border-b border-ds-border',
       )}
     >
@@ -276,7 +276,7 @@ export function ConfigRow(props: { label: string; children: ReactNode; last?: bo
   return (
     <div
       className={cx(
-        'flex items-center justify-between gap-4 px-5 py-4',
+        'flex flex-col gap-3 px-5 py-4 min-[720px]:flex-row min-[720px]:items-center min-[720px]:justify-between',
         !props.last && 'border-b border-ds-border',
       )}
     >
@@ -292,7 +292,7 @@ export function DetailRow(props: { label: string; value: string; last?: boolean 
   return (
     <div
       className={cx(
-        'flex items-center justify-between gap-4 px-5 py-4',
+        'flex flex-col gap-2 px-5 py-4 min-[720px]:flex-row min-[720px]:items-center min-[720px]:justify-between',
         !props.last && 'border-b border-ds-border',
       )}
     >

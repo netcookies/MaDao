@@ -57,6 +57,7 @@ It is not positioned as a public marketplace client. Instead, it provides a conf
 - Rust / Cargo
 - Node.js
 - npm
+- Docker / Docker Compose (optional, for web deployment)
 
 ### Build the frontend
 
@@ -82,6 +83,17 @@ cargo run -p madao-sms-daemon
 cargo run -p madao-tauri
 ```
 
+### One-command Docker deployment
+
+```bash
+cp .env.docker.example .env
+docker compose up -d --build
+```
+
+Open `http://127.0.0.1:8080` after startup.
+
+For operations, upgrades, logs, backup, and troubleshooting, see [Docker Deployment](./docs/docker.md).
+
 ## Runtime Notes
 
 By default, the daemon initializes and reads its runtime config from the user config directory instead of writing directly into the repository templates:
@@ -95,6 +107,26 @@ Default runtime endpoints:
 
 - HTTP: `127.0.0.1:7822`
 - Unix socket: `/tmp/madao-sms.sock`
+
+Docker mode uses:
+
+- Web UI: `http://127.0.0.1:8080`
+- Backend HTTP inside compose: `daemon:7822`
+- Runtime config dir inside container: `/var/lib/madao`
+
+In desktop mode, the app UI now talks to the backend through the local Unix socket path instead of direct HTTP API calls.
+
+Direct HTTP access is intended for authenticated browser / API usage:
+
+- the web console requires HTTP secret login before loading the main app page
+- protected HTTP API routes require the authenticated session
+- the HTTP secret is persisted in `runtime-settings.json` and can be regenerated, but not manually edited in the UI
+
+In Docker mode:
+
+- `MADAO_HTTP_SECRET` can override the persisted HTTP secret
+- if `MADAO_HTTP_SECRET` is unset, the persisted secret is used
+- changing the persisted HTTP port takes effect after daemon restart
 
 ## Verification
 
@@ -119,6 +151,7 @@ curl http://127.0.0.1:7822/api/provider-manifests
 - [Provider Compatibility](./docs/providers.md)
 - [Routing Plans](./docs/routing-plans.md)
 - [Development](./docs/development.md)
+- [Docker Deployment](./docs/docker.md)
 - [Release Guide](./docs/release.md)
 - [Contributing](./CONTRIBUTING.md)
 

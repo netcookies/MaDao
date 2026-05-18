@@ -1,6 +1,6 @@
 import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
-import { defineConfig } from 'vite';
+import { defineConfig, loadEnv } from 'vite';
 import react from '@vitejs/plugin-react';
 
 function resolveAppVersion() {
@@ -10,36 +10,54 @@ function resolveAppVersion() {
   return workspaceVersion ?? process.env.npm_package_version ?? process.env.CARGO_PKG_VERSION ?? '0.0.0';
 }
 
-export default defineConfig({
-  plugins: [react()],
-  root: 'ui',
-  define: {
-    __APP_VERSION__: JSON.stringify(resolveAppVersion()),
-  },
-  build: {
-    outDir: '../dist',
-    emptyOutDir: true,
-    rollupOptions: {
-      output: {
-        manualChunks(id) {
-          if (id.includes('node_modules/react-dom') || id.includes('node_modules/react/')) {
-            return 'react-vendor';
-          }
-          if (id.includes('node_modules/i18next') || id.includes('node_modules/react-i18next')) {
-            return 'i18n-vendor';
-          }
-          if (id.includes('node_modules/lucide-react')) {
-            return 'icons-vendor';
-          }
-          if (id.includes('node_modules/simple-icons') || id.includes('node_modules/country-flag-icons')) {
-            return 'badge-vendor';
-          }
+export default defineConfig(({ mode }) => {
+  const env = loadEnv(mode, process.cwd(), '');
+  const runtimeMode = env.VITE_RUNTIME_MODE ?? 'desktop';
+  const apiTarget = env.VITE_DEV_API_TARGET ?? env.VITE_API_BASE ?? 'http://127.0.0.1:7822';
+
+  return {
+    plugins: [react()],
+    root: 'ui',
+    define: {
+      __APP_VERSION__: JSON.stringify(resolveAppVersion()),
+    },
+    build: {
+      outDir: '../dist',
+      emptyOutDir: true,
+      rollupOptions: {
+        output: {
+          manualChunks(id) {
+            if (id.includes('node_modules/react-dom') || id.includes('node_modules/react/')) {
+              return 'react-vendor';
+            }
+            if (id.includes('node_modules/i18next') || id.includes('node_modules/react-i18next')) {
+              return 'i18n-vendor';
+            }
+            if (id.includes('node_modules/lucide-react')) {
+              return 'icons-vendor';
+            }
+            if (id.includes('node_modules/simple-icons') || id.includes('node_modules/country-flag-icons')) {
+              return 'badge-vendor';
+            }
+          },
         },
       },
     },
-  },
-  server: {
-    port: 1420,
-    strictPort: true
-  }
+    server: {
+      port: 1420,
+      strictPort: true,
+      proxy: runtimeMode === 'web'
+        ? {
+          '/api': {
+            target: apiTarget,
+            changeOrigin: true,
+          },
+          '/health': {
+            target: apiTarget,
+            changeOrigin: true,
+          },
+        }
+        : undefined,
+    },
+  };
 });

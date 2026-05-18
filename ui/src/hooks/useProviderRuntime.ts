@@ -15,6 +15,7 @@ import type {
   StoreQueryState,
 } from '../app/types';
 import {
+  fetchRuntimeAccessInfo,
   fetchProviderOptionsCache,
   fetchOptionCacheOverview,
   fetchProviderBalance,
@@ -23,6 +24,7 @@ import {
   refreshProviderOptions,
   fetchRuntimeSettings,
   fetchRuntimeSnapshot,
+  regenerateHttpSecret,
   reloadProviderRegistry,
   reorderProviderManifests,
   saveProviderManifest,
@@ -282,9 +284,11 @@ export function useProviderRuntime(
 
   async function loadRuntimeSettings() {
     try {
-      const settings = await fetchRuntimeSettings();
+      const [settings, cacheOverview] = await Promise.all([
+        fetchRuntimeSettings(),
+        fetchOptionCacheOverview(),
+      ]);
       data.setRuntimeSettings(settings);
-      const cacheOverview = await fetchOptionCacheOverview();
       data.setOptionCacheOverview(cacheOverview);
     } catch {
       ui.setStatusMessage(translate('failed_load_runtime_settings'));
@@ -430,6 +434,34 @@ export function useProviderRuntime(
     }
   }
 
+  async function reloadRuntimeAccessInfo() {
+    try {
+      const accessInfo = await fetchRuntimeAccessInfo();
+      data.setRuntimeSettings((current) => ({
+        ...current,
+        http_port: accessInfo.http_port,
+      }));
+      return accessInfo;
+    } catch {
+      return null;
+    }
+  }
+
+  async function refreshHttpSecret() {
+    try {
+      ui.setBusyAction('regenerate-http-secret');
+      const settings = await regenerateHttpSecret();
+      data.setRuntimeSettings(settings);
+      ui.setStatusMessage(translate('http_secret_regenerated'));
+      return await reloadRuntimeAccessInfo();
+    } catch (error) {
+      ui.setStatusMessage(translate('failed_regenerate_http_secret', { error: formatError(error) }));
+      return null;
+    } finally {
+      ui.setBusyAction('');
+    }
+  }
+
   async function fetchBalance(providerId: string) {
     try {
       ui.setBusyAction(`balance-${providerId}`);
@@ -569,6 +601,8 @@ export function useProviderRuntime(
     saveProvider,
     reloadProviders,
     updateRuntimeSettings,
+    reloadRuntimeAccessInfo,
+    refreshHttpSecret,
     fetchBalance,
     fetchVisibleBalances,
     refreshProvider,

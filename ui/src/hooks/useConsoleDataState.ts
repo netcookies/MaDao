@@ -27,6 +27,8 @@ export function useConsoleDataState() {
     option_cache_enabled: true,
     option_cache_poll_interval_minutes: 30,
     check_updates_on_launch: true,
+    http_port: 7822,
+    http_secret: '',
   });
   const [optionCacheOverview, setOptionCacheOverview] = useState<OptionCacheOverview>({
     fresh_providers: 0,

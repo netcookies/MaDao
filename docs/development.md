@@ -49,6 +49,18 @@ cargo test -p sms-core
 npm run build
 ```
 
+如果你要以浏览器模式本地联调前端：
+
+```bash
+VITE_RUNTIME_MODE=web npm run dev
+```
+
+默认会通过 Vite 代理把 `/api` 和 `/health` 转发到：
+
+```text
+http://127.0.0.1:7822
+```
+
 当前前端样式栈为：
 
 - `Tailwind CSS`
@@ -120,6 +132,35 @@ curl -X PUT http://127.0.0.1:7822/api/providers/mock/manifest \
 ```bash
 curl -X POST http://127.0.0.1:7822/api/provider-manifests/reload
 ```
+
+## Docker 模式
+
+一键启动：
+
+```bash
+cp .env.docker.example .env
+docker compose up -d --build
+```
+
+默认网页入口：
+
+```text
+http://127.0.0.1:8080
+```
+
+Docker 模式最小验收：
+
+```bash
+curl http://127.0.0.1:8080/health
+curl http://127.0.0.1:8080/api/provider-manifests
+```
+
+当前这套 `docker compose` 已实际验证通过：
+
+- `docker compose build`
+- `docker compose up -d`
+- `daemon` 健康检查通过
+- `web -> daemon` 反向代理链路正常
 
 ## Tauri / UI 现状
 

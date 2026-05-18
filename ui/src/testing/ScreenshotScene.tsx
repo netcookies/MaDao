@@ -831,8 +831,13 @@ function renderPageTarget(target: ScreenshotTarget, t: (key: string, options?: R
         optionCacheEnabled
         optionCachePollIntervalMinutes={30}
         optionCacheOverview={{ fresh_providers: 2, stale_providers: 1, missing_providers: 0, last_refresh_at: null }}
+        checkUpdatesOnLaunch
+        updateCheckBusy={false}
+        isDesktopRuntime
         onOptionCacheEnabledChange={noop}
         onOptionCachePollIntervalChange={noop}
+        onCheckUpdatesOnLaunchChange={noop}
+        onCheckForUpdates={noop}
         apiBase="http://127.0.0.1:7822"
         socketPath="/tmp/madao-sms.sock"
         configDirectory="~/Library/Application Support/com.madao.sms"

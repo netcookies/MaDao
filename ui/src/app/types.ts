@@ -187,6 +187,8 @@ export type RuntimeSettings = {
   option_cache_enabled: boolean;
   option_cache_poll_interval_minutes: number;
   check_updates_on_launch: boolean;
+  http_port: number;
+  http_secret: string;
 };
 export type RuntimeSettingsUpdate = {
   routing_strategy: RoutingStrategy;
@@ -194,6 +196,13 @@ export type RuntimeSettingsUpdate = {
   option_cache_enabled: boolean;
   option_cache_poll_interval_minutes: number;
   check_updates_on_launch: boolean;
+  http_port: number;
+};
+
+export type RuntimeAccessInfo = {
+  http_port: number;
+  http_secret_overridden: boolean;
+  requires_http_login: boolean;
 };
 
 export type UpdateCheckResult = {

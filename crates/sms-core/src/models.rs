@@ -419,6 +419,10 @@ pub struct RuntimeSettings {
     pub option_cache_poll_interval_minutes: u32,
     #[serde(default = "default_check_updates_on_launch")]
     pub check_updates_on_launch: bool,
+    #[serde(default = "default_http_port")]
+    pub http_port: u16,
+    #[serde(default = "default_http_secret")]
+    pub http_secret: String,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -428,10 +432,36 @@ pub struct RuntimeSettingsUpdate {
     pub option_cache_enabled: bool,
     pub option_cache_poll_interval_minutes: u32,
     pub check_updates_on_launch: bool,
+    pub http_port: u16,
 }
 
 fn default_check_updates_on_launch() -> bool {
     true
+}
+
+fn default_http_port() -> u16 {
+    7822
+}
+
+fn default_http_secret() -> String {
+    String::new()
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct RuntimeAccessInfo {
+    pub http_port: u16,
+    pub http_secret_overridden: bool,
+    pub requires_http_login: bool,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct HttpAuthLoginRequest {
+    pub secret: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct HttpAuthStatus {
+    pub authenticated: bool,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

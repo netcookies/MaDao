@@ -7,7 +7,7 @@ use crate::models::{
     ProviderPriceQuery, ProviderPriceResponse, ProviderRawOptionAuditEntry, ProviderReorderRequest,
     ProviderServicesQuery, ProviderSummary, ReleaseCodeRequest, ReleaseCodeResponse,
     RoutingExecutionMode, RoutingFailoverRequest, RoutingPlan, RoutingPlanItem, RoutingPlanList,
-    RoutingPlanStore, RuntimeSettings, RuntimeSettingsUpdate, RuntimeSnapshot, RuntimeStateStore,
+    RoutingPlanStore, RuntimeAccessInfo, RuntimeSettings, RuntimeSettingsUpdate, RuntimeSnapshot, RuntimeStateStore,
     TicketCallbackListResponse, TicketCallbackRegistrationRequest, TicketCallbackSubscription,
     TicketCodeCallbackPayload, TicketListResponse, TicketRecord, TicketStatus,
 };
@@ -98,13 +98,22 @@ impl SmsService {
         let runtime_settings = runtime_settings_path
             .as_ref()
             .and_then(|path| load_runtime_settings(path).ok())
-            .unwrap_or(RuntimeSettings {
+            .unwrap_or_else(|| RuntimeSettings {
                 routing_strategy: "ordered_priority".to_string(),
                 auto_fallback: true,
                 option_cache_enabled: true,
                 option_cache_poll_interval_minutes: 30,
                 check_updates_on_launch: true,
+                http_port: 7822,
+                http_secret: generate_runtime_secret(),
             });
+        let mut runtime_settings = runtime_settings;
+        if runtime_settings.http_secret.trim().is_empty() {
+            runtime_settings.http_secret = generate_runtime_secret();
+            if let Some(path) = &runtime_settings_path {
+                let _ = save_runtime_settings(path, &runtime_settings);
+            }
+        }
         let provider_option_cache = provider_options_path
             .as_ref()
             .and_then(|path| load_option_cache_store(path).ok())
@@ -180,6 +189,12 @@ impl SmsService {
                 .expect("callback client should build"),
             log_buffer,
             ticket_buffer: DEFAULT_TICKET_BUFFER,
+        }
+    }
+
+    pub fn ensure_runtime_settings_persisted(&self) {
+        if let Some(path) = &self.runtime_settings_path {
+            let _ = save_runtime_settings(path, &self.runtime_settings());
         }
     }
 
@@ -1614,6 +1629,15 @@ impl SmsService {
         self.runtime_settings.read().clone()
     }
 
+    pub fn runtime_access_info(&self, overridden_secret: Option<&str>) -> RuntimeAccessInfo {
+        let settings = self.runtime_settings();
+        RuntimeAccessInfo {
+            http_port: settings.http_port,
+            http_secret_overridden: overridden_secret.is_some(),
+            requires_http_login: true,
+        }
+    }
+
     pub fn update_runtime_settings(&self, update: RuntimeSettingsUpdate) -> RuntimeSettings {
         let mut current = self.runtime_settings.write();
         current.routing_strategy = update.routing_strategy;
@@ -1622,11 +1646,29 @@ impl SmsService {
         current.option_cache_poll_interval_minutes =
             update.option_cache_poll_interval_minutes.max(1);
         current.check_updates_on_launch = update.check_updates_on_launch;
+        current.http_port = update.http_port.max(1);
         if let Some(path) = &self.runtime_settings_path {
             let _ = save_runtime_settings(path, &current);
         }
         self.log("config", "info", "runtime routing settings updated");
         current.clone()
+    }
+
+    pub fn regenerate_http_secret(&self) -> Result<RuntimeSettings, SmsError> {
+        let mut current = self.runtime_settings.write();
+        current.http_secret = generate_runtime_secret();
+        if let Some(path) = &self.runtime_settings_path {
+            save_runtime_settings(path, &current)?;
+        }
+        self.log("config", "info", "http secret regenerated");
+        Ok(current.clone())
+    }
+
+    pub fn effective_http_secret(&self, overridden_secret: Option<&str>) -> String {
+        overridden_secret
+            .map(|value| value.trim().to_string())
+            .filter(|value| !value.is_empty())
+            .unwrap_or_else(|| self.runtime_settings().http_secret)
     }
 
     pub fn runtime_snapshot(&self) -> RuntimeSnapshot {
@@ -2104,6 +2146,10 @@ fn save_runtime_settings(path: &Path, settings: &RuntimeSettings) -> Result<(), 
         .map_err(|err| SmsError::Config(format!("serialize runtime settings failed: {err}")))?;
     fs::write(path, content)
         .map_err(|err| SmsError::Io(format!("write runtime settings failed: {err}")))
+}
+
+fn generate_runtime_secret() -> String {
+    Uuid::now_v7().simple().to_string()
 }
 
 fn load_routing_plans(path: &Path) -> Result<RoutingPlanStore, SmsError> {

@@ -1,0 +1,9 @@
+.git
+.workflow
+node_modules
+target
+dist
+.env
+.DS_Store
+designs/screenshots/.pen-export
+designs/screenshots/.pen-export-1x
