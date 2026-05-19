@@ -49,11 +49,6 @@ jobs:
             rust_targets: aarch64-apple-darwin
             args: --target aarch64-apple-darwin
             install_linux_deps: false
-          - name: macos-amd64
-            runner: macos-15-large
-            rust_targets: x86_64-apple-darwin
-            args: --target x86_64-apple-darwin
-            install_linux_deps: false
           - name: linux-amd64
             runner: ubuntu-22.04
             rust_targets: ""
