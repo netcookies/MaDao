@@ -114,7 +114,12 @@ Docker 模式下：
 - `compose` 内部后端地址：`daemon:7822`
 - 容器内运行配置目录：`/var/lib/madao`
 
-桌面模式下，应用 UI 现在通过本地 Unix socket 与后端通信，而不是直接走 HTTP API；同时内嵌 HTTP 服务会监听所有网卡地址，供外部直接访问。
+桌面模式下，应用 UI 按平台使用本地传输：
+
+- macOS / Linux：本地 Unix socket
+- Windows：内嵌本地 HTTP API
+
+同时内嵌 HTTP 服务会监听所有网卡地址，供外部直接访问。
 
 独立 HTTP 访问用于浏览器 / API 场景：
 

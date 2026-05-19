@@ -1,7 +1,7 @@
 use plugin_sdk::ProviderManifest;
 use serde::Serialize;
 use sms_core::config::ServerConfig;
-use sms_core::models::RuntimeSettings;
+use sms_core::models::{RuntimeAccessInfo, RuntimeSettings};
 use sms_core::socket_api::SocketCommand;
 use sms_core::models::ProviderSummary;
 use sms_core::registry::ProviderRegistry;
@@ -11,6 +11,7 @@ use std::fs;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
+#[cfg(unix)]
 use tokio::net::UnixStream;
 use tauri::Emitter;
 use tauri::Manager;
@@ -523,6 +524,18 @@ async fn app_config_directory(app: tauri::AppHandle) -> Result<String, String> {
 }
 
 #[tauri::command]
+async fn desktop_http_access_info(app: tauri::AppHandle) -> Result<RuntimeAccessInfo, String> {
+    let service = app.state::<Arc<SmsService>>();
+    Ok(service.runtime_access_info(None))
+}
+
+#[tauri::command]
+async fn desktop_http_secret(app: tauri::AppHandle) -> Result<String, String> {
+    let service = app.state::<Arc<SmsService>>();
+    Ok(service.runtime_settings().http_secret)
+}
+
+#[tauri::command]
 async fn open_app_config_directory(app: tauri::AppHandle) -> Result<(), String> {
     let path = app
         .path()
@@ -572,6 +585,7 @@ async fn set_window_title(window: WebviewWindow, title: String) -> Result<(), St
 }
 
 #[tauri::command]
+#[cfg(unix)]
 async fn socket_request(
     app: tauri::AppHandle,
     command: String,
@@ -604,6 +618,16 @@ async fn socket_request(
         .map_err(|err| format!("read socket response failed: {err}"))?
         .ok_or_else(|| "socket response ended unexpectedly".to_string())?;
     serde_json::from_str(&line).map_err(|err| format!("parse socket response failed: {err}"))
+}
+
+#[tauri::command]
+#[cfg(not(unix))]
+async fn socket_request(
+    _app: tauri::AppHandle,
+    _command: String,
+    _payload: Option<serde_json::Value>,
+) -> Result<serde_json::Value, String> {
+    Err("socket transport is only available on Unix desktop runtimes".to_string())
 }
 
 fn socket_command_from_payload(
@@ -780,6 +804,8 @@ pub fn run() {
             reload_provider_registry,
             refresh_menu_bar,
             app_config_directory,
+            desktop_http_access_info,
+            desktop_http_secret,
             open_app_config_directory,
             window_action,
             set_window_title,

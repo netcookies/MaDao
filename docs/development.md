@@ -216,7 +216,8 @@ npm run check:openapi-sync
 
 桌面模式下：
 
-- UI 通过本地 socket 与后端通信
+- macOS / Linux：UI 通过本地 socket 与后端通信
+- Windows：UI 通过内嵌本地 HTTP API 与后端通信
 - 内嵌 HTTP 服务监听所有网卡地址，供外部直接访问
 
 ## Tauri / UI 现状

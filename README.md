@@ -123,7 +123,12 @@ Docker mode uses:
 - Backend HTTP inside compose: `daemon:7822`
 - Runtime config dir inside container: `/var/lib/madao`
 
-In desktop mode, the app UI now talks to the backend through the local Unix socket path instead of direct HTTP API calls, while the embedded HTTP service listens on all interfaces for direct external access.
+In desktop mode, the app UI uses platform-specific local transport:
+
+- macOS / Linux: local Unix socket
+- Windows: embedded local HTTP API
+
+The embedded HTTP service still listens on all interfaces for direct external access.
 
 Direct HTTP access is intended for authenticated browser / API usage:
 

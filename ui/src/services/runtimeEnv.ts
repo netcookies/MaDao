@@ -20,6 +20,11 @@ function detectTauriRuntime() {
   return typeof window !== 'undefined' && '__TAURI_INTERNALS__' in window;
 }
 
+function detectWindowsRuntime() {
+  if (typeof navigator === 'undefined') return false;
+  return /windows/i.test(navigator.userAgent);
+}
+
 const runtimeMode = normalizeMode(runtimeEnv.VITE_RUNTIME_MODE)
   ?? (detectTauriRuntime() ? 'desktop' : 'web');
 
@@ -51,6 +56,8 @@ function resolveApiBase() {
 export const RUNTIME_MODE: RuntimeMode = runtimeMode;
 export const IS_DESKTOP_RUNTIME = runtimeMode === 'desktop';
 export const IS_WEB_RUNTIME = runtimeMode === 'web';
+export const IS_WINDOWS_DESKTOP_RUNTIME = IS_DESKTOP_RUNTIME && detectWindowsRuntime();
+export const USE_SOCKET_TRANSPORT = IS_DESKTOP_RUNTIME && !IS_WINDOWS_DESKTOP_RUNTIME;
 export const API_BASE = resolveApiBase();
 export const SOCKET_PATH = runtimeEnv.VITE_SOCKET_PATH?.trim() || '/tmp/madao-sms.sock';
 export const CONFIG_DIRECTORY = runtimeEnv.VITE_CONFIG_DIRECTORY?.trim()

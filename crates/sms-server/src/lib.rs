@@ -2,6 +2,7 @@ use axum::extract::{Path, State};
 use axum::http::{HeaderMap, HeaderValue, StatusCode, header};
 use axum::routing::{get, post};
 use axum::{Json, Router, response::IntoResponse};
+#[cfg(unix)]
 use anyhow::Context;
 #[cfg(unix)]
 use sms_core::socket_api::SocketCommand;
