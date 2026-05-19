@@ -69,6 +69,16 @@ export function normalizeOperatorOptions(options: OptionItem[]) {
   return [...merged.values()];
 }
 
+export function operatorCountryCacheKey(country: string | null | undefined) {
+  return (country ?? '')
+    .trim()
+    .replace(/[\/_-]/g, ' ')
+    .split(/\s+/)
+    .filter(Boolean)
+    .join(' ')
+    .toLowerCase();
+}
+
 export function formatOperatorLabel(operator: string, language: LanguageCode = 'en') {
   const normalized = operator.trim().toLowerCase();
   if (!normalized) return '';

@@ -75,6 +75,7 @@ import {
   buildOptionCatalog,
   filterCatalogItems,
   formatOperatorLabel,
+  operatorCountryCacheKey,
 } from './app/utils';
 import {
   selectorOptionFromCatalogItem,
@@ -1206,19 +1207,78 @@ export function App() {
       return;
     }
 
-    let liveOperatorOptions: SelectorOptionViewModel[] = [];
-    if (providerId && providerId !== ANY_PROVIDER_VALUE) {
-      try {
-        const operatorCountry = routingItemEditor?.itemId === itemId
-          ? routingItemEditor.country
-          : item.country;
-        const priceService = plan.service || visibleProviders.find((provider) => provider.id === providerId)?.defaults.service;
-        let priceDerivedOperatorOptions: SelectorOptionViewModel[] = [];
-        if (priceService?.trim()) {
-          const priceResponse = await fetchProviderPrices(providerId, priceService, {
-            country: operatorCountry.trim() ? operatorCountry : undefined,
-          });
-          priceDerivedOperatorOptions = dedupeSelectorOptions(
+    const operatorCountry = routingItemEditor?.itemId === itemId
+      ? routingItemEditor.country
+      : item.country;
+    const countryKey = operatorCountryCacheKey(operatorCountry);
+    const cachedOperators = providerId && providerId !== ANY_PROVIDER_VALUE
+      ? (countryKey
+        ? providerOptions[providerId]?.operators_by_country?.[countryKey]?.operators
+        : providerOptions[providerId]?.operators)
+      : undefined;
+    const cachedOperatorOptions = (cachedOperators ?? [])
+      .filter((option) => {
+        const value = option.value.trim().toLowerCase();
+        return value !== '' && value !== 'any' && value !== 'default';
+      })
+      .map((option) => selectorOptionFromOptionItem({
+        option: {
+          ...option,
+          label: formatOperatorLabel(option.value, language),
+        },
+        language,
+        providerId,
+      }));
+    const routingPriceOperatorOptions = routingItemPriceOptions.length > 0
+      ? dedupeSelectorOptions(
+        routingItemPriceOptions
+          .filter((entry) => {
+            const value = entry.operator.trim().toLowerCase();
+            return value !== '' && value !== 'any' && value !== 'default';
+          })
+          .map((entry) => selectorOptionFromOptionItem({
+            option: {
+              value: entry.operator,
+              label: entry.operator_label ?? entry.operator,
+              hint: 'price-derived',
+              provider_value: entry.provider_operator ?? entry.operator,
+            },
+            language,
+            providerId,
+          })),
+      )
+      : [];
+
+    setSelectorState({
+      kind: 'routing-item-operator',
+      title: t('Select Candidate Carrier'),
+      options: dedupeSelectorOptions([
+        selectorOptionFromOptionItem({
+          option: anyRouteOperatorOption,
+          language,
+          source: 'synthetic',
+          scope: 'single_provider',
+          isSynthetic: true,
+          syntheticKind: 'all_operators',
+        }),
+        ...cachedOperatorOptions,
+        ...routingPriceOperatorOptions,
+        ...filterCatalogItems(optionCatalog.operators, providerId).map((option) => selectorOptionFromCatalogItem({
+          item: option,
+          language,
+          providerId,
+        })),
+      ]),
+    });
+
+    if (!providerId || providerId === ANY_PROVIDER_VALUE) return;
+    const priceService = plan.service || visibleProviders.find((provider) => provider.id === providerId)?.defaults.service;
+    queueMicrotask(() => {
+      if (priceService?.trim()) {
+        void fetchProviderPrices(providerId, priceService, {
+          country: operatorCountry.trim() ? operatorCountry : undefined,
+        }).then((priceResponse) => {
+          const priceDerivedOperatorOptions = dedupeSelectorOptions(
             priceResponse.items
               .filter((entry) => {
                 const value = entry.operator.trim().toLowerCase();
@@ -1235,10 +1295,29 @@ export function App() {
                 providerId,
               })),
           );
-        }
-        const response = await fetchProviderOperators(providerId, {
-          country: operatorCountry.trim() ? operatorCountry : undefined,
-        });
+          setSelectorState((current) => current?.kind === 'routing-item-operator'
+            ? {
+              ...current,
+              options: dedupeSelectorOptions([
+                selectorOptionFromOptionItem({
+                  option: anyRouteOperatorOption,
+                  language,
+                  source: 'synthetic',
+                  scope: 'single_provider',
+                  isSynthetic: true,
+                  syntheticKind: 'all_operators',
+                }),
+                ...priceDerivedOperatorOptions,
+                ...(current.options.filter((option) => !option.isSynthetic)),
+              ]),
+            }
+            : current);
+        }).catch(() => {});
+      }
+
+      void fetchProviderOperators(providerId, {
+        country: operatorCountry.trim() ? operatorCountry : undefined,
+      }).then((response) => {
         const liveOperators = response.items
           .map((option) => ({
             ...option,
@@ -1248,94 +1327,55 @@ export function App() {
             const value = option.value.trim().toLowerCase();
             return value !== '' && value !== 'any' && value !== 'default';
           });
-        if (liveOperators.length > 0) {
-          setProviderOptions((current) => {
-            const existing = current[providerId];
-            if (!existing) return current;
-            return {
-              ...current,
-              [providerId]: {
-                ...existing,
-                raw_operators: liveOperators,
-                operators: liveOperators,
+        if (liveOperators.length === 0) return;
+        setProviderOptions((current) => {
+          const existing = current[providerId];
+          if (!existing) return current;
+          return {
+            ...current,
+            [providerId]: {
+              ...existing,
+              operators_by_country: {
+                ...(existing.operators_by_country ?? {}),
+                ...(countryKey
+                  ? {
+                    [countryKey]: {
+                      raw_operators: liveOperators,
+                      operators: liveOperators,
+                      fetched_at: new Date().toISOString(),
+                    },
+                  }
+                  : {}),
               },
-            };
-          });
-          liveOperatorOptions = dedupeSelectorOptions(
-            [
-              ...priceDerivedOperatorOptions,
+            },
+          };
+        });
+        setSelectorState((current) => current?.kind === 'routing-item-operator'
+          ? {
+            ...current,
+            options: dedupeSelectorOptions([
+              selectorOptionFromOptionItem({
+                option: anyRouteOperatorOption,
+                language,
+                source: 'synthetic',
+                scope: 'single_provider',
+                isSynthetic: true,
+                syntheticKind: 'all_operators',
+              }),
               ...liveOperators.map((option) => selectorOptionFromOptionItem({
                 option,
                 language,
                 providerId,
               })),
-            ],
-          );
-        } else {
-          liveOperatorOptions = priceDerivedOperatorOptions;
-        }
-      } catch {
-        if (routingItemPriceOptions.length > 0) {
-          liveOperatorOptions = dedupeSelectorOptions(
-            routingItemPriceOptions
-              .filter((entry) => {
-                const value = entry.operator.trim().toLowerCase();
-                return value !== '' && value !== 'any' && value !== 'default';
-              })
-              .map((entry) => selectorOptionFromOptionItem({
-                option: {
-                  value: entry.operator,
-                  label: entry.operator_label ?? entry.operator,
-                  hint: 'price-derived',
-                  provider_value: entry.provider_operator ?? entry.operator,
-                },
+              ...filterCatalogItems(optionCatalog.operators, providerId).map((option) => selectorOptionFromCatalogItem({
+                item: option,
                 language,
                 providerId,
               })),
-          );
-        }
-      }
-    }
-
-    const routingPriceOperatorOptions = liveOperatorOptions.length > 0
-      ? liveOperatorOptions
-      : dedupeSelectorOptions(
-        routingItemPriceOptions
-          .filter((entry) => {
-            const value = entry.operator.trim().toLowerCase();
-            return value !== '' && value !== 'any' && value !== 'default';
-          })
-          .map((entry) => selectorOptionFromOptionItem({
-            option: {
-              value: entry.operator,
-              label: entry.operator_label ?? entry.operator,
-              hint: 'price-derived',
-              provider_value: entry.provider_operator ?? entry.operator,
-            },
-            language,
-            providerId,
-          })),
-      );
-
-    setSelectorState({
-      kind: 'routing-item-operator',
-      title: t('Select Candidate Carrier'),
-      options: dedupeSelectorOptions([
-        selectorOptionFromOptionItem({
-          option: anyRouteOperatorOption,
-          language,
-          source: 'synthetic',
-          scope: 'single_provider',
-          isSynthetic: true,
-          syntheticKind: 'all_operators',
-        }),
-        ...routingPriceOperatorOptions,
-        ...filterCatalogItems(optionCatalog.operators, providerId).map((option) => selectorOptionFromCatalogItem({
-          item: option,
-          language,
-          providerId,
-        })),
-      ]),
+            ]),
+          }
+          : current);
+      }).catch(() => {});
     });
   }
 
@@ -1409,6 +1449,42 @@ export function App() {
           ...item,
           country: commitValue,
         }));
+      }
+      const nextProviderId = routingEditorState.providerId;
+      if (nextProviderId && nextProviderId !== ANY_PROVIDER_VALUE && commitValue) {
+        void fetchProviderOperators(nextProviderId, { country: commitValue })
+          .then((response) => {
+            const liveOperators = response.items
+              .map((option) => ({
+                ...option,
+                label: formatOperatorLabel(option.value, language),
+              }))
+              .filter((option) => {
+                const value = option.value.trim().toLowerCase();
+                return value !== '' && value !== 'any' && value !== 'default';
+              });
+            if (liveOperators.length === 0) return;
+            const nextCountryKey = operatorCountryCacheKey(commitValue);
+            setProviderOptions((current) => {
+              const existing = current[nextProviderId];
+              if (!existing || !nextCountryKey) return current;
+              return {
+                ...current,
+                [nextProviderId]: {
+                  ...existing,
+                  operators_by_country: {
+                    ...(existing.operators_by_country ?? {}),
+                    [nextCountryKey]: {
+                      raw_operators: liveOperators,
+                      operators: liveOperators,
+                      fetched_at: new Date().toISOString(),
+                    },
+                  },
+                },
+              };
+            });
+          })
+          .catch(() => {});
       }
     } else if (field === 'operator') {
       if (source === 'editor') {

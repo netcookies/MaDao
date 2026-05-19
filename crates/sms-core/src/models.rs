@@ -185,7 +185,19 @@ pub struct ProviderDynamicOptions {
     pub countries: Vec<OptionItem>,
     pub operators: Vec<OptionItem>,
     #[serde(default)]
+    pub operators_by_country: BTreeMap<String, ProviderCountryOperatorOptions>,
+    #[serde(default)]
     pub cache_state: OptionCacheState,
+    #[serde(default)]
+    pub fetched_at: Option<DateTime<Utc>>,
+}
+
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+pub struct ProviderCountryOperatorOptions {
+    #[serde(default)]
+    pub raw_operators: Vec<OptionItem>,
+    #[serde(default)]
+    pub operators: Vec<OptionItem>,
     #[serde(default)]
     pub fetched_at: Option<DateTime<Utc>>,
 }

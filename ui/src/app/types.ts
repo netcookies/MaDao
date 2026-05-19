@@ -225,6 +225,11 @@ export type ProviderDynamicOptions = {
   services: OptionItem[];
   countries: OptionItem[];
   operators: OptionItem[];
+  operators_by_country?: Record<string, {
+    raw_operators?: OptionItem[];
+    operators: OptionItem[];
+    fetched_at?: string | null;
+  }>;
   cache_state?: OptionCacheState;
   fetched_at?: string | null;
 };

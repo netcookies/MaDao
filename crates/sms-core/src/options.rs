@@ -4,9 +4,9 @@ use crate::canonical_data::{
 };
 use crate::error::SmsError;
 use crate::models::{
-    OptionCacheOverview, OptionCacheState, OptionItem, ProviderDynamicOptions,
-    ProviderOptionCacheEntry, ProviderPriceItem, ProviderRawOptionAuditEntry, RuntimeSettings,
-    TicketRecord,
+    OptionCacheOverview, OptionCacheState, OptionItem, ProviderCountryOperatorOptions,
+    ProviderDynamicOptions, ProviderOptionCacheEntry, ProviderPriceItem,
+    ProviderRawOptionAuditEntry, RuntimeSettings, TicketRecord,
 };
 use chrono::{DateTime, Duration, Utc};
 use plugin_sdk::ProviderManifest;
@@ -49,6 +49,25 @@ pub fn normalize_loaded_provider_options(
     if options.raw_operators.is_empty() {
         options.raw_operators = options.operators.clone();
     }
+    options.operators_by_country = options
+        .operators_by_country
+        .into_iter()
+        .map(|(country, entry)| {
+            let raw_operators = if entry.raw_operators.is_empty() {
+                entry.operators.clone()
+            } else {
+                entry.raw_operators
+            };
+            (
+                operator_country_cache_key(Some(&country)).unwrap_or(country),
+                ProviderCountryOperatorOptions {
+                    operators: normalize_operator_options(raw_operators.clone()),
+                    raw_operators,
+                    fetched_at: entry.fetched_at,
+                },
+            )
+        })
+        .collect();
     normalize_provider_options(manifest, options, fetched_at)
 }
 
@@ -182,10 +201,37 @@ pub fn normalize_provider_options(
             })
             .collect(),
     );
-    raw.operators = dedup_options(
+    raw.operators = normalize_operator_options(raw_operators.clone());
+    raw.operators_by_country = raw
+        .operators_by_country
+        .into_iter()
+        .map(|(country, entry)| {
+            (
+                operator_country_cache_key(Some(&country)).unwrap_or(country),
+                ProviderCountryOperatorOptions {
+                    raw_operators: entry.raw_operators.clone(),
+                    operators: normalize_operator_options(if entry.raw_operators.is_empty() {
+                        entry.operators.clone()
+                    } else {
+                        entry.raw_operators
+                    }),
+                    fetched_at: entry.fetched_at.or(Some(fetched_at)),
+                },
+            )
+        })
+        .collect();
+    raw.raw_services = raw_services;
+    raw.raw_countries = raw_countries;
+    raw.raw_operators = raw_operators;
+    raw.fetched_at = Some(fetched_at);
+    raw.cache_state = OptionCacheState::Fresh;
+    raw.provider = manifest.id.clone();
+    raw
+}
+
+pub fn normalize_operator_options(raw_operators: Vec<OptionItem>) -> Vec<OptionItem> {
+    dedup_options(
         raw_operators
-            .iter()
-            .cloned()
             .into_iter()
             .map(|item| {
                 let raw_value = item
@@ -203,14 +249,7 @@ pub fn normalize_provider_options(
                 }
             })
             .collect(),
-    );
-    raw.raw_services = raw_services;
-    raw.raw_countries = raw_countries;
-    raw.raw_operators = raw_operators;
-    raw.fetched_at = Some(fetched_at);
-    raw.cache_state = OptionCacheState::Fresh;
-    raw.provider = manifest.id.clone();
-    raw
+    )
 }
 
 pub fn normalize_price_items(
@@ -314,6 +353,46 @@ pub fn resolve_provider_value(
                 .and_then(|item| item.provider_value.clone())
         })
         .unwrap_or_else(|| canonical_value.to_string())
+}
+
+pub fn resolve_provider_operator_value(
+    options: Option<&ProviderDynamicOptions>,
+    canonical_value: &str,
+    country: Option<&str>,
+) -> String {
+    let canonical = normalize_token(canonical_value);
+    if canonical.is_empty() {
+        return String::new();
+    }
+
+    operator_items_for_country(options, country)
+        .into_iter()
+        .flatten()
+        .chain(
+            options
+                .map(|item| item.operators.iter())
+                .into_iter()
+                .flatten(),
+        )
+        .find(|item| normalize_token(&item.value) == canonical)
+        .and_then(|item| item.provider_value.clone())
+        .unwrap_or_else(|| canonical_value.to_string())
+}
+
+pub fn operator_country_cache_key(country: Option<&str>) -> Option<String> {
+    country
+        .map(normalize_token)
+        .filter(|value| !value.is_empty())
+}
+
+pub fn operator_items_for_country<'a>(
+    options: Option<&'a ProviderDynamicOptions>,
+    country: Option<&str>,
+) -> Option<&'a Vec<OptionItem>> {
+    let key = operator_country_cache_key(country)?;
+    options
+        .and_then(|item| item.operators_by_country.get(&key))
+        .map(|entry| &entry.operators)
 }
 
 pub fn build_cache_overview(
@@ -641,13 +720,16 @@ fn title_case_token(input: &str) -> String {
 mod tests {
     use super::{
         canonical_country_value, canonical_service_value, normalize_loaded_provider_options,
-        normalize_ticket_record,
+        normalize_ticket_record, resolve_provider_operator_value,
     };
     use crate::models::ProviderRawOptionAuditEntry;
-    use crate::models::{OptionItem, ProviderDynamicOptions, TicketRecord};
+    use crate::models::{
+        OptionItem, ProviderCountryOperatorOptions, ProviderDynamicOptions, TicketRecord,
+    };
     use plugin_sdk::{ProviderDefaults, ProviderKind, ProviderManifest};
     use serde::Deserialize;
     use std::collections::{BTreeMap, BTreeSet};
+    use chrono::Utc;
     use std::fs;
     use std::path::PathBuf;
 
@@ -728,6 +810,7 @@ mod tests {
                 provider_icon_url: None,
             }],
             operators: Vec::new(),
+            operators_by_country: BTreeMap::new(),
             cache_state: crate::models::OptionCacheState::Fresh,
             fetched_at: None,
         };
@@ -783,6 +866,7 @@ mod tests {
                 provider_icon_url: None,
             }],
             operators: Vec::new(),
+            operators_by_country: BTreeMap::new(),
             cache_state: crate::models::OptionCacheState::Fresh,
             fetched_at: None,
         };
@@ -799,6 +883,59 @@ mod tests {
         let normalized = normalize_ticket_record(&manifest, Some(&options), ticket);
         assert_eq!(normalized.service, "openai");
         assert_eq!(normalized.country, "usa");
+    }
+
+    #[test]
+    fn resolve_provider_operator_value_prefers_country_specific_cache() {
+        let options = ProviderDynamicOptions {
+            provider: "test".to_string(),
+            raw_services: Vec::new(),
+            raw_countries: Vec::new(),
+            raw_operators: Vec::new(),
+            services: Vec::new(),
+            countries: Vec::new(),
+            operators: vec![OptionItem {
+                value: "verizon".to_string(),
+                label: "Verizon".to_string(),
+                hint: String::new(),
+                provider_value: Some("global-verizon".to_string()),
+                icon_url: None,
+                provider_icon_url: None,
+            }],
+            operators_by_country: BTreeMap::from([(
+                "usa".to_string(),
+                ProviderCountryOperatorOptions {
+                    raw_operators: vec![OptionItem {
+                        value: "verizon".to_string(),
+                        label: "Verizon".to_string(),
+                        hint: String::new(),
+                        provider_value: Some("us-verizon".to_string()),
+                        icon_url: None,
+                        provider_icon_url: None,
+                    }],
+                    operators: vec![OptionItem {
+                        value: "verizon".to_string(),
+                        label: "Verizon".to_string(),
+                        hint: String::new(),
+                        provider_value: Some("us-verizon".to_string()),
+                        icon_url: None,
+                        provider_icon_url: None,
+                    }],
+                    fetched_at: Some(Utc::now()),
+                },
+            )]),
+            cache_state: crate::models::OptionCacheState::Fresh,
+            fetched_at: None,
+        };
+
+        assert_eq!(
+            resolve_provider_operator_value(Some(&options), "verizon", Some("usa")),
+            "us-verizon"
+        );
+        assert_eq!(
+            resolve_provider_operator_value(Some(&options), "verizon", Some("canada")),
+            "global-verizon"
+        );
     }
 
     #[derive(Deserialize)]

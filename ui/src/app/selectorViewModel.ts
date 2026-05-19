@@ -20,6 +20,7 @@ type BuildOptionArgs = {
   providers?: string[];
   isSynthetic?: boolean;
   syntheticKind?: SelectorOptionViewModel['syntheticKind'];
+  isDisabled?: boolean;
 };
 
 function buildPresentation(resourceKind: ResourceKind | undefined, option: OptionItem, language: 'en' | 'zh') {
@@ -69,7 +70,7 @@ export function buildSelectorOptionViewModel(args: BuildOptionArgs): SelectorOpt
     option: args.option,
     isSynthetic: args.isSynthetic,
     syntheticKind: args.syntheticKind,
-    isDisabled: false,
+    isDisabled: args.isDisabled ?? false,
   };
 }
 

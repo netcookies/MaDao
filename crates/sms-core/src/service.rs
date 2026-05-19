@@ -14,8 +14,9 @@ use crate::models::{
 use crate::options::{
     OptionKind, ProviderOptionCacheStore, ProviderRawOptionAuditStore, build_cache_overview,
     cache_state, load_option_cache_store, load_raw_option_audit_store,
-    normalize_loaded_provider_options, normalize_price_items, normalize_provider_options,
-    normalize_ticket_record, resolve_provider_value, save_option_cache_store,
+    normalize_loaded_provider_options, normalize_operator_options, normalize_price_items,
+    normalize_provider_options, normalize_ticket_record, operator_country_cache_key,
+    resolve_provider_operator_value, resolve_provider_value, save_option_cache_store,
     save_raw_option_audit_store, with_cache_state,
 };
 use crate::registry::ProviderRegistry;
@@ -974,10 +975,10 @@ impl SmsService {
             if trimmed.is_empty() {
                 None
             } else {
-                Some(resolve_provider_value(
+                Some(resolve_provider_operator_value(
                     cached_options.as_ref().map(|entry| &entry.options),
-                    OptionKind::Operator,
                     trimmed,
+                    query.country.as_deref(),
                 ))
             }
         });
@@ -1079,17 +1080,59 @@ impl SmsService {
             .entries
             .get(provider_id)
             .cloned();
+        let mut canonical_country_key = None;
         if let Some(country) = query.country.as_ref().and_then(|value| {
             let trimmed = value.trim();
             if trimmed.is_empty() { None } else { Some(trimmed.to_string()) }
         }) {
+            let country_key = operator_country_cache_key(Some(&country));
+            canonical_country_key = country_key.clone();
+            let settings = self.runtime_settings();
+            if settings.option_cache_enabled {
+                if let Some((items, fetched_at)) = cached_options
+                    .as_ref()
+                    .and_then(|entry| {
+                        country_key.as_ref().and_then(|key| {
+                            entry.options
+                                .operators_by_country
+                                .get(key)
+                                .map(|operators| (operators.operators.clone(), operators.fetched_at))
+                        })
+                    })
+                {
+                    if cache_state(fetched_at, &settings) == OptionCacheState::Fresh {
+                        return Ok(OptionListResponse {
+                            provider: provider_id.to_string(),
+                            items,
+                        });
+                    }
+                }
+            }
             query.country = Some(resolve_provider_value(
                 cached_options.as_ref().map(|entry| &entry.options),
                 OptionKind::Country,
                 &country,
             ));
         }
-        let items = provider.list_operators(query).await?;
+        let raw_items = provider.list_operators(query.clone()).await?;
+        let items = normalize_operator_options(raw_items.clone());
+        if let Some(country_key) = canonical_country_key {
+            let fetched_at = Utc::now();
+            let mut store = self.provider_option_cache.write();
+            if let Some(entry) = store.entries.get_mut(provider_id) {
+                entry.options.operators_by_country.insert(
+                    country_key,
+                    crate::models::ProviderCountryOperatorOptions {
+                        raw_operators: raw_items,
+                        operators: items.clone(),
+                        fetched_at: Some(fetched_at),
+                    },
+                );
+                if let Some(path) = &self.provider_options_path {
+                    let _ = save_option_cache_store(path, &store);
+                }
+            }
+        }
         Ok(OptionListResponse {
             provider: provider_id.to_string(),
             items,
@@ -1415,7 +1458,7 @@ impl SmsService {
             .await?;
 
         let services = if matches!(manifest.kind, plugin_sdk::ProviderKind::FiveSim) {
-            match country_seed {
+            match country_seed.as_ref() {
                 Some(country) => {
                     let operator_seeds = {
                         let seeds = operators
@@ -1458,6 +1501,11 @@ impl SmsService {
                 .list_services(ProviderServicesQuery::default())
                 .await?
         };
+        let default_operators = if operators.is_empty() {
+            vec![default_operator_option(&manifest)]
+        } else {
+            operators.clone()
+        };
 
         Ok(ProviderDynamicOptions {
             provider: provider_id.to_string(),
@@ -1474,11 +1522,21 @@ impl SmsService {
             } else {
                 countries
             },
-            operators: if operators.is_empty() {
-                vec![default_operator_option(&manifest)]
-            } else {
-                operators
-            },
+            operators: default_operators.clone(),
+            operators_by_country: country_seed
+                .as_ref()
+                .and_then(|country| operator_country_cache_key(Some(country)).map(|key| (country, key)))
+                .map(|(_, key)| {
+                    BTreeMap::from([(
+                        key,
+                        crate::models::ProviderCountryOperatorOptions {
+                            raw_operators: default_operators.clone(),
+                            operators: Vec::new(),
+                            fetched_at: None,
+                        },
+                    )])
+                })
+                .unwrap_or_default(),
             cache_state: OptionCacheState::Fresh,
             fetched_at: None,
         })
@@ -2827,6 +2885,7 @@ mod tests {
                         }],
                         countries: Vec::new(),
                         operators: Vec::new(),
+                        operators_by_country: BTreeMap::new(),
                         cache_state: crate::models::OptionCacheState::Fresh,
                         fetched_at: Some(Utc::now()),
                     },
@@ -2852,6 +2911,85 @@ mod tests {
                 && entry.message.contains("get_prices")
                 && entry.message.contains("service=dr")
         }));
+    }
+
+    #[tokio::test]
+    async fn list_provider_operators_prefers_fresh_country_cache() {
+        let service = make_service();
+        {
+            let mut cache = service.provider_option_cache.write();
+            cache.entries.insert(
+                "mock".to_string(),
+                ProviderOptionCacheEntry {
+                    provider: "mock".to_string(),
+                    fetched_at: Utc::now(),
+                    options: ProviderDynamicOptions {
+                        provider: "mock".to_string(),
+                        raw_services: Vec::new(),
+                        raw_countries: Vec::new(),
+                        raw_operators: Vec::new(),
+                        services: Vec::new(),
+                        countries: vec![OptionItem {
+                            value: "usa".to_string(),
+                            label: "United States".to_string(),
+                            hint: "50".to_string(),
+                            provider_value: Some("usa".to_string()),
+                            icon_url: None,
+                            provider_icon_url: None,
+                        }],
+                        operators: vec![OptionItem {
+                            value: "fallback".to_string(),
+                            label: "Fallback".to_string(),
+                            hint: String::new(),
+                            provider_value: Some("fallback".to_string()),
+                            icon_url: None,
+                            provider_icon_url: None,
+                        }],
+                        operators_by_country: BTreeMap::from([(
+                            "usa".to_string(),
+                            crate::models::ProviderCountryOperatorOptions {
+                                raw_operators: vec![OptionItem {
+                                    value: "cached-carrier".to_string(),
+                                    label: "Cached Carrier".to_string(),
+                                    hint: String::new(),
+                                    provider_value: Some("cached-carrier".to_string()),
+                                    icon_url: None,
+                                    provider_icon_url: None,
+                                }],
+                                operators: vec![OptionItem {
+                                    value: "cached carrier".to_string(),
+                                    label: "Cached Carrier".to_string(),
+                                    hint: String::new(),
+                                    provider_value: Some("cached-carrier".to_string()),
+                                    icon_url: None,
+                                    provider_icon_url: None,
+                                }],
+                                fetched_at: Some(Utc::now()),
+                            },
+                        )]),
+                        cache_state: crate::models::OptionCacheState::Fresh,
+                        fetched_at: Some(Utc::now()),
+                    },
+                },
+            );
+        }
+
+        let response = service
+            .list_provider_operators(
+                "mock",
+                ProviderOperatorsQuery {
+                    country: Some("usa".to_string()),
+                },
+            )
+            .await
+            .unwrap();
+
+        assert_eq!(response.items.len(), 1);
+        assert_eq!(response.items[0].value, "cached carrier");
+        assert_eq!(
+            response.items[0].provider_value.as_deref(),
+            Some("cached-carrier")
+        );
     }
 
     #[test]
