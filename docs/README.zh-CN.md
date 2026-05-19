@@ -147,6 +147,7 @@ curl http://127.0.0.1:7822/api/provider-manifests
 
 - [Architecture](./architecture.md)
 - [API 联动指南](./api-integration.md)
+- [OpenAPI / Swagger UI](./openapi/index.html)
 - [Provider 协议兼容说明](./providers.md)
 - [Routing Plans](./routing-plans.md)
 - [开发与验证说明](./development.md)

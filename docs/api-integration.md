@@ -23,6 +23,15 @@ http://127.0.0.1:7822
 
 ## 常用接口
 
+鉴权说明：
+
+- `GET /health`、`GET /auth/status`、`GET /auth/check`、`POST /auth/login`、`POST /auth/logout`、`GET /api/access-info` 为公开端点
+- 其余大多数 `/api/*` 端点需要鉴权
+- 推荐脚本 / 服务端调用方式：`Authorization: Bearer <http_secret>`
+- 另一种方式是先 `POST /auth/login`，再复用返回的 `madao_http_session` cookie
+
+完整机器可读规范见 [docs/openapi/daemon.openapi.yaml](openapi/daemon.openapi.yaml)。
+
 ### 运行时与配置
 
 - `GET /health`
@@ -57,6 +66,7 @@ http://127.0.0.1:7822
 
 ```bash
 curl -X POST http://127.0.0.1:7822/api/acquire \
+  -H 'Authorization: Bearer YOUR_HTTP_SECRET' \
   -H 'Content-Type: application/json' \
   -d '{
     "provider": "mock",
@@ -81,6 +91,7 @@ curl -X POST http://127.0.0.1:7822/api/acquire \
 
 ```bash
 curl -X POST http://127.0.0.1:7822/api/poll \
+  -H 'Authorization: Bearer YOUR_HTTP_SECRET' \
   -H 'Content-Type: application/json' \
   -d '{
     "ticket_id": "0196c7c5-4c44-7e8a-a73f-0fe476df3e89"
@@ -91,6 +102,7 @@ curl -X POST http://127.0.0.1:7822/api/poll \
 
 ```bash
 curl -X POST http://127.0.0.1:7822/api/release \
+  -H 'Authorization: Bearer YOUR_HTTP_SECRET' \
   -H 'Content-Type: application/json' \
   -d '{
     "ticket_id": "0196c7c5-4c44-7e8a-a73f-0fe476df3e89",
@@ -104,6 +116,7 @@ curl -X POST http://127.0.0.1:7822/api/release \
 
 ```bash
 curl -X POST http://127.0.0.1:7822/api/tickets/0196c7c5-4c44-7e8a-a73f-0fe476df3e89/callbacks \
+  -H 'Authorization: Bearer YOUR_HTTP_SECRET' \
   -H 'Content-Type: application/json' \
   -d '{
     "url": "https://example.com/madao/callback",

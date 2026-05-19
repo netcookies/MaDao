@@ -31,6 +31,8 @@ git init
 ## 补充文档
 
 - app / daemon API 联动见 [docs/api-integration.md](api-integration.md)
+- daemon OpenAPI 规范见 [docs/openapi/daemon.openapi.yaml](openapi/daemon.openapi.yaml)
+- Swagger UI 静态页入口见 [docs/openapi/index.html](openapi/index.html)
 - 接入更多服务商与代码贡献见 [CONTRIBUTING.md](/Users/isulewli/Projects/MaDao/CONTRIBUTING.md)
 - 自动化多平台发布见 [docs/release.md](release.md)
 
@@ -47,6 +49,7 @@ cargo test -p sms-core
 
 ```bash
 npm run build
+npm run check:openapi-sync
 ```
 
 如果你要以浏览器模式本地联调前端：
@@ -161,6 +164,55 @@ curl http://127.0.0.1:8080/api/provider-manifests
 - `docker compose up -d`
 - `daemon` 健康检查通过
 - `web -> daemon` 反向代理链路正常
+
+## OpenAPI / Swagger UI
+
+仓库内已维护 daemon API 的 OpenAPI 规范：
+
+```text
+docs/openapi/daemon.openapi.yaml
+```
+
+本地校验：
+
+```bash
+npm run check:openapi-sync
+```
+
+该检查会核对：
+
+- OpenAPI 中是否包含当前所有 daemon HTTP 路由
+- 路由总数是否与 `crates/sms-server/src/lib.rs` 一致
+
+这不是完整语义校验，但能阻止“加了路由却忘了更新 OpenAPI”的最常见漂移。
+
+### 免费托管部署
+
+当前仓库已内置 GitHub Pages 自动部署 workflow：
+
+```text
+.github/workflows/openapi-pages.yml
+```
+
+它会在 `main` 分支的 OpenAPI 文档变更后，把以下静态资源部署到 GitHub Pages：
+
+- `docs/openapi/index.html`
+- `docs/openapi/swagger-initializer.js`
+- `docs/openapi/daemon.openapi.yaml`
+
+由于这套 Swagger UI 是纯静态文件，因此也可以直接部署到 Cloudflare Pages：
+
+- Framework preset：`None`
+- Build command：留空，或使用一个空命令
+- Output directory：`docs/openapi`
+
+如果后续你想把 Cloudflare Pages 也接成自动发布，只需要再补：
+
+- `CLOUDFLARE_API_TOKEN`
+- `CLOUDFLARE_ACCOUNT_ID`
+- 可选的 `wrangler` / Pages deploy workflow
+
+当前仓库默认先接入的是 GitHub Pages，因为它不需要额外依赖和外部密钥，维护成本最低。
 
 桌面模式下：
 

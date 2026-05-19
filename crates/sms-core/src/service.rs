@@ -2375,8 +2375,8 @@ mod tests {
     };
     use crate::options::ProviderRawOptionAuditStore;
     use crate::registry::ProviderRegistry;
-    use axum::extract::State;
-    use axum::routing::post;
+    use axum::extract::{Query, State};
+    use axum::routing::{get, post};
     use axum::{Json, Router};
     use std::fs;
     use std::net::SocketAddr;
@@ -2408,6 +2408,21 @@ mod tests {
 
     fn make_service() -> SmsService {
         let provider_dir = fixture_provider_dir();
+        let registry = ProviderRegistry::load_from_dir(provider_dir).unwrap();
+        SmsService::new(registry, 32)
+    }
+
+    fn make_service_with_provider_overrides(
+        overrides: &[(&str, impl Fn(&mut ProviderManifest))],
+    ) -> SmsService {
+        let provider_dir = fixture_provider_dir();
+        for (name, update) in overrides {
+            let path = provider_dir.join(format!("{name}.toml"));
+            let content = fs::read_to_string(&path).unwrap();
+            let mut manifest: ProviderManifest = toml::from_str(&content).unwrap();
+            update(&mut manifest);
+            fs::write(&path, toml::to_string_pretty(&manifest).unwrap()).unwrap();
+        }
         let registry = ProviderRegistry::load_from_dir(provider_dir).unwrap();
         SmsService::new(registry, 32)
     }
@@ -2851,7 +2866,48 @@ mod tests {
 
     #[tokio::test]
     async fn smsbower_prices_use_raw_service_code_when_cached_provider_value_is_numeric() {
-        let service = make_service();
+        #[derive(Clone, Default)]
+        struct PriceQueryState {
+            queries: Arc<parking_lot::Mutex<Vec<String>>>,
+        }
+
+        async fn get_prices_v3(
+            State(state): State<PriceQueryState>,
+            Query(query): Query<std::collections::HashMap<String, String>>,
+        ) -> Json<serde_json::Value> {
+            let service = query.get("service").cloned().unwrap_or_default();
+            state.queries.lock().push(service.clone());
+            Json(serde_json::json!({
+                "31": {
+                    "dr": {
+                        "247": {
+                            "price": "0.12",
+                            "count": "9"
+                        }
+                    }
+                }
+            }))
+        }
+
+        let price_state = PriceQueryState::default();
+        let router = Router::new()
+            .route("/stubs/handler_api.php", get(get_prices_v3))
+            .with_state(price_state.clone());
+        let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let addr: SocketAddr = listener.local_addr().unwrap();
+        let server = tokio::spawn(async move {
+            let _ = axum::serve(listener, router).await;
+        });
+
+        let base_url = format!("http://{addr}/stubs/handler_api.php");
+        let service = make_service_with_provider_overrides(&[(
+            "smsbower",
+            move |manifest| {
+                if let Some(config) = manifest.handler_api.as_mut() {
+                    config.base_url = base_url.clone();
+                }
+            },
+        )]);
         {
             let mut cache = service.provider_option_cache.write();
             cache.entries.insert(
@@ -2904,6 +2960,8 @@ mod tests {
             .unwrap();
 
         assert_eq!(response.service, "openai");
+        assert_eq!(response.items.len(), 1);
+        assert_eq!(price_state.queries.lock().as_slice(), ["dr"]);
 
         let logs = service.runtime_snapshot().logs;
         assert!(logs.iter().any(|entry| {
@@ -2911,6 +2969,8 @@ mod tests {
                 && entry.message.contains("get_prices")
                 && entry.message.contains("service=dr")
         }));
+
+        server.abort();
     }
 
     #[tokio::test]

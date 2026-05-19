@@ -562,8 +562,10 @@ async fn list_routing_plans(
 
 async fn get_routing_plan(
     State(state): State<ApiState>,
+    headers: HeaderMap,
     Path(plan_id): Path<String>,
 ) -> Result<Json<serde_json::Value>, (StatusCode, Json<ApiError>)> {
+    ensure_http_authenticated(&state, &headers)?;
     let result = state
         .service
         .routing_plan(&plan_id)
@@ -1103,6 +1105,73 @@ mod tests {
             .await
             .unwrap();
         assert_eq!(list_response.status(), StatusCode::OK);
+    }
+
+    #[tokio::test]
+    async fn routing_plan_detail_requires_login_over_http() {
+        let (app, secret) = test_context();
+        let cookie = login_cookie(&app, &secret).await;
+        let payload = json!({
+            "id": "openai-plan",
+            "name": "OpenAI Plan",
+            "service": "openai",
+            "enabled": true,
+            "execution_mode": "sequential",
+            "items": [
+                {
+                    "id": "mock-item",
+                    "provider": "mock",
+                    "country": "usa",
+                    "operator": "",
+                    "enabled": true,
+                    "price_mode": "fixed",
+                    "min_price": 0.1,
+                    "max_price": 0.1,
+                    "fixed_price": 0.1
+                }
+            ]
+        });
+
+        let save_response = app
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .method(Method::POST)
+                    .uri("/api/routing-plans")
+                    .header("cookie", &cookie)
+                    .header("content-type", "application/json")
+                    .body(Body::from(payload.to_string()))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(save_response.status(), StatusCode::OK);
+
+        let unauthorized_response = app
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .method(Method::GET)
+                    .uri("/api/routing-plans/openai-plan")
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(unauthorized_response.status(), StatusCode::UNAUTHORIZED);
+
+        let detail_response = app
+            .oneshot(
+                Request::builder()
+                    .method(Method::GET)
+                    .uri("/api/routing-plans/openai-plan")
+                    .header("cookie", &cookie)
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(detail_response.status(), StatusCode::OK);
     }
 
     #[tokio::test]

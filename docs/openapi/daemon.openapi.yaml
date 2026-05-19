@@ -1,0 +1,1903 @@
+openapi: 3.1.0
+info:
+  title: MaDao Daemon API
+  version: 0.1.7
+  description: |
+    当前 `MaDao` daemon 对外 HTTP API 的机器可读规范。
+
+    维护规则：
+    - 该文件必须与 `crates/sms-server/src/lib.rs` 中的实际路由保持同步。
+    - 新增、删除、修改 HTTP 路由或请求/响应结构时，必须同步更新本文件。
+    - 规范以当前代码真实行为为准，不按“理想设计”推断。
+servers:
+  - url: http://127.0.0.1:7822
+    description: Local daemon HTTP endpoint
+tags:
+  - name: auth
+  - name: runtime
+  - name: provider-manifests
+  - name: providers
+  - name: tickets
+  - name: routing
+  - name: settings
+  - name: notifications
+paths:
+  /health:
+    get:
+      tags: [runtime]
+      summary: Health check
+      operationId: health
+      responses:
+        '200':
+          description: Service is healthy
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                properties:
+                  status:
+                    type: string
+                    const: ok
+                required: [status]
+  /auth/status:
+    get:
+      tags: [auth]
+      summary: Get current authentication state
+      operationId: authStatus
+      responses:
+        '200':
+          description: Authentication state
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HttpAuthStatus'
+  /auth/check:
+    get:
+      tags: [auth]
+      summary: Check whether current request is authenticated
+      operationId: authCheck
+      responses:
+        '204':
+          description: Authenticated
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+  /auth/login:
+    post:
+      tags: [auth]
+      summary: Login with HTTP secret
+      operationId: authLogin
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/HttpAuthLoginRequest'
+      responses:
+        '200':
+          description: Authenticated and session cookie issued
+          headers:
+            Set-Cookie:
+              description: Session cookie `madao_http_session`
+              schema:
+                type: string
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HttpAuthStatus'
+        '401':
+          description: Invalid secret
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiError'
+  /auth/logout:
+    post:
+      tags: [auth]
+      summary: Logout current session
+      operationId: authLogout
+      responses:
+        '200':
+          description: Logged out
+          headers:
+            Set-Cookie:
+              description: Cleared session cookie
+              schema:
+                type: string
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HttpAuthStatus'
+  /api/access-info:
+    get:
+      tags: [runtime]
+      summary: Get HTTP access requirements
+      operationId: getAccessInfo
+      responses:
+        '200':
+          description: Runtime access configuration
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/RuntimeAccessInfo'
+  /api/providers:
+    get:
+      tags: [runtime]
+      summary: Get runtime snapshot
+      operationId: listRuntime
+      security:
+        - bearerAuth: []
+        - sessionCookie: []
+      responses:
+        '200':
+          description: Runtime snapshot
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/RuntimeSnapshot'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+  /api/provider-manifests:
+    get:
+      tags: [provider-manifests]
+      summary: List provider manifests
+      operationId: listProviderManifests
+      security:
+        - bearerAuth: []
+        - sessionCookie: []
+      responses:
+        '200':
+          description: Provider manifest list
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ProviderManifestList'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+  /api/provider-manifests/reload:
+    post:
+      tags: [provider-manifests]
+      summary: Reload provider manifests from disk
+      operationId: reloadProviderManifests
+      security:
+        - bearerAuth: []
+        - sessionCookie: []
+      responses:
+        '200':
+          description: Reload result
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ProviderManifestList'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+  /api/providers/reorder:
+    post:
+      tags: [providers]
+      summary: Reorder provider priorities
+      operationId: reorderProviders
+      security:
+        - bearerAuth: []
+        - sessionCookie: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ProviderReorderRequest'
+      responses:
+        '200':
+          description: Reorder result
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ProviderManifestList'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+  /api/notifications:
+    get:
+      tags: [notifications]
+      summary: List notification feed
+      operationId: getNotifications
+      security:
+        - bearerAuth: []
+        - sessionCookie: []
+      responses:
+        '200':
+          description: Notification feed
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/NotificationFeed'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+    post:
+      tags: [notifications]
+      summary: Clear notifications
+      operationId: clearNotifications
+      security:
+        - bearerAuth: []
+        - sessionCookie: []
+      responses:
+        '200':
+          description: Cleared notification feed
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/NotificationFeed'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+  /api/tickets:
+    get:
+      tags: [tickets]
+      summary: List tickets
+      operationId: listTickets
+      security:
+        - bearerAuth: []
+        - sessionCookie: []
+      responses:
+        '200':
+          description: Ticket list
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TicketListResponse'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+  /api/tickets/{ticket_id}:
+    get:
+      tags: [tickets]
+      summary: Get ticket detail
+      operationId: getTicket
+      security:
+        - bearerAuth: []
+        - sessionCookie: []
+      parameters:
+        - $ref: '#/components/parameters/TicketId'
+      responses:
+        '200':
+          description: Ticket detail
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TicketRecord'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+  /api/tickets/{ticket_id}/callbacks:
+    get:
+      tags: [tickets]
+      summary: List callback subscriptions for a ticket
+      operationId: listTicketCallbacks
+      security:
+        - bearerAuth: []
+        - sessionCookie: []
+      parameters:
+        - $ref: '#/components/parameters/TicketId'
+      responses:
+        '200':
+          description: Callback subscriptions
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TicketCallbackListResponse'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+    post:
+      tags: [tickets]
+      summary: Register callback subscription for a ticket
+      operationId: registerTicketCallback
+      security:
+        - bearerAuth: []
+        - sessionCookie: []
+      parameters:
+        - $ref: '#/components/parameters/TicketId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/TicketCallbackRegistrationRequest'
+      responses:
+        '200':
+          description: Registered subscription
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TicketCallbackSubscription'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+  /api/settings/runtime:
+    get:
+      tags: [settings]
+      summary: Get runtime settings
+      operationId: getRuntimeSettings
+      security:
+        - bearerAuth: []
+        - sessionCookie: []
+      responses:
+        '200':
+          description: Runtime settings
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/RuntimeSettings'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+    post:
+      tags: [settings]
+      summary: Update runtime settings
+      operationId: updateRuntimeSettings
+      security:
+        - bearerAuth: []
+        - sessionCookie: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/RuntimeSettingsUpdate'
+      responses:
+        '200':
+          description: Updated runtime settings
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/RuntimeSettings'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+  /api/settings/runtime/regenerate-secret:
+    post:
+      tags: [settings]
+      summary: Regenerate persisted HTTP secret
+      operationId: regenerateHttpSecret
+      security:
+        - bearerAuth: []
+        - sessionCookie: []
+      responses:
+        '200':
+          description: Updated runtime settings with new secret
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/RuntimeSettings'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+  /api/settings/option-cache:
+    get:
+      tags: [settings]
+      summary: Get option cache overview
+      operationId: getOptionCacheOverview
+      security:
+        - bearerAuth: []
+        - sessionCookie: []
+      responses:
+        '200':
+          description: Option cache overview
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/OptionCacheOverview'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+  /api/acquire:
+    post:
+      tags: [tickets]
+      summary: Acquire a new SMS activation
+      operationId: acquireCode
+      security:
+        - bearerAuth: []
+        - sessionCookie: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/AcquireCodeRequest'
+      responses:
+        '200':
+          description: Activation acquired
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AcquireCodeResponse'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+  /api/poll:
+    post:
+      tags: [tickets]
+      summary: Poll SMS code for a ticket
+      operationId: pollCode
+      security:
+        - bearerAuth: []
+        - sessionCookie: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/PollCodeRequest'
+      responses:
+        '200':
+          description: Poll result
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PollCodeResponse'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+  /api/release:
+    post:
+      tags: [tickets]
+      summary: Release or finish a ticket
+      operationId: releaseCode
+      security:
+        - bearerAuth: []
+        - sessionCookie: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ReleaseCodeRequest'
+      responses:
+        '200':
+          description: Release result
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ReleaseCodeResponse'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+  /api/routing/failover:
+    post:
+      tags: [routing]
+      summary: Trigger routing failover for a ticket
+      operationId: failoverRouting
+      security:
+        - bearerAuth: []
+        - sessionCookie: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/RoutingFailoverRequest'
+      responses:
+        '200':
+          description: Failover result
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AcquireCodeResponse'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+  /api/providers/{provider}/balance:
+    get:
+      tags: [providers]
+      summary: Get provider balance
+      operationId: getProviderBalance
+      security:
+        - bearerAuth: []
+        - sessionCookie: []
+      parameters:
+        - $ref: '#/components/parameters/ProviderId'
+      responses:
+        '200':
+          description: Provider balance
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ProviderBalance'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+  /api/providers/{provider}/prices:
+    post:
+      tags: [providers]
+      summary: Get provider prices
+      operationId: getProviderPrices
+      security:
+        - bearerAuth: []
+        - sessionCookie: []
+      parameters:
+        - $ref: '#/components/parameters/ProviderId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ProviderPriceQuery'
+      responses:
+        '200':
+          description: Provider price list
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ProviderPriceResponse'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+  /api/providers/{provider}/refresh-options:
+    post:
+      tags: [providers]
+      summary: Refresh provider dynamic options
+      operationId: refreshProviderOptions
+      security:
+        - bearerAuth: []
+        - sessionCookie: []
+      parameters:
+        - $ref: '#/components/parameters/ProviderId'
+      responses:
+        '200':
+          description: Refreshed dynamic options
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ProviderDynamicOptions'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+  /api/providers/{provider}/options-cache:
+    get:
+      tags: [providers]
+      summary: Get cached dynamic options for provider
+      operationId: getProviderOptionsCache
+      security:
+        - bearerAuth: []
+        - sessionCookie: []
+      parameters:
+        - $ref: '#/components/parameters/ProviderId'
+      responses:
+        '200':
+          description: Provider cached options
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ProviderDynamicOptions'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+  /api/providers/{provider}/countries:
+    get:
+      tags: [providers]
+      summary: List provider countries
+      operationId: getProviderCountries
+      security:
+        - bearerAuth: []
+        - sessionCookie: []
+      parameters:
+        - $ref: '#/components/parameters/ProviderId'
+      responses:
+        '200':
+          description: Country options
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/OptionListResponse'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+  /api/providers/{provider}/services:
+    post:
+      tags: [providers]
+      summary: List provider services
+      operationId: getProviderServices
+      security:
+        - bearerAuth: []
+        - sessionCookie: []
+      parameters:
+        - $ref: '#/components/parameters/ProviderId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ProviderServicesQuery'
+      responses:
+        '200':
+          description: Service options
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/OptionListResponse'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+  /api/providers/{provider}/operators:
+    post:
+      tags: [providers]
+      summary: List provider operators
+      operationId: getProviderOperators
+      security:
+        - bearerAuth: []
+        - sessionCookie: []
+      parameters:
+        - $ref: '#/components/parameters/ProviderId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ProviderOperatorsQuery'
+      responses:
+        '200':
+          description: Operator options
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/OptionListResponse'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+  /api/providers/{provider}/manifest:
+    get:
+      tags: [provider-manifests]
+      summary: Get provider manifest
+      operationId: getProviderManifest
+      security:
+        - bearerAuth: []
+        - sessionCookie: []
+      parameters:
+        - $ref: '#/components/parameters/ProviderId'
+      responses:
+        '200':
+          description: Provider manifest
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ProviderManifest'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+    put:
+      tags: [provider-manifests]
+      summary: Save provider manifest
+      operationId: putProviderManifest
+      security:
+        - bearerAuth: []
+        - sessionCookie: []
+      parameters:
+        - $ref: '#/components/parameters/ProviderId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ProviderManifest'
+      responses:
+        '200':
+          description: Saved provider manifest
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ProviderManifestSaveResponse'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+  /api/routing-plans:
+    get:
+      tags: [routing]
+      summary: List routing plans
+      operationId: listRoutingPlans
+      security:
+        - bearerAuth: []
+        - sessionCookie: []
+      responses:
+        '200':
+          description: Routing plan list
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/RoutingPlanList'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+    post:
+      tags: [routing]
+      summary: Save routing plan
+      operationId: saveRoutingPlan
+      security:
+        - bearerAuth: []
+        - sessionCookie: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/RoutingPlan'
+      responses:
+        '200':
+          description: Saved routing plan
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/RoutingPlan'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+  /api/routing-plans/{plan_id}:
+    get:
+      tags: [routing]
+      summary: Get routing plan detail
+      operationId: getRoutingPlan
+      security:
+        - bearerAuth: []
+        - sessionCookie: []
+      parameters:
+        - $ref: '#/components/parameters/PlanId'
+      responses:
+        '200':
+          description: Routing plan detail
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/RoutingPlan'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+    delete:
+      tags: [routing]
+      summary: Delete routing plan
+      operationId: deleteRoutingPlan
+      security:
+        - bearerAuth: []
+        - sessionCookie: []
+      parameters:
+        - $ref: '#/components/parameters/PlanId'
+      responses:
+        '200':
+          description: Deleted routing plan
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/RoutingPlanList'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: HTTP secret
+      description: |
+        直接使用 `Authorization: Bearer <http_secret>` 访问受保护接口。
+    sessionCookie:
+      type: apiKey
+      in: cookie
+      name: madao_http_session
+      description: Session cookie returned by `POST /auth/login`.
+  parameters:
+    ProviderId:
+      name: provider
+      in: path
+      required: true
+      schema:
+        type: string
+    TicketId:
+      name: ticket_id
+      in: path
+      required: true
+      schema:
+        type: string
+    PlanId:
+      name: plan_id
+      in: path
+      required: true
+      schema:
+        type: string
+  responses:
+    Unauthorized:
+      description: Authentication required
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ApiError'
+    BadRequest:
+      description: Invalid request
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ApiError'
+  schemas:
+    ApiError:
+      type: object
+      additionalProperties: false
+      properties:
+        message:
+          type: string
+      required: [message]
+    HttpAuthLoginRequest:
+      type: object
+      additionalProperties: false
+      properties:
+        secret:
+          type: string
+      required: [secret]
+    HttpAuthStatus:
+      type: object
+      additionalProperties: false
+      properties:
+        authenticated:
+          type: boolean
+      required: [authenticated]
+    RuntimeAccessInfo:
+      type: object
+      additionalProperties: false
+      properties:
+        http_port:
+          type: integer
+          minimum: 1
+          maximum: 65535
+        http_secret_overridden:
+          type: boolean
+        requires_http_login:
+          type: boolean
+      required: [http_port, http_secret_overridden, requires_http_login]
+    AcquireCodeRequest:
+      type: object
+      additionalProperties: false
+      properties:
+        provider:
+          type: string
+        service:
+          type: string
+        country:
+          type: string
+        max_price:
+          type: number
+        min_price:
+          type: number
+        auto_pick_country:
+          type: boolean
+        reuse_phone:
+          type: boolean
+        reuse_key:
+          type: string
+        metadata:
+          type: object
+          additionalProperties:
+            type: string
+        routing_plan_id:
+          type: string
+        routing_plan_name:
+          type: string
+      required: [provider]
+    AcquireCodeResponse:
+      type: object
+      additionalProperties: false
+      properties:
+        ticket_id:
+          type: string
+        provider:
+          type: string
+        service:
+          type: string
+        country:
+          type: string
+        phone_number:
+          type: string
+        upstream_id:
+          type: string
+        price:
+          type: number
+        status:
+          $ref: '#/components/schemas/TicketStatus'
+        created_at:
+          type: string
+          format: date-time
+        routing_plan_id:
+          type: string
+        routing_plan_name:
+          type: string
+        routing_item_id:
+          type: string
+        routing_item_index:
+          type: integer
+      required:
+        - ticket_id
+        - provider
+        - service
+        - country
+        - phone_number
+        - status
+        - created_at
+    PollCodeRequest:
+      type: object
+      additionalProperties: false
+      properties:
+        ticket_id:
+          type: string
+      required: [ticket_id]
+    PollCodeResponse:
+      type: object
+      additionalProperties: false
+      properties:
+        ticket_id:
+          type: string
+        provider:
+          type: string
+        status:
+          $ref: '#/components/schemas/TicketStatus'
+        code:
+          type: string
+        message:
+          type: string
+        next_retry_after_ms:
+          type: integer
+          minimum: 0
+      required: [ticket_id, provider, status]
+    ReleaseCodeRequest:
+      type: object
+      additionalProperties: false
+      properties:
+        ticket_id:
+          type: string
+        action:
+          $ref: '#/components/schemas/ReleaseAction'
+      required: [ticket_id, action]
+    ReleaseCodeResponse:
+      type: object
+      additionalProperties: false
+      properties:
+        ticket_id:
+          type: string
+        provider:
+          type: string
+        status:
+          $ref: '#/components/schemas/TicketStatus'
+        message:
+          type: string
+      required: [ticket_id, provider, status]
+    RoutingFailoverRequest:
+      type: object
+      additionalProperties: false
+      properties:
+        ticket_id:
+          type: string
+        reason:
+          type: string
+        failed_item_id:
+          type: string
+      required: [ticket_id]
+    ProviderBalance:
+      type: object
+      additionalProperties: false
+      properties:
+        provider:
+          type: string
+        amount:
+          type: number
+        currency:
+          type: string
+      required: [provider, amount, currency]
+    ProviderPriceQueryRequestBody:
+      type: object
+      additionalProperties: false
+      properties:
+        provider:
+          type: string
+        service:
+          type: string
+        country:
+          type: string
+        operator:
+          type: string
+      required: [provider]
+    ProviderPriceQuery:
+      type: object
+      additionalProperties: false
+      properties:
+        provider:
+          type: string
+        service:
+          type: string
+        country:
+          type: string
+        operator:
+          type: string
+      required: [provider]
+    ProviderPriceResponse:
+      type: object
+      additionalProperties: false
+      properties:
+        provider:
+          type: string
+        service:
+          type: string
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/ProviderPriceItem'
+      required: [provider, service, items]
+    ProviderPriceItem:
+      type: object
+      additionalProperties: false
+      properties:
+        country:
+          type: string
+        display_name:
+          type: string
+        operator:
+          type: string
+        operator_label:
+          type: string
+        provider_country:
+          type: string
+        provider_operator:
+          type: string
+        price:
+          type: number
+        stock:
+          type: integer
+          minimum: 0
+      required: [country, display_name, operator, price, stock]
+    OptionItem:
+      type: object
+      additionalProperties: false
+      properties:
+        value:
+          type: string
+        label:
+          type: string
+        hint:
+          type: string
+        provider_value:
+          type: string
+        icon_url:
+          type: string
+        provider_icon_url:
+          type: string
+      required: [value, label, hint]
+    OptionListResponse:
+      type: object
+      additionalProperties: false
+      properties:
+        provider:
+          type: string
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/OptionItem'
+      required: [provider, items]
+    ProviderServicesQuery:
+      type: object
+      additionalProperties: false
+      properties:
+        country:
+          type: string
+        operator:
+          type: string
+    ProviderOperatorsQuery:
+      type: object
+      additionalProperties: false
+      properties:
+        country:
+          type: string
+    OptionCacheState:
+      type: string
+      enum: [missing, fresh, stale]
+    ProviderCountryOperatorOptions:
+      type: object
+      additionalProperties: false
+      properties:
+        raw_operators:
+          type: array
+          items:
+            $ref: '#/components/schemas/OptionItem'
+        operators:
+          type: array
+          items:
+            $ref: '#/components/schemas/OptionItem'
+        fetched_at:
+          type: string
+          format: date-time
+      required: [raw_operators, operators]
+    ProviderDynamicOptions:
+      type: object
+      additionalProperties: false
+      properties:
+        provider:
+          type: string
+        raw_services:
+          type: array
+          items:
+            $ref: '#/components/schemas/OptionItem'
+        raw_countries:
+          type: array
+          items:
+            $ref: '#/components/schemas/OptionItem'
+        raw_operators:
+          type: array
+          items:
+            $ref: '#/components/schemas/OptionItem'
+        services:
+          type: array
+          items:
+            $ref: '#/components/schemas/OptionItem'
+        countries:
+          type: array
+          items:
+            $ref: '#/components/schemas/OptionItem'
+        operators:
+          type: array
+          items:
+            $ref: '#/components/schemas/OptionItem'
+        operators_by_country:
+          type: object
+          additionalProperties:
+            $ref: '#/components/schemas/ProviderCountryOperatorOptions'
+        cache_state:
+          $ref: '#/components/schemas/OptionCacheState'
+        fetched_at:
+          type: string
+          format: date-time
+      required:
+        - provider
+        - raw_services
+        - raw_countries
+        - raw_operators
+        - services
+        - countries
+        - operators
+        - operators_by_country
+        - cache_state
+    ProviderOptionCacheEntry:
+      type: object
+      additionalProperties: false
+      properties:
+        provider:
+          type: string
+        fetched_at:
+          type: string
+          format: date-time
+        options:
+          $ref: '#/components/schemas/ProviderDynamicOptions'
+      required: [provider, fetched_at, options]
+    OptionCacheOverview:
+      type: object
+      additionalProperties: false
+      properties:
+        fresh_providers:
+          type: integer
+          minimum: 0
+        stale_providers:
+          type: integer
+          minimum: 0
+        missing_providers:
+          type: integer
+          minimum: 0
+        last_refresh_at:
+          type: string
+          format: date-time
+      required: [fresh_providers, stale_providers, missing_providers]
+    ProviderSummary:
+      type: object
+      additionalProperties: false
+      properties:
+        id:
+          type: string
+        name:
+          type: string
+        enabled:
+          type: boolean
+        kind:
+          type: string
+        protocol:
+          type: string
+        protocol_label:
+          type: string
+        primary_endpoint:
+          type: string
+        default_service:
+          type: string
+        default_country:
+          type: string
+        homepage:
+          type: string
+        description:
+          type: string
+        priority:
+          type: integer
+          minimum: 0
+        icon_url:
+          type: string
+        badge_label:
+          type: string
+        cancel_cooldown_sec:
+          type: integer
+          minimum: 0
+        operator_selectable:
+          type: boolean
+        option_cache_state:
+          $ref: '#/components/schemas/OptionCacheState'
+        option_cache_fetched_at:
+          type: string
+          format: date-time
+        balance:
+          type: number
+        balance_currency:
+          type: string
+        balance_fetched_at:
+          type: string
+          format: date-time
+        can_enable:
+          type: boolean
+      required:
+        - id
+        - name
+        - enabled
+        - kind
+        - protocol
+        - default_service
+        - default_country
+        - priority
+        - operator_selectable
+        - option_cache_state
+        - can_enable
+    ProviderPriorityEntry:
+      type: object
+      additionalProperties: false
+      properties:
+        id:
+          type: string
+        priority:
+          type: integer
+          minimum: 0
+      required: [id, priority]
+    ProviderReorderRequest:
+      type: object
+      additionalProperties: false
+      properties:
+        order:
+          type: array
+          items:
+            $ref: '#/components/schemas/ProviderPriorityEntry'
+      required: [order]
+    ProviderManifestList:
+      type: object
+      additionalProperties: false
+      properties:
+        manifests:
+          type: array
+          items:
+            $ref: '#/components/schemas/ProviderManifest'
+      required: [manifests]
+    NotificationFeed:
+      type: object
+      additionalProperties: false
+      properties:
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/LogEntry'
+      required: [items]
+    TicketListResponse:
+      type: object
+      additionalProperties: false
+      properties:
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/TicketRecord'
+      required: [items]
+    TicketCallbackRegistrationRequest:
+      type: object
+      additionalProperties: false
+      properties:
+        url:
+          type: string
+          format: uri
+        secret:
+          type: string
+      required: [url]
+    TicketCallbackSubscription:
+      type: object
+      additionalProperties: false
+      properties:
+        id:
+          type: string
+        ticket_id:
+          type: string
+        url:
+          type: string
+          format: uri
+        secret:
+          type: string
+        created_at:
+          type: string
+          format: date-time
+      required: [id, ticket_id, url, created_at]
+    TicketCallbackListResponse:
+      type: object
+      additionalProperties: false
+      properties:
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/TicketCallbackSubscription'
+      required: [items]
+    TicketCodeCallbackPayload:
+      type: object
+      additionalProperties: false
+      properties:
+        ticket_id:
+          type: string
+        provider:
+          type: string
+        service:
+          type: string
+        country:
+          type: string
+        phone_number:
+          type: string
+        code:
+          type: string
+        message:
+          type: string
+        received_at:
+          type: string
+          format: date-time
+      required:
+        - ticket_id
+        - provider
+        - service
+        - country
+        - phone_number
+        - received_at
+    RoutingExecutionMode:
+      type: string
+      enum: [sequential, random]
+    RoutingPriceMode:
+      type: string
+      enum: [any, range, fixed]
+    RoutingPlanItem:
+      type: object
+      additionalProperties: false
+      properties:
+        id:
+          type: string
+        provider:
+          type: string
+        country:
+          type: string
+        operator:
+          type: string
+        enabled:
+          type: boolean
+        price_mode:
+          $ref: '#/components/schemas/RoutingPriceMode'
+        min_price:
+          type: number
+        max_price:
+          type: number
+        fixed_price:
+          type: number
+      required: [id, provider, country, operator, enabled, price_mode]
+    RoutingPlan:
+      type: object
+      additionalProperties: false
+      properties:
+        id:
+          type: string
+        name:
+          type: string
+        service:
+          type: string
+        description:
+          type: string
+        enabled:
+          type: boolean
+        execution_mode:
+          $ref: '#/components/schemas/RoutingExecutionMode'
+        execution_rounds:
+          type: integer
+          minimum: 1
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/RoutingPlanItem'
+      required:
+        - id
+        - name
+        - service
+        - enabled
+        - execution_mode
+        - execution_rounds
+        - items
+    RoutingPlanList:
+      type: object
+      additionalProperties: false
+      properties:
+        plans:
+          type: array
+          items:
+            $ref: '#/components/schemas/RoutingPlan'
+      required: [plans]
+    RuntimeSettings:
+      type: object
+      additionalProperties: false
+      properties:
+        routing_strategy:
+          type: string
+        auto_fallback:
+          type: boolean
+        option_cache_enabled:
+          type: boolean
+        option_cache_poll_interval_minutes:
+          type: integer
+          minimum: 0
+        check_updates_on_launch:
+          type: boolean
+        http_port:
+          type: integer
+          minimum: 1
+          maximum: 65535
+        http_secret:
+          type: string
+      required:
+        - routing_strategy
+        - auto_fallback
+        - option_cache_enabled
+        - option_cache_poll_interval_minutes
+        - check_updates_on_launch
+        - http_port
+        - http_secret
+    RuntimeSettingsUpdate:
+      type: object
+      additionalProperties: false
+      properties:
+        routing_strategy:
+          type: string
+        auto_fallback:
+          type: boolean
+        option_cache_enabled:
+          type: boolean
+        option_cache_poll_interval_minutes:
+          type: integer
+          minimum: 0
+        check_updates_on_launch:
+          type: boolean
+        http_port:
+          type: integer
+          minimum: 1
+          maximum: 65535
+      required:
+        - routing_strategy
+        - auto_fallback
+        - option_cache_enabled
+        - option_cache_poll_interval_minutes
+        - check_updates_on_launch
+        - http_port
+    ProviderManifestSaveResponse:
+      type: object
+      additionalProperties: false
+      properties:
+        manifest:
+          $ref: '#/components/schemas/ProviderManifest'
+        option_cache_state:
+          $ref: '#/components/schemas/OptionCacheState'
+        option_cache_fetched_at:
+          type: string
+          format: date-time
+        cache_refresh_error:
+          type: string
+      required: [manifest, option_cache_state]
+    RuntimeSnapshot:
+      type: object
+      additionalProperties: false
+      properties:
+        providers:
+          type: array
+          items:
+            $ref: '#/components/schemas/ProviderSummary'
+        tickets:
+          type: array
+          items:
+            $ref: '#/components/schemas/TicketRecord'
+        logs:
+          type: array
+          items:
+            $ref: '#/components/schemas/LogEntry'
+      required: [providers, tickets, logs]
+    TicketRecord:
+      type: object
+      additionalProperties: false
+      properties:
+        id:
+          type: string
+        provider:
+          type: string
+        service:
+          type: string
+        country:
+          type: string
+        phone_number:
+          type: string
+        upstream_id:
+          type: string
+        price:
+          type: number
+        status:
+          $ref: '#/components/schemas/TicketStatus'
+        created_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
+        code:
+          type: string
+        message:
+          type: string
+        routing_plan_id:
+          type: string
+        routing_plan_name:
+          type: string
+        routing_item_id:
+          type: string
+        routing_item_index:
+          type: integer
+        routing_execution_mode:
+          $ref: '#/components/schemas/RoutingExecutionMode'
+        routing_execution_rounds:
+          type: integer
+          minimum: 1
+        routing_current_round:
+          type: integer
+          minimum: 0
+        routing_candidate_item_ids:
+          type: array
+          items:
+            type: string
+        routing_attempt_count:
+          type: integer
+          minimum: 0
+      required:
+        - id
+        - provider
+        - service
+        - country
+        - phone_number
+        - status
+        - created_at
+        - updated_at
+        - routing_candidate_item_ids
+        - routing_attempt_count
+    TicketStatus:
+      type: string
+      enum:
+        - pending
+        - waiting_code
+        - code_received
+        - finished
+        - cancelled
+        - failed
+    ReleaseAction:
+      type: string
+      enum:
+        - finish
+        - cancel
+        - retry
+        - ban
+    LogEntry:
+      type: object
+      additionalProperties: false
+      properties:
+        timestamp:
+          type: string
+          format: date-time
+        scope:
+          type: string
+        level:
+          type: string
+        message:
+          type: string
+      required: [timestamp, scope, level, message]
+    ProviderManifest:
+      type: object
+      additionalProperties: false
+      properties:
+        id:
+          type: string
+        name:
+          type: string
+        kind:
+          $ref: '#/components/schemas/ProviderKind'
+        enabled:
+          type: boolean
+        priority:
+          type: integer
+          minimum: 0
+        homepage:
+          type: string
+        description:
+          type: string
+        service_aliases:
+          type: object
+          additionalProperties:
+            type: string
+        defaults:
+          $ref: '#/components/schemas/ProviderDefaults'
+        ui:
+          $ref: '#/components/schemas/ProviderUiConfig'
+        behavior:
+          $ref: '#/components/schemas/ProviderBehaviorConfig'
+        handler_api:
+          $ref: '#/components/schemas/HandlerApiConfig'
+        five_sim:
+          $ref: '#/components/schemas/FiveSimConfig'
+        mock:
+          $ref: '#/components/schemas/MockConfig'
+      required:
+        - id
+        - name
+        - kind
+        - enabled
+        - priority
+        - service_aliases
+        - defaults
+        - ui
+        - behavior
+    ProviderKind:
+      type: string
+      enum: [handler_api, five_sim, mock]
+    ProviderDefaults:
+      type: object
+      additionalProperties: false
+      properties:
+        service:
+          type: string
+        country:
+          type: string
+        auto_pick_country:
+          type: boolean
+        verify_on_register:
+          type: boolean
+        reuse_phone:
+          type: boolean
+        max_price:
+          type: number
+        min_price:
+          type: number
+        min_balance:
+          type: number
+        max_tries:
+          type: integer
+          minimum: 0
+        poll_timeout_sec:
+          type: integer
+          minimum: 0
+        reuse_max:
+          type: integer
+          minimum: 0
+      required:
+        - service
+        - country
+        - auto_pick_country
+        - verify_on_register
+        - reuse_phone
+        - max_price
+        - min_price
+        - min_balance
+        - max_tries
+        - poll_timeout_sec
+        - reuse_max
+    ProviderUiConfig:
+      type: object
+      additionalProperties: false
+      properties:
+        protocol_label:
+          type: string
+        icon_url:
+          type: string
+        badge_label:
+          type: string
+    ProviderBehaviorConfig:
+      type: object
+      additionalProperties: false
+      properties:
+        cancel_cooldown_sec:
+          type: integer
+          minimum: 0
+        operator_selectable:
+          type: boolean
+      required: [operator_selectable]
+    HandlerApiConfig:
+      type: object
+      additionalProperties: false
+      properties:
+        base_url:
+          type: string
+        profile:
+          type: string
+        api_key:
+          type: string
+        get_balance_action:
+          type: string
+        get_prices_action:
+          type: string
+        get_countries_action:
+          type: string
+        get_number_action:
+          type: string
+        get_status_action:
+          type: string
+        set_status_action:
+          type: string
+        status_ready:
+          type: integer
+        status_retry:
+          type: integer
+        status_finish:
+          type: integer
+        status_cancel:
+          type: integer
+        balance_prefix:
+          type: string
+        success_status_prefix:
+          type: string
+        wait_status_tokens:
+          type: array
+          items:
+            type: string
+        failure_status_tokens:
+          type: array
+          items:
+            type: string
+        id_json_pointers:
+          type: array
+          items:
+            type: string
+        phone_json_pointers:
+          type: array
+          items:
+            type: string
+        price_json_pointers:
+          type: array
+          items:
+            type: string
+        balance_json_pointers:
+          type: array
+          items:
+            type: string
+        code_json_pointers:
+          type: array
+          items:
+            type: string
+      required:
+        - base_url
+        - profile
+        - api_key
+        - get_balance_action
+        - get_prices_action
+        - get_countries_action
+        - get_number_action
+        - get_status_action
+        - set_status_action
+        - status_ready
+        - status_retry
+        - status_finish
+        - status_cancel
+        - balance_prefix
+        - success_status_prefix
+        - wait_status_tokens
+        - failure_status_tokens
+        - id_json_pointers
+        - phone_json_pointers
+        - price_json_pointers
+        - balance_json_pointers
+        - code_json_pointers
+    FiveSimConfig:
+      type: object
+      additionalProperties: false
+      properties:
+        base_url:
+          type: string
+        api_key:
+          type: string
+        buy_operator:
+          type: string
+        profile_endpoint:
+          type: string
+        prices_endpoint:
+          type: string
+        products_endpoint:
+          type: string
+        buy_endpoint_prefix:
+          type: string
+        check_endpoint_prefix:
+          type: string
+        finish_action:
+          type: string
+        cancel_action:
+          type: string
+        ban_action:
+          type: string
+        balance_json_pointer:
+          type: string
+        status_json_pointer:
+          type: string
+        code_json_pointers:
+          type: array
+          items:
+            type: string
+        failure_statuses:
+          type: array
+          items:
+            type: string
+        id_json_pointers:
+          type: array
+          items:
+            type: string
+        phone_json_pointers:
+          type: array
+          items:
+            type: string
+        price_json_pointers:
+          type: array
+          items:
+            type: string
+      required:
+        - base_url
+        - api_key
+        - buy_operator
+        - profile_endpoint
+        - prices_endpoint
+        - products_endpoint
+        - buy_endpoint_prefix
+        - check_endpoint_prefix
+        - finish_action
+        - cancel_action
+        - ban_action
+        - balance_json_pointer
+        - status_json_pointer
+        - code_json_pointers
+        - failure_statuses
+        - id_json_pointers
+        - phone_json_pointers
+        - price_json_pointers
+    MockConfig:
+      type: object
+      additionalProperties: false
+      properties:
+        balance:
+          type: number
+        phone_number:
+          type: string
+        codes:
+          type: array
+          items:
+            type: string
+      required: [balance, phone_number, codes]

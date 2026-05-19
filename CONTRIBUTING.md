@@ -143,6 +143,27 @@ npm run build
 
 详细联动方式见 [docs/api-integration.md](docs/api-integration.md) 和 [docs/daemon-api.md](docs/daemon-api.md)。
 
+## OpenAPI 同步约束
+
+如果你修改了 daemon HTTP API，必须同步维护 OpenAPI：
+
+- 路由定义：`crates/sms-server/src/lib.rs`
+- OpenAPI 规范：`docs/openapi/daemon.openapi.yaml`
+- Swagger UI 静态页：`docs/openapi/index.html`
+
+必须遵守：
+
+1. 新增、删除、重命名任何 `.route(...)` 路径时，同步更新 `docs/openapi/daemon.openapi.yaml`
+2. 修改请求 / 响应 JSON 结构时，同步更新对应 schema
+3. 如果实现与文档存在不一致，以代码真实行为为准，先修规范，再决定是否修代码
+4. 提交前执行：
+
+```bash
+npm run check:openapi-sync
+```
+
+当前仓库通过 `scripts/check-openapi-sync.mjs` 对 OpenAPI 与实际路由做最小同步检查，避免版本不一致时文档继续漂移。
+
 ## 发布与二进制产物
 
 仓库包含 GitHub Actions 自动发布工作流，支持：

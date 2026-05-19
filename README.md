@@ -160,6 +160,7 @@ curl http://127.0.0.1:7822/api/provider-manifests
 - [Provider Compatibility](./docs/providers.md)
 - [Routing Plans](./docs/routing-plans.md)
 - [Development](./docs/development.md)
+- [OpenAPI / Swagger UI](./docs/openapi/index.html)
 - [Docker Deployment](./docs/docker.md)
 - [Release Guide](./docs/release.md)
 - [Contributing](./CONTRIBUTING.md)

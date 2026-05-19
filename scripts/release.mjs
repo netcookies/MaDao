@@ -413,7 +413,7 @@ function main() {
         `Next version: ${nextVersion}`,
         `Branch: ${branch}`,
         `Tag: ${tag}`,
-        `Checks: ${args.skipChecks ? 'skipped' : 'npm run build, cargo check --workspace, cargo test -p sms-core'}`,
+        `Checks: ${args.skipChecks ? 'skipped' : 'npm run build, npm run check:openapi-sync, cargo check --workspace, cargo test -p sms-core'}`,
         `Push: ${args.noPush ? 'disabled' : 'origin branch + tag'}`,
         '',
       ].join('\n'),
@@ -425,6 +425,7 @@ function main() {
 
   if (!args.skipChecks) {
     run('npm', ['run', 'build']);
+    run('npm', ['run', 'check:openapi-sync']);
     run('cargo', ['check', '--workspace']);
     run('cargo', ['test', '-p', 'sms-core']);
   }
