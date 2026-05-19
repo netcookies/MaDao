@@ -26,6 +26,35 @@ http://127.0.0.1:8080
 
 如果你修改了 `MADAO_WEB_PORT`，请使用对应端口。
 
+## 使用 Docker Hub 预构建镜像
+
+如果你不想在部署机器上本地构建，也可以直接拉取 Docker Hub 镜像：
+
+```bash
+cp .env.docker.example .env
+docker compose -f docker-compose.prod.yml pull
+docker compose -f docker-compose.prod.yml up -d
+```
+
+默认会拉取：
+
+- `netcookies/madao-daemon:latest`
+- `netcookies/madao-web:latest`
+
+这些镜像现在会随发布自动构建为多架构 manifest，包含：
+
+- `linux/amd64`
+- `linux/arm64`
+
+如果你要固定到某个发布版本，可在 `.env` 中设置：
+
+```dotenv
+MADAO_IMAGE_NAMESPACE=netcookies
+MADAO_IMAGE_TAG=0.2.0
+```
+
+这里的 `MADAO_IMAGE_TAG` 对应 Docker 镜像 tag，不带前缀 `v`。
+
 ## 环境变量
 
 当前 `.env` 支持：
@@ -34,6 +63,8 @@ http://127.0.0.1:8080
 MADAO_WEB_PORT=8080
 MADAO_DAEMON_HTTP_PORT=7822
 MADAO_HTTP_SECRET=
+MADAO_IMAGE_NAMESPACE=netcookies
+MADAO_IMAGE_TAG=latest
 ```
 
 它控制网页端暴露到宿主机的端口：
@@ -58,6 +89,9 @@ http://127.0.0.1:18080
 
 `MADAO_DAEMON_HTTP_PORT` 用来控制宿主机侧暴露出来的 daemon HTTP 直连端口。
 网页控制台入口仍然走 `MADAO_WEB_PORT`。
+
+`MADAO_IMAGE_NAMESPACE` 和 `MADAO_IMAGE_TAG` 仅用于 `docker-compose.prod.yml`。
+默认会拉取 `netcookies` 命名空间下的 `latest` 镜像。
 
 ## Docker 模式会做什么
 
@@ -115,6 +149,13 @@ docker compose up -d --build
 ```
 
 该操作会保留命名卷，因此运行时数据不会丢失。
+
+如果你使用的是 Docker Hub 预构建镜像，则升级命令为：
+
+```bash
+docker compose -f docker-compose.prod.yml pull
+docker compose -f docker-compose.prod.yml up -d
+```
 
 ## 重置
 

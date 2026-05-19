@@ -26,6 +26,35 @@ http://127.0.0.1:8080
 
 If you changed `MADAO_WEB_PORT`, use that port instead.
 
+## Use Prebuilt Docker Hub Images
+
+If you do not want to build on the deployment machine, you can pull the published Docker Hub images directly:
+
+```bash
+cp .env.docker.example .env
+docker compose -f docker-compose.prod.yml pull
+docker compose -f docker-compose.prod.yml up -d
+```
+
+By default this pulls:
+
+- `netcookies/madao-daemon:latest`
+- `netcookies/madao-web:latest`
+
+These images are now published as multi-arch manifests containing:
+
+- `linux/amd64`
+- `linux/arm64`
+
+To pin to a specific release, set the following in `.env`:
+
+```dotenv
+MADAO_IMAGE_NAMESPACE=netcookies
+MADAO_IMAGE_TAG=0.2.0
+```
+
+`MADAO_IMAGE_TAG` uses the Docker image tag and does not include the leading `v`.
+
 ## Environment Variables
 
 Current `.env` support:
@@ -34,6 +63,8 @@ Current `.env` support:
 MADAO_WEB_PORT=8080
 MADAO_DAEMON_HTTP_PORT=7822
 MADAO_HTTP_SECRET=
+MADAO_IMAGE_NAMESPACE=netcookies
+MADAO_IMAGE_TAG=latest
 ```
 
 This controls the published browser port:
@@ -58,6 +89,9 @@ If it is empty or unset, the persisted secret is used.
 
 `MADAO_DAEMON_HTTP_PORT` controls the host-side published port for direct daemon HTTP access.
 The web console still enters through `MADAO_WEB_PORT`.
+
+`MADAO_IMAGE_NAMESPACE` and `MADAO_IMAGE_TAG` are only used by `docker-compose.prod.yml`.
+By default they pull the `latest` images from the `netcookies` namespace.
 
 ## What Docker Mode Changes
 
@@ -115,6 +149,13 @@ docker compose up -d --build
 ```
 
 This keeps the named volume, so runtime data is preserved.
+
+If you are using the prebuilt Docker Hub images, upgrade with:
+
+```bash
+docker compose -f docker-compose.prod.yml pull
+docker compose -f docker-compose.prod.yml up -d
+```
 
 ## Reset
 

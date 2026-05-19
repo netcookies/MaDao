@@ -85,6 +85,15 @@ docker compose up -d --build
 
 启动后访问 `http://127.0.0.1:8080`。
 
+如果你想直接使用 Docker Hub 预构建镜像，而不是在本地构建，可执行：
+
+```bash
+docker compose -f docker-compose.prod.yml pull
+docker compose -f docker-compose.prod.yml up -d
+```
+
+已发布的 Docker 镜像支持 `linux/amd64` 和 `linux/arm64`。
+
 ## 运行时说明
 
 默认情况下，daemon 会在用户配置目录初始化并读取运行时配置，而不是直接写仓库内模板：

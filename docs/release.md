@@ -4,6 +4,7 @@
 
 ```text
 .github/workflows/release.yml
+.github/workflows/docker-publish.yml
 scripts/release.mjs
 scripts/generate-release-notes.mjs
 ```
@@ -63,19 +64,23 @@ git push origin v0.1.0
 
 工作流会在以下平台自动构建桌面二进制：
 
-- macOS
-- Linux
-- Windows
+- macOS arm64
+- macOS amd64
+- Linux amd64
+- Windows amd64
 
 并把产物上传到对应的 GitHub Release。
+
+同一个 tag 也会触发 Docker Hub 镜像发布工作流。
 
 ## 工作流内容
 
 工作流会先自动生成发版说明，再在以下平台构建：
 
-- macOS
-- Linux
-- Windows
+- macOS arm64
+- macOS amd64
+- Linux amd64
+- Windows amd64
 
 构建前会执行：
 
@@ -87,6 +92,62 @@ cargo test -p sms-core
 ```
 
 通过后再调用 `tauri-apps/tauri-action` 打包各平台桌面产物，并把自动生成的发版说明写入 GitHub Release。
+
+Docker Hub 工作流会基于同一个 `v*` tag 构建并推送两个镜像：
+
+- `DOCKERHUB_USERNAME/madao-daemon:<version>`
+- `DOCKERHUB_USERNAME/madao-web:<version>`
+- 以及对应的 `latest`、`sha-*` 标签
+
+当前镜像发布使用 `Dockerfile` 的两个 target：
+
+- `daemon`
+- `web`
+
+当前 workflow 会同时发布：
+
+- `linux/amd64`
+- `linux/arm64`
+
+## Docker Hub 发布配置
+
+要让 Docker Hub 自动发布成功，需要先在 GitHub 仓库中配置以下 secrets：
+
+- `DOCKERHUB_USERNAME`：Docker Hub 用户名，例如 `netcookies`
+- `DOCKERHUB_TOKEN`：Docker Hub Access Token
+
+然后在 Docker Hub 中提前创建仓库：
+
+- `DOCKERHUB_USERNAME/madao-daemon`
+- `DOCKERHUB_USERNAME/madao-web`
+
+之后每次执行：
+
+```bash
+npm run release -- patch
+```
+
+推送出的 `vX.Y.Z` tag 会同时触发：
+
+- 桌面端 GitHub Release 构建
+- Docker Hub 镜像构建与推送
+
+## 当前架构支持范围
+
+当前 CI 已覆盖：
+
+- Docker 镜像：`linux/amd64`、`linux/arm64`
+- 桌面 macOS 安装包：`amd64`、`arm64`
+- 桌面 Linux 安装包：`amd64`
+- 桌面 Windows 安装包：`amd64`
+
+之所以桌面 Linux / Windows 目前没有 `arm64` 安装包，是因为当前使用 GitHub Hosted runners，而默认可用 runner 只稳定覆盖：
+
+- Ubuntu `x64`
+- Windows `x64`
+- macOS `x64` / `arm64`
+
+如果后续要补桌面 Linux / Windows 的 `arm64` 安装包，需要额外提供对应平台的自托管 `arm64 runner`。
 
 ## 发版说明来源
 

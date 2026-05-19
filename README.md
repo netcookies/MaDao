@@ -94,6 +94,15 @@ Open `http://127.0.0.1:8080` after startup.
 
 For operations, upgrades, logs, backup, and troubleshooting, see [Docker Deployment](./docs/docker.md).
 
+If you prefer prebuilt Docker Hub images instead of local builds, use:
+
+```bash
+docker compose -f docker-compose.prod.yml pull
+docker compose -f docker-compose.prod.yml up -d
+```
+
+Published Docker images support both `linux/amd64` and `linux/arm64`.
+
 ## Runtime Notes
 
 By default, the daemon initializes and reads its runtime config from the user config directory instead of writing directly into the repository templates:

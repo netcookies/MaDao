@@ -37,22 +37,33 @@ jobs:
         run: node scripts/generate-release-notes.mjs --github-output "$GITHUB_OUTPUT" --notes-file "$RUNNER_TEMP/release-notes.md"
 
   build:
-    name: Build ${{ matrix.platform.name }}
+    name: Build ${{ matrix.target.name }}
     needs: release_meta
-    runs-on: ${{ matrix.platform.os }}
+    runs-on: ${{ matrix.target.runner }}
     strategy:
       fail-fast: false
       matrix:
-        platform:
-          - name: macos
-            os: macos-latest
-            args: ''
-          - name: linux
-            os: ubuntu-22.04
-            args: ''
-          - name: windows
-            os: windows-latest
-            args: ''
+        target:
+          - name: macos-arm64
+            runner: macos-15
+            rust_targets: aarch64-apple-darwin
+            args: --target aarch64-apple-darwin
+            install_linux_deps: false
+          - name: macos-amd64
+            runner: macos-15-large
+            rust_targets: x86_64-apple-darwin
+            args: --target x86_64-apple-darwin
+            install_linux_deps: false
+          - name: linux-amd64
+            runner: ubuntu-22.04
+            rust_targets: ""
+            args: ""
+            install_linux_deps: true
+          - name: windows-amd64
+            runner: windows-latest
+            rust_targets: ""
+            args: ""
+            install_linux_deps: false
 
     steps:
       - name: Checkout
@@ -68,9 +79,11 @@ jobs:
 
       - name: Install Rust stable
         uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.target.rust_targets }}
 
       - name: Install Linux system dependencies
-        if: matrix.platform.os == 'ubuntu-22.04'
+        if: matrix.target.install_linux_deps
         run: |
           sudo apt-get update
           sudo apt-get install -y \
@@ -109,4 +122,4 @@ jobs:
           releaseDraft: false
           prerelease: ${{ fromJSON(needs.release_meta.outputs.prerelease) }}
           assetNamePattern: ${{ needs.release_meta.outputs.release_asset_prefix }}-[platform]-[arch][setup].[ext]
-          args: ${{ matrix.platform.args }}
+          args: ${{ matrix.target.args }}
