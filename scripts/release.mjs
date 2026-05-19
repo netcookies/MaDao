@@ -6,7 +6,8 @@ import { dirname, resolve } from 'node:path';
 import process from 'node:process';
 import { fileURLToPath } from 'node:url';
 
-const RELEASE_FILES = ['Cargo.toml', 'Cargo.lock', 'package.json', 'package-lock.json'];
+const OPENAPI_SPEC_FILE = 'docs/openapi/daemon.openapi.yaml';
+const RELEASE_FILES = ['Cargo.toml', 'Cargo.lock', 'package.json', 'package-lock.json', OPENAPI_SPEC_FILE];
 const WORKSPACE_LOCK_PACKAGES = [
   'plugin-sdk',
   'sms-core',
@@ -222,9 +223,22 @@ function replaceCargoLockVersion(cargoLock, nextVersion) {
   return nextText;
 }
 
+function replaceOpenApiVersion(openapiText, nextVersion) {
+  const nextText = openapiText.replace(
+    /^(\s*version:\s*)([^\s]+)(\s*)$/m,
+    `$1${nextVersion}$3`,
+  );
+  if (nextText === openapiText) {
+    throw new Error(`Failed to update version in ${OPENAPI_SPEC_FILE}.`);
+  }
+  return nextText;
+}
+
 function assertVersionConsistency(currentVersion) {
   const packageJson = JSON.parse(readFileSync('package.json', 'utf8'));
   const packageLock = JSON.parse(readFileSync('package-lock.json', 'utf8'));
+  const openapiText = readFileSync(OPENAPI_SPEC_FILE, 'utf8');
+  const openapiVersion = openapiText.match(/^\s*version:\s*([^\s]+)\s*$/m)?.[1];
 
   if (packageJson.version !== currentVersion) {
     throw new Error(`package.json version ${packageJson.version} does not match Cargo.toml version ${currentVersion}.`);
@@ -234,6 +248,9 @@ function assertVersionConsistency(currentVersion) {
   }
   if (packageLock.packages?.['']?.version !== currentVersion) {
     throw new Error(`package-lock.json root package version ${packageLock.packages?.['']?.version} does not match Cargo.toml version ${currentVersion}.`);
+  }
+  if (openapiVersion !== currentVersion) {
+    throw new Error(`${OPENAPI_SPEC_FILE} version ${openapiVersion} does not match Cargo.toml version ${currentVersion}.`);
   }
 }
 
@@ -315,9 +332,11 @@ function updateVersionFiles(nextVersion) {
   const packageJson = JSON.parse(readFileSync('package.json', 'utf8'));
   const packageLock = JSON.parse(readFileSync('package-lock.json', 'utf8'));
   const cargoLock = readFileSync('Cargo.lock', 'utf8');
+  const openapiText = readFileSync(OPENAPI_SPEC_FILE, 'utf8');
 
   const nextCargoToml = replaceWorkspaceVersion(cargoToml, nextVersion);
   const nextCargoLock = replaceCargoLockVersion(cargoLock, nextVersion);
+  const nextOpenApiText = replaceOpenApiVersion(openapiText, nextVersion);
   const nextPackageJson = { ...packageJson, version: nextVersion };
   const nextPackageLock = {
     ...packageLock,
@@ -335,6 +354,7 @@ function updateVersionFiles(nextVersion) {
   writeFileSync('Cargo.lock', nextCargoLock);
   writeFileSync('package.json', `${JSON.stringify(nextPackageJson, null, 2)}\n`);
   writeFileSync('package-lock.json', `${JSON.stringify(nextPackageLock, null, 2)}\n`);
+  writeFileSync(OPENAPI_SPEC_FILE, nextOpenApiText);
 }
 
 function ensureOnlyReleaseFilesChanged() {
