@@ -1,7 +1,7 @@
 openapi: 3.1.0
 info:
   title: MaDao Daemon API
-  version: 0.1.9
+  version: 0.1.10
   description: |
     当前 `MaDao` daemon 对外 HTTP API 的机器可读规范。
 
