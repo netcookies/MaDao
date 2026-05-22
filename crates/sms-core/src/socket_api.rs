@@ -1,7 +1,7 @@
 use crate::error::SmsError;
 use crate::models::{
     AcquireCodeRequest, PollCodeRequest, ProviderManifestList, ProviderManifestSaveResponse,
-    ProviderPriceQuery, ReleaseCodeRequest, RoutingFailoverRequest, RoutingPlan,
+    ProviderPriceQuery, ReleaseCodeRequest, ReusePoolClearResponse, RoutingFailoverRequest, RoutingPlan,
     RoutingPlanList, RuntimeAccessInfo, RuntimeSettings, RuntimeSettingsUpdate,
 };
 use plugin_sdk::ProviderManifest;
@@ -75,6 +75,9 @@ pub enum SocketCommand {
     ProviderOptionsCache {
         provider: String,
     },
+    ClearProviderReusePool {
+        provider: String,
+    },
     ReorderProviders {
         request: crate::models::ProviderReorderRequest,
     },
@@ -108,5 +111,6 @@ pub type SocketSnapshot = serde_json::Value;
 pub type SocketProviderManifests = ProviderManifestList;
 pub type SocketRoutingPlans = RoutingPlanList;
 pub type SocketProviderManifestSave = ProviderManifestSaveResponse;
+pub type SocketReusePoolClear = ReusePoolClearResponse;
 pub type SocketRuntimeSettings = RuntimeSettings;
 pub type SocketRuntimeAccessInfo = RuntimeAccessInfo;

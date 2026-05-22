@@ -1,8 +1,8 @@
 import type { ReactNode } from 'react';
 import { Check, Send, Server } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
-import { AppButton, PageHeader } from '../ui-bridge';
-import type { LanguageCode, ProviderManifest, TicketDecoration, TicketRecord } from '../types';
+import { AppButton, PageHeader, StatusBadge } from '../ui-bridge';
+import type { LanguageCode, ProviderManifest, Snapshot, TicketDecoration, TicketRecord } from '../types';
 import { formatProviderLabel, formatServiceLabel } from '../../lib/formatters';
 import { ResourceBadge } from '../../components/primitives';
 
@@ -15,6 +15,7 @@ export type OverviewStats = {
 export type OverviewScreenProps = {
   stats: OverviewStats;
   activity: TicketRecord[];
+  snapshot?: Snapshot | null;
   providers?: Record<string, ProviderManifest>;
   decorations?: Record<string, TicketDecoration>;
   onViewAll: () => void;
@@ -71,6 +72,9 @@ export function OverviewScreen(props: OverviewScreenProps) {
                       iconUrl={props.decorations?.[item.id]?.country_icon_url}
                     />
                     <span className="truncate">{item.phone_number}</span>
+                    {item.acquire_path && item.acquire_path !== 'fresh_acquire' && (
+                      <StatusBadge tone="green">{t('Free')}</StatusBadge>
+                    )}
                   </span>
                   <span className="inline-flex min-w-0 items-center gap-2 overflow-hidden text-ellipsis whitespace-nowrap text-[13px] font-normal text-ds-text-secondary/80">
                     <ResourceBadge
@@ -95,6 +99,7 @@ export function OverviewScreen(props: OverviewScreenProps) {
           )}
         </div>
       </div>
+
     </div>
   );
 }

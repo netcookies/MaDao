@@ -9,6 +9,7 @@ import type {
   ProviderManifestList,
   ProviderManifestSaveResponse,
   ProviderPriceResponse,
+  ReusePoolClearResponse,
   RoutingPlan,
   RoutingPlanList,
   RuntimeAccessInfo,
@@ -69,6 +70,10 @@ export function saveProviderManifestViaSocket(
 
 export async function reloadProviderRegistryViaSocket(): Promise<void> {
   await socketInvoke<unknown>('reload_providers');
+}
+
+export function clearProviderReusePoolViaSocket(providerId: string): Promise<ReusePoolClearResponse> {
+  return socketInvoke<ReusePoolClearResponse>('clear_provider_reuse_pool', { provider: providerId });
 }
 
 export function fetchProviderCountriesViaSocket(providerId: string): Promise<OptionListResponse> {

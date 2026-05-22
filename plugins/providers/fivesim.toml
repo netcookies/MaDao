@@ -25,6 +25,7 @@ min_balance = 10.0
 max_tries = 3
 poll_timeout_sec = 180
 reuse_max = 2
+reuse_ttl_hours = 24
 
 [five_sim]
 base_url = "https://5sim.net/v1"
@@ -34,6 +35,7 @@ profile_endpoint = "user/profile"
 prices_endpoint = "guest/prices"
 products_endpoint = "guest/products"
 buy_endpoint_prefix = "user/buy/activation"
+reuse_endpoint_prefix = "user/reuse"
 check_endpoint_prefix = "user/check"
 finish_action = "finish"
 cancel_action = "cancel"

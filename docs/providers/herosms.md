@@ -20,6 +20,7 @@
 
 - 运行时协议名：`herosms`
 - 适配器类型：`HeroSmsProvider`
+- 默认取号动作：`getNumberV2`
 
 ---
 
@@ -28,7 +29,7 @@
 基于兼容层：
 
 - `getBalance`
-- `getNumber`
+- `getNumberV2`
 - `getStatus`
 - `setStatus`
 - `getPrices`
@@ -96,7 +97,6 @@ OpenAPI 中存在 webhook payload 描述：
 
 - `getActiveActivations`
 - `getAllSms`
-- `reactivate`
 - `prolong`
 - `/activations/offers`
 
@@ -106,14 +106,15 @@ OpenAPI 中存在 webhook payload 描述：
 
 ## 当前返回值校验现状
 
-当前 `HeroSmsProvider` 的返回值校验，主要由共享的 `SharedHandlerApiProvider::request()`、`HeroSmsProvider::poll_code()`、`HeroSmsProvider::release()` 完成：
+当前 `HeroSmsProvider` 的返回值校验，主要由共享的 `SharedHandlerApiProvider::request()`、`HeroSmsProvider::poll_code()`、`HeroSmsProvider::release()`、`HeroSmsProvider::apply_retry_metadata()` 完成：
 
 - HTTP 请求发送失败会直接包装成 `SmsError::Upstream(err.to_string())`
 - HTTP 非 `2xx` 时会直接把响应 body 作为 `SmsError::Upstream(text)` 返回
 - `getStatus` 成功码通过 `success_status_prefix = "STATUS_OK:"` 识别
 - `getStatus` 等待态通过 `wait_status_tokens` 识别
 - `getStatus` 失败态通过 `failure_status_tokens` 识别
-- `setStatus` 当前只要 HTTP 成功就直接返回原始文本，尚未按 action 校验成功码
+- `setStatus` 当前会按 action 校验 `ACCESS_RETRY_GET / ACCESS_ACTIVATION / ACCESS_CANCEL`
+- `getNumberV2` 返回的 `canGetAnotherSms`、`activationEndTime` 已用于 `same_activation_retry` 可用性与过期时间判断
 
 对应实现：
 
@@ -126,16 +127,14 @@ OpenAPI 中存在 webhook payload 描述：
 - `STATUS_OK:{code}` → `CodeReceived`
 - `STATUS_WAIT_CODE` → `WaitingCode`
 - `STATUS_CANCEL` / `NO_ACTIVATION` / `BAD_KEY` / `BAD_SERVICE` / `BAD_STATUS` → `Failed`
-- `getNumber` 纯文本成功值 `ACCESS_NUMBER:{id}:{phone}` 已支持
+- `getNumberV2` JSON 成功响应已支持
 - `setStatus` 的数值动作映射 `3 / 6 / 8` 已支持
+- `reactivate` 已接入，并按 `activationId` 发起 POST
 
 ### 已知缺口
 
-- `STATUS_WAIT_RETRY:{lastCode}` 目前未加入 `wait_status_tokens`，会被误判成失败
-- `STATUS_WAIT_RESEND` 目前未加入 `wait_status_tokens`，会被误判成失败
-- `setStatus` 当前未校验 action 对应的成功响应是否分别为 `ACCESS_RETRY_GET`、`ACCESS_ACTIVATION`、`ACCESS_CANCEL`
-- `EARLY_CANCEL_DENIED` 目前只会作为普通 upstream 字符串返回，未单独结构化识别
-- OpenAPI 中 `409` 冲突错误体已经是 `BaseErrorResponse { title, details, info }`，当前实现未解析
+- `EARLY_CANCEL_DENIED` 目前仍主要作为普通 upstream 字符串返回，未向更高层暴露结构化字段
+- OpenAPI 中 `409` 冲突错误体虽然可格式化，但还未建立更细的 daemon 业务错误模型
 
 ### 建议优先补齐
 

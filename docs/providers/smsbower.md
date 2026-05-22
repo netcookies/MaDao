@@ -118,14 +118,15 @@
 ### 已覆盖
 
 - `getNumberV2` 的 JSON 提取已兼容 `string / integer` 类型差异
+- `canGetAnotherSms`、`activationEndTime` 已用于 `same_activation_retry` 可用性与过期时间判断
 - `getStatus` 的 `STATUS_OK:{code}`、`STATUS_WAIT_CODE`、`STATUS_CANCEL` 等基础状态沿用 handler_api 兼容逻辑
 - `getPricesV3` 已作为优先价格数据源，失败时回退到 `getPrices`
 - `getCountries / getServicesList / getOperators` 已接入
+- `setStatus(status=3)` 已纳入统一自动复用路径，作为 `same_activation_retry`
 
 ### 已知缺口
 
-- 当前保存的 `SmsBower` HTML 明确写到 `STATUS_WAIT_RETRY:$lastCode`，但未明确写到 `STATUS_WAIT_RESEND`；现实现里这两类都没有纳入等待态配置
-- `setStatus` 当前同样未校验 `ACCESS_RETRY_GET`、`ACCESS_ACTIVATION`、`ACCESS_CANCEL`
+- 当前保存的 `SmsBower` HTML 明确写到 `STATUS_WAIT_RETRY:$lastCode`，但未明确写到 `STATUS_WAIT_RESEND`；当前实现只明确纳入了 `STATUS_WAIT_RETRY`
 - HTTP 非 `2xx` 的错误体当前仍按原始文本上抛，未做结构化解析
 - `getPricesV3` 当前只要 HTTP 成功且 JSON 可解析就继续处理，没有 provider 级错误对象分类
 

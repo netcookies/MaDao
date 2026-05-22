@@ -10,7 +10,7 @@ use serde::Serialize;
 use sms_core::config::ServerConfig;
 use sms_core::models::{
     AcquireCodeRequest, HttpAuthLoginRequest, HttpAuthStatus, NotificationFeed, OptionCacheOverview, PollCodeRequest,
-    ProviderManifestList, ProviderOperatorsQuery, ProviderPriceQuery, ProviderReorderRequest,
+    ProviderManifestList, ProviderOperatorsQuery, ProviderPriceQuery, ProviderReorderRequest, ReusePoolClearResponse,
     ProviderServicesQuery, ReleaseCodeRequest, RoutingFailoverRequest, RoutingPlan,
     RoutingPlanList, RuntimeAccessInfo, RuntimeSettings, RuntimeSettingsUpdate, RuntimeSnapshot,
     TicketCallbackRegistrationRequest, TicketListResponse,
@@ -115,6 +115,9 @@ async fn handle_socket_command(service: &SmsService, line: &str) -> String {
             }
             SocketCommand::ProviderOptionsCache { provider } => {
                 wrap_socket_plain_result(service.provider_cached_options(&provider))
+            }
+            SocketCommand::ClearProviderReusePool { provider } => {
+                wrap_socket_plain_result(service.clear_provider_reuse_pool(&provider))
             }
             SocketCommand::ReorderProviders { request } => {
                 wrap_socket_plain_result(service.reorder_providers(request))
@@ -253,6 +256,10 @@ pub fn build_router(service: Arc<SmsService>, http_secret: Option<String>) -> Ro
         .route(
             "/api/providers/{provider}/options-cache",
             get(get_provider_options_cache),
+        )
+        .route(
+            "/api/providers/{provider}/reuse-pool",
+            post(clear_provider_reuse_pool),
         )
         .route(
             "/api/providers/{provider}/countries",
@@ -968,6 +975,25 @@ async fn put_manifest(
     state.service.log_http_access(
         "PUT",
         format!("/api/providers/{provider}/manifest"),
+        if result.is_ok() { "200" } else { "400" },
+    );
+    result
+}
+
+async fn clear_provider_reuse_pool(
+    State(state): State<ApiState>,
+    headers: HeaderMap,
+    Path(provider): Path<String>,
+) -> Result<Json<ReusePoolClearResponse>, (StatusCode, Json<ApiError>)> {
+    ensure_http_authenticated(&state, &headers)?;
+    let result = state
+        .service
+        .clear_provider_reuse_pool(&provider)
+        .map(Json)
+        .map_err(to_api_error);
+    state.service.log_http_access(
+        "POST",
+        format!("/api/providers/{provider}/reuse-pool"),
         if result.is_ok() { "200" } else { "400" },
     );
     result

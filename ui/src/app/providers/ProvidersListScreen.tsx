@@ -2,7 +2,7 @@ import { ChevronRight } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import { PageHeader, StatusBadge } from '../ui-bridge';
 import type { LanguageCode, ProviderManifest, ProviderSummary } from '../types';
-import { formatProviderLabel, formatProviderProtocolLabel } from '../../lib/formatters';
+import { formatProviderLabel, formatProviderProtocolLabel, formatReuseCapabilityLabel } from '../../lib/formatters';
 import { ResourceBadge } from '../../components/primitives';
 
 export type ProvidersListScreenProps = {
@@ -30,10 +30,14 @@ export function ProvidersListScreen(props: ProvidersListScreenProps) {
           const summary = props.summaries?.find((item) => item.id === provider.id);
           const enableLocked = !provider.enabled && summary?.can_enable === false;
           const endpoint = summary?.primary_endpoint ?? provider.homepage ?? t('No endpoint');
-          const protocolTag = summary?.protocol_label
+          const rawProtocolTag = summary?.protocol_label
             ?? provider.ui?.protocol_label
             ?? summary?.protocol
             ?? provider.kind;
+          const protocolTag = rawProtocolTag.toLowerCase() === 'handler api'
+            || rawProtocolTag.toLowerCase() === 'handler_api'
+            ? provider.name
+            : rawProtocolTag;
           const balanceLabel = props.balances?.[provider.id] ?? '—';
           const providerIconUrl = summary?.icon_url ?? provider.ui?.icon_url;
           const providerBadgeLabel = summary?.badge_label ?? provider.ui?.badge_label;
@@ -57,10 +61,15 @@ export function ProvidersListScreen(props: ProvidersListScreenProps) {
                 </StatusBadge>
               </div>
 
-              <div>
+              <div className="flex flex-wrap gap-1.5">
                 <StatusBadge tone="blue">
                   {formatProviderProtocolLabel(protocolTag, language)}
                 </StatusBadge>
+                {(summary?.reuse_capabilities ?? []).map((capability) => (
+                  <StatusBadge key={capability} tone="orange">
+                    {formatReuseCapabilityLabel(capability, language)}
+                  </StatusBadge>
+                ))}
               </div>
 
               <p className="line-clamp-2 text-[12px] leading-tight text-ds-text-secondary opacity-55">

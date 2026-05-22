@@ -1,8 +1,10 @@
 use crate::error::SmsError;
 use crate::models::{
-    AcquireCodeRequest, OptionItem, PollCodeResponse, ProviderBalance, ProviderOperatorsQuery,
-    ProviderPriceItem, ProviderPriceQuery, ProviderServicesQuery, ReleaseAction, TicketRecord,
+    AcquireCodeRequest, AcquirePath, OptionItem, PollCodeResponse, ProviderBalance,
+    ProviderOperatorsQuery, ProviderPriceItem, ProviderPriceQuery, ProviderServicesQuery,
+    ReleaseAction, TicketRecord,
 };
+use chrono::{DateTime, Utc};
 use crate::smsbower_assets::{
     SmsBowerFaqService, country_icon_url as smsbower_country_icon_url,
     fallback_service_icon_url as smsbower_fallback_service_icon_url,
@@ -39,6 +41,13 @@ fn coerce_u64(value: &Value) -> Option<u64> {
         .as_u64()
         .or_else(|| value.as_i64().and_then(|v| u64::try_from(v).ok()))
         .or_else(|| value.as_str().and_then(|s| s.trim().parse().ok()))
+}
+
+fn coerce_bool(value: &Value) -> Option<bool> {
+    value
+        .as_bool()
+        .or_else(|| value.as_u64().map(|v| v != 0))
+        .or_else(|| value.as_str().map(|v| matches!(v.trim(), "1" | "true" | "TRUE" | "True")))
 }
 
 #[derive(Debug, Deserialize)]
@@ -309,6 +318,33 @@ impl HeroSmsProvider {
         }
     }
 
+    async fn reactivate(
+        &self,
+        activation_id: &str,
+        service: &str,
+        country: &str,
+    ) -> Result<TicketRecord, SmsError> {
+        let (text, json) = self
+            .as_shared()
+            .request_post(
+                &self.config.reactivate_action,
+                &[("activationId", activation_id.to_string())],
+            )
+            .await?;
+        let (upstream_id, phone_number, price) = self.parse_number(&text, json.as_ref())?;
+        let mut ticket = TicketRecord::new(
+            self.manifest.id.clone(),
+            service.to_string(),
+            country.to_string(),
+            phone_number,
+            Some(upstream_id),
+            price,
+        );
+        ticket.status = crate::models::TicketStatus::WaitingCode;
+        ticket.message = Some("number reactivated".to_string());
+        Ok(ticket)
+    }
+
     async fn request(
         &self,
         action: &str,
@@ -440,6 +476,30 @@ impl HeroSmsProvider {
         json: Option<&Value>,
     ) -> Result<(String, String, Option<f64>), SmsError> {
         self.as_shared().parse_number(text, json)
+    }
+
+    fn apply_retry_metadata(&self, ticket: &mut TicketRecord, json: Option<&Value>) {
+        ticket.acquire_path = AcquirePath::FreshAcquire;
+        ticket.same_activation_retry_supported = json
+            .and_then(|value| value.pointer("/canGetAnotherSms"))
+            .and_then(coerce_bool)
+            .unwrap_or(false);
+        let expiry = json.and_then(|value| {
+            value.pointer("/activationEndTime")
+                .and_then(Value::as_str)
+                .and_then(|raw| DateTime::parse_from_rfc3339(raw).ok())
+                .map(|value| value.with_timezone(&Utc))
+        });
+        ticket.same_activation_retry_expires_at = if ticket.same_activation_retry_supported {
+            expiry.or_else(|| {
+                Some(
+                    ticket.created_at
+                        + chrono::Duration::seconds(self.manifest.defaults.poll_timeout_sec as i64),
+                )
+            })
+        } else {
+            None
+        };
     }
 
     fn expected_release_response(&self, action: ReleaseAction) -> &'static str {
@@ -613,18 +673,43 @@ impl SharedHandlerApiProvider {
         action: &str,
         extra: &[(&str, String)],
     ) -> Result<(String, Option<Value>), SmsError> {
+        self.request_with_method(action, extra, false).await
+    }
+
+    async fn request_post(
+        &self,
+        action: &str,
+        extra: &[(&str, String)],
+    ) -> Result<(String, Option<Value>), SmsError> {
+        self.request_with_method(action, extra, true).await
+    }
+
+    async fn request_with_method(
+        &self,
+        action: &str,
+        extra: &[(&str, String)],
+        use_post: bool,
+    ) -> Result<(String, Option<Value>), SmsError> {
         let mut query = vec![
             ("action", action.to_string()),
             ("api_key", self.config.api_key.clone()),
         ];
         query.extend(extra.iter().map(|(key, value)| (*key, value.clone())));
-        let response = self
-            .client
-            .get(&self.config.base_url)
-            .query(&query)
-            .send()
-            .await
-            .map_err(|err| SmsError::Upstream(err.to_string()))?;
+        let response = if use_post {
+            self.client
+                .post(&self.config.base_url)
+                .form(&query)
+                .send()
+                .await
+                .map_err(|err| SmsError::Upstream(err.to_string()))?
+        } else {
+            self.client
+                .get(&self.config.base_url)
+                .query(&query)
+                .send()
+                .await
+                .map_err(|err| SmsError::Upstream(err.to_string()))?
+        };
         let status = response.status();
         let text = response
             .text()
@@ -906,6 +991,9 @@ impl SmsProvider for HeroSmsProvider {
         let country = self
             .manifest
             .resolved_country_hint(request.country.as_deref());
+        if let Some(activation_id) = request.reuse_key.as_deref().filter(|value| !value.is_empty()) {
+            return self.reactivate(activation_id, &service, &country).await;
+        }
         let mut params = vec![("service", service.clone()), ("country", country.clone())];
         if let Some(max_price) = request
             .max_price
@@ -935,6 +1023,7 @@ impl SmsProvider for HeroSmsProvider {
         );
         ticket.status = crate::models::TicketStatus::WaitingCode;
         ticket.message = Some("number acquired".to_string());
+        self.apply_retry_metadata(&mut ticket, json.as_ref());
         Ok(ticket)
     }
 
@@ -1485,13 +1574,22 @@ impl SmsProvider for FiveSimProvider {
         let country = self
             .manifest
             .resolved_country_hint(request.country.as_deref());
-        let endpoint = format!(
-            "{}/{}/{}/{}",
-            self.config.buy_endpoint_prefix.trim_end_matches('/'),
-            country,
-            self.config.buy_operator,
-            service
-        );
+        let endpoint = if let Some(number) = request.reuse_key.as_deref().filter(|value| !value.is_empty()) {
+            format!(
+                "{}/{}/{}",
+                self.config.reuse_endpoint_prefix.trim_end_matches('/'),
+                service,
+                number.trim_start_matches('+')
+            )
+        } else {
+            format!(
+                "{}/{}/{}/{}",
+                self.config.buy_endpoint_prefix.trim_end_matches('/'),
+                country,
+                self.config.buy_operator,
+                service
+            )
+        };
         let mut params = Vec::new();
         if let Some(max_price) = request
             .max_price
@@ -1500,7 +1598,8 @@ impl SmsProvider for FiveSimProvider {
         {
             params.push(("maxPrice", max_price.to_string()));
         }
-        if request
+        if request.reuse_key.is_none()
+            && request
             .reuse_phone
             .or(Some(self.manifest.defaults.reuse_phone))
             .unwrap_or(false)
@@ -1838,7 +1937,14 @@ pub fn provider_summary_map(manifests: &[ProviderManifest]) -> BTreeMap<String, 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use axum::extract::{Query, State};
+    use axum::routing::{get, post};
+    use axum::{Json, Router};
     use serde_json::json;
+    use std::collections::HashMap;
+    use std::net::SocketAddr;
+    use std::sync::Arc;
+    use tokio::net::TcpListener;
 
     fn handler_manifest() -> ProviderManifest {
         ProviderManifest {
@@ -1860,7 +1966,8 @@ mod tests {
                 get_balance_action: "getBalance".to_string(),
                 get_prices_action: "getPrices".to_string(),
                 get_countries_action: "getCountries".to_string(),
-                get_number_action: "getNumber".to_string(),
+                get_number_action: "getNumberV2".to_string(),
+                reactivate_action: "reactivate".to_string(),
                 get_status_action: "getStatus".to_string(),
                 set_status_action: "setStatus".to_string(),
                 status_ready: 1,
@@ -1904,6 +2011,7 @@ mod tests {
                 prices_endpoint: "prices".to_string(),
                 products_endpoint: "products".to_string(),
                 buy_endpoint_prefix: "buy".to_string(),
+                reuse_endpoint_prefix: "reuse".to_string(),
                 check_endpoint_prefix: "check".to_string(),
                 finish_action: "finish".to_string(),
                 cancel_action: "cancel".to_string(),
@@ -2264,5 +2372,155 @@ mod tests {
             enriched.provider_icon_url.as_deref(),
             Some("https://smsbower.app/img/services/247.svg?timestamp=1748774536")
         );
+    }
+
+    #[tokio::test]
+    async fn herosms_reactivate_uses_post_and_activation_id() {
+        #[derive(Clone, Default)]
+        struct RequestState {
+            items: Arc<parking_lot::Mutex<Vec<(String, HashMap<String, String>)>>>,
+        }
+
+        async fn handler(
+            State(state): State<RequestState>,
+            Query(query): Query<HashMap<String, String>>,
+            body: String,
+        ) -> String {
+            let mut params = query;
+            for pair in body.split('&').filter(|value| !value.is_empty()) {
+                let mut parts = pair.splitn(2, '=');
+                let key = parts.next().unwrap_or_default().to_string();
+                let value = parts.next().unwrap_or_default().replace("%3A", ":");
+                params.insert(key, value);
+            }
+            state.items.lock().push(("POST".to_string(), params));
+            "SUCCESS_REACTIVATE".to_string()
+        }
+
+        let state = RequestState::default();
+        let router = Router::new()
+            .route("/", post(handler))
+            .with_state(state.clone());
+        let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let addr: SocketAddr = listener.local_addr().unwrap();
+        let server = tokio::spawn(async move {
+            let _ = axum::serve(listener, router).await;
+        });
+
+        let mut manifest = handler_manifest();
+        manifest.handler_api.as_mut().unwrap().base_url = format!("http://{addr}/");
+        let provider = HeroSmsProvider::new(manifest).unwrap();
+        let result = provider
+            .acquire(&AcquireCodeRequest {
+                provider: "internal-handler".to_string(),
+                service: Some("dr".to_string()),
+                country: Some("50".to_string()),
+                max_price: None,
+                min_price: None,
+                auto_pick_country: None,
+                reuse_phone: Some(true),
+                reuse_key: Some("abc123".to_string()),
+                metadata: BTreeMap::new(),
+                routing_plan_id: None,
+                routing_plan_name: None,
+            })
+            .await;
+
+        let items = state.items.lock().clone();
+        assert_eq!(items.len(), 1);
+        assert_eq!(items[0].0, "POST");
+        assert_eq!(items[0].1.get("action").map(String::as_str), Some("reactivate"));
+        assert_eq!(
+            items[0].1.get("activationId").map(String::as_str),
+            Some("abc123")
+        );
+        assert!(result.is_err());
+
+        server.abort();
+    }
+
+    #[tokio::test]
+    async fn fivesim_exact_reuse_uses_reuse_endpoint() {
+        #[derive(Clone, Default)]
+        struct RequestState {
+            paths: Arc<parking_lot::Mutex<Vec<String>>>,
+        }
+
+        async fn handler(State(state): State<RequestState>, uri: axum::http::Uri) -> Json<serde_json::Value> {
+            state.paths.lock().push(uri.path().to_string());
+            Json(json!({
+                "payload": {
+                    "order_id": 884422,
+                    "phone_number": 447700900123u64,
+                    "amount": "7.25"
+                }
+            }))
+        }
+
+        let state = RequestState::default();
+        let router = Router::new()
+            .route("/reuse/{service}/{number}", get(handler))
+            .route("/buy/{country}/{operator}/{service}", get(handler))
+            .with_state(state.clone());
+        let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let addr: SocketAddr = listener.local_addr().unwrap();
+        let server = tokio::spawn(async move {
+            let _ = axum::serve(listener, router).await;
+        });
+
+        let mut manifest = five_sim_manifest();
+        let config = manifest.five_sim.as_mut().unwrap();
+        config.base_url = format!("http://{addr}");
+        config.buy_endpoint_prefix = "buy".to_string();
+        config.reuse_endpoint_prefix = "reuse".to_string();
+        let provider = FiveSimProvider::new(manifest).unwrap();
+        let ticket = provider
+            .acquire(&AcquireCodeRequest {
+                provider: "internal-fivesim".to_string(),
+                service: Some("openai".to_string()),
+                country: Some("any".to_string()),
+                max_price: None,
+                min_price: None,
+                auto_pick_country: None,
+                reuse_phone: Some(true),
+                reuse_key: Some("+447700900123".to_string()),
+                metadata: BTreeMap::new(),
+                routing_plan_id: None,
+                routing_plan_name: None,
+            })
+            .await
+            .unwrap();
+
+        let paths = state.paths.lock().clone();
+        assert_eq!(paths.as_slice(), ["/reuse/openai/447700900123"]);
+        assert_eq!(ticket.upstream_id.as_deref(), Some("884422"));
+        assert_eq!(ticket.phone_number, "+447700900123");
+
+        server.abort();
+    }
+
+    #[test]
+    fn herosms_get_number_v2_enables_retry_metadata() {
+        let provider = HeroSmsProvider::new(handler_manifest()).unwrap();
+        let mut ticket = TicketRecord::new(
+            "internal-handler".to_string(),
+            "dr".to_string(),
+            "50".to_string(),
+            "+79001234567".to_string(),
+            Some("987654".to_string()),
+            Some(0.06),
+        );
+        provider.apply_retry_metadata(
+            &mut ticket,
+            Some(&json!({
+                "activationId": "987654",
+                "phoneNumber": "79001234567",
+                "activationCost": "0.06",
+                "canGetAnotherSms": true,
+                "activationEndTime": "2026-02-18T18:11:23+00:00"
+            })),
+        );
+        assert!(ticket.same_activation_retry_supported);
+        assert!(ticket.same_activation_retry_expires_at.is_some());
     }
 }

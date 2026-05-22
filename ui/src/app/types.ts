@@ -47,6 +47,17 @@ export type ProviderSummary = {
   balance_currency?: string | null;
   balance_fetched_at?: string | null;
   can_enable?: boolean;
+  reuse_capabilities?: string[];
+};
+
+export type ReusePoolSummary = {
+  provider: string;
+  service: string;
+  country: string;
+  active_count: number;
+  max_reuse: number;
+  last_used_at?: string | null;
+  expires_at?: string | null;
 };
 
 export type TicketRecord = {
@@ -57,6 +68,7 @@ export type TicketRecord = {
   phone_number: string;
   status: string;
   created_at?: string;
+  acquire_path?: 'fresh_acquire' | 'exact_reuse' | 'intent_reuse' | 'same_activation_retry';
   price?: number | null;
   code?: string | null;
   message?: string | null;
@@ -67,6 +79,7 @@ export type TicketRecord = {
   routing_execution_mode?: RoutingExecutionMode | null;
   routing_execution_rounds?: number | null;
   routing_current_round?: number | null;
+  reuse_count?: number | null;
 };
 
 export type LogEntry = {
@@ -80,6 +93,7 @@ export type Snapshot = {
   providers: ProviderSummary[];
   tickets: TicketRecord[];
   logs: LogEntry[];
+  reuse_pool: ReusePoolSummary[];
 };
 
 export type TicketDecoration = {
@@ -108,6 +122,7 @@ export type ProviderManifest = {
     max_tries: number;
     poll_timeout_sec: number;
     reuse_max: number;
+    reuse_ttl_hours: number;
   };
   ui?: {
     protocol_label?: string | null;
@@ -247,6 +262,11 @@ export type ProviderManifestSaveResponse = {
   option_cache_state: OptionCacheState;
   option_cache_fetched_at?: string | null;
   cache_refresh_error?: string | null;
+};
+
+export type ReusePoolClearResponse = {
+  provider: string;
+  removed: number;
 };
 export type OptionCacheOverview = {
   fresh_providers: number;

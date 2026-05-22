@@ -170,6 +170,8 @@ pub struct ProviderDefaults {
     pub poll_timeout_sec: u64,
     #[serde(default = "default_reuse_max")]
     pub reuse_max: u32,
+    #[serde(default = "default_reuse_ttl_hours")]
+    pub reuse_ttl_hours: u64,
 }
 
 impl Default for ProviderDefaults {
@@ -186,6 +188,7 @@ impl Default for ProviderDefaults {
             max_tries: default_max_tries(),
             poll_timeout_sec: default_poll_timeout(),
             reuse_max: default_reuse_max(),
+            reuse_ttl_hours: default_reuse_ttl_hours(),
         }
     }
 }
@@ -232,6 +235,8 @@ pub struct HandlerApiConfig {
     pub get_countries_action: String,
     #[serde(default = "default_get_number_action")]
     pub get_number_action: String,
+    #[serde(default = "default_reactivate_action")]
+    pub reactivate_action: String,
     #[serde(default = "default_get_status_action")]
     pub get_status_action: String,
     #[serde(default = "default_set_status_action")]
@@ -279,6 +284,8 @@ pub struct FiveSimConfig {
     pub products_endpoint: String,
     #[serde(default = "default_buy_endpoint_prefix")]
     pub buy_endpoint_prefix: String,
+    #[serde(default = "default_reuse_endpoint_prefix")]
+    pub reuse_endpoint_prefix: String,
     #[serde(default = "default_check_endpoint_prefix")]
     pub check_endpoint_prefix: String,
     #[serde(default = "default_finish_action")]
@@ -351,6 +358,10 @@ fn default_reuse_max() -> u32 {
     2
 }
 
+fn default_reuse_ttl_hours() -> u64 {
+    24
+}
+
 fn default_get_balance_action() -> String {
     "getBalance".to_string()
 }
@@ -369,6 +380,10 @@ fn default_get_countries_action() -> String {
 
 fn default_get_number_action() -> String {
     "getNumber".to_string()
+}
+
+fn default_reactivate_action() -> String {
+    "reactivate".to_string()
 }
 
 fn default_get_status_action() -> String {
@@ -475,6 +490,10 @@ fn default_products_endpoint() -> String {
 
 fn default_buy_endpoint_prefix() -> String {
     "user/buy/activation".to_string()
+}
+
+fn default_reuse_endpoint_prefix() -> String {
+    "user/reuse".to_string()
 }
 
 fn default_check_endpoint_prefix() -> String {

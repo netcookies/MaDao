@@ -571,6 +571,7 @@ function renderPageTarget(target: ScreenshotTarget, t: (key: string, options?: R
           successRate: '100.0%',
         }}
         activity={[]}
+        snapshot={{ providers: [], tickets: [], logs: [], reuse_pool: [] }}
         onViewAll={noop}
       />,
     );
@@ -615,6 +616,7 @@ function renderPageTarget(target: ScreenshotTarget, t: (key: string, options?: R
         onRefresh={noop}
         onFetchPrices={noop}
         onSave={noop}
+        onClearReusePool={noop}
         onOpenRawJson={noop}
         onOpenSelector={noop}
         storeQuery={{ service: 'openai', country: '', operator: '', search: '' }}
@@ -664,6 +666,7 @@ function renderPageTarget(target: ScreenshotTarget, t: (key: string, options?: R
         onRefresh={noop}
         onFetchPrices={noop}
         onSave={noop}
+        onClearReusePool={noop}
         onOpenRawJson={noop}
         onOpenSelector={noop}
         storeQuery={{ service: 'openai', country: '', operator: '', search: '' }}
@@ -712,6 +715,7 @@ function renderPageTarget(target: ScreenshotTarget, t: (key: string, options?: R
         onRefresh={noop}
         onFetchPrices={noop}
         onSave={noop}
+        onClearReusePool={noop}
         onOpenRawJson={noop}
         onOpenSelector={noop}
         storeQuery={{ service: 'openai', country: '', operator: '', search: '' }}

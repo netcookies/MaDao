@@ -32,6 +32,7 @@ min_balance = 1.0
 max_tries = 3
 poll_timeout_sec = 120
 reuse_max = 2
+reuse_ttl_hours = 24
 
 [handler_api]
 base_url = "https://hero-sms.com/stubs/handler_api.php"
@@ -40,7 +41,8 @@ api_key = ""
 get_balance_action = "getBalance"
 get_prices_action = "getPrices"
 get_countries_action = "getCountries"
-get_number_action = "getNumber"
+get_number_action = "getNumberV2"
+reactivate_action = "reactivate"
 get_status_action = "getStatus"
 set_status_action = "setStatus"
 status_ready = 1

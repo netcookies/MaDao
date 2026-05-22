@@ -18,10 +18,19 @@ http://127.0.0.1:7822
 - `GET /api/providers`
 - `GET /api/provider-manifests`
 - `POST /api/provider-manifests/reload`
+- `POST /api/providers/{provider}/reuse-pool`
 - `POST /api/providers/reorder`
 - `GET /api/notifications`
 - `GET /api/settings/runtime`
 - `POST /api/settings/runtime`
+
+`GET /api/providers` 当前返回的 `RuntimeSnapshot` 重点字段包括：
+
+- `providers[].reuse_capabilities`
+- `tickets[].acquire_path`
+- `tickets[].same_activation_retry_supported`
+- `tickets[].same_activation_retry_expires_at`
+- `reuse_pool[]`
 
 `RuntimeSettings` 当前包括：
 
@@ -31,6 +40,12 @@ http://127.0.0.1:7822
 - `option_cache_poll_interval_minutes`
 - `check_updates_on_launch`
 - `GET /api/settings/option-cache`
+
+provider manifest 的复用配置当前包括：
+
+- `defaults.reuse_phone`
+- `defaults.reuse_max`
+- `defaults.reuse_ttl_hours`
 
 ### Activation
 
@@ -104,6 +119,26 @@ POST /api/acquire
   "country": "local"
 }
 ```
+
+复用相关说明：
+
+- daemon 会优先尝试 `same_activation_retry`
+- 其次尝试 `exact_reuse`
+- 最后才会走 `intent_reuse / fresh_acquire`
+- 当 `defaults.reuse_phone = false` 时，上述复用路径都会被关闭
+
+`tickets[].acquire_path` 当前可见值：
+
+- `fresh_acquire`
+- `exact_reuse`
+- `intent_reuse`
+- `same_activation_retry`
+
+清空复用池：
+
+- `POST /api/providers/{provider}/reuse-pool`
+- 只会清空该 provider 的本地复用候选池
+- 不会删除历史 ticket，也不会修改上游订单状态
 
 ### 3. 注册验证码回调
 

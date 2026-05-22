@@ -89,7 +89,7 @@ const PROVIDER_PROTOCOL_LABELS: Record<LanguageCode, Record<string, string>> = {
     fivesim: 'FiveSim',
     herosms: 'HeroSMS',
     smsbower: 'SMSBower',
-    handler_api: 'Handler API',
+    handler_api: '通用 Handler API',
     mock: '模拟',
   },
 };
@@ -208,6 +208,26 @@ export function formatProviderProtocolLabel(protocol: string, language?: Languag
   const normalized = protocol.toLowerCase();
   const currentLanguage = pickLanguage(language);
   return PROVIDER_PROTOCOL_LABELS[currentLanguage][normalized] ?? titleCaseToken(protocol);
+}
+
+export function formatReuseCapabilityLabel(capability: string, language?: LanguageCode) {
+  const normalized = capability.toLowerCase();
+  const currentLanguage = pickLanguage(language);
+  const labels: Record<LanguageCode, Record<string, string>> = {
+    en: {
+      exact_reuse: 'Exact reuse',
+      intent_reuse: 'Intent reuse',
+      same_activation_retry: 'Retry reuse',
+      unsupported: 'Not supported',
+    },
+    zh: {
+      exact_reuse: '精确复用',
+      intent_reuse: '意图复用',
+      same_activation_retry: '重试复用',
+      unsupported: '不支持',
+    },
+  };
+  return labels[currentLanguage][normalized] ?? capability;
 }
 
 export function formatCountryLabel(country: string, language?: LanguageCode) {

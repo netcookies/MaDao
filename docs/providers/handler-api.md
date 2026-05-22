@@ -92,7 +92,7 @@ ACCESS_NUMBER:{activationId}:{phoneNumber}
 
 ---
 
-## getNumberV2 — JSON 响应版（SmsBower 扩展）
+## getNumberV2 — JSON 响应版（当前项目：SmsBower / HeroSMS）
 
 ```
 GET ?action=getNumberV2&api_key=XXX&service=XXX&country=XXX[&可选参数]
@@ -103,8 +103,8 @@ GET ?action=getNumberV2&api_key=XXX&service=XXX&country=XXX[&可选参数]
 说明：
 
 - `SmsBower` 官方文档明确列出 `getNumberV2`
-- `HeroSMS` 官方文档页面未明确列出这一变体
-- 因此该能力应视为 `SmsBower 扩展`，不是 `handler_api` 的最低共性
+- `HeroSMS` OpenAPI 也定义了 `getNumberV2`
+- 当前项目已让 `SmsBower` 与 `HeroSMS` 都默认使用 `getNumberV2`
 
 ### 成功响应（JSON）
 
@@ -128,11 +128,12 @@ GET ?action=getNumberV2&api_key=XXX&service=XXX&country=XXX[&可选参数]
 | `phoneNumber` | `number (int)` | `integer` 或含 `*` 掩码的 `string` | `coerce_str_value` → 按 string 处理 |
 | `activationCost` | `float` | `float` 或 `"2.40"` 字符串 | `coerce_f64`（两者均兼容） |
 | `countryCode` | `number` | `number` 或 `string` | 本项目未使用此字段 |
-| `canGetAnotherSms` | `boolean` | `boolean`、`1`、`"1"` | 本项目未使用此字段 |
+| `canGetAnotherSms` | `boolean` | `boolean`、`1`、`"1"` | 当前项目用于 `same_activation_retry` 可用性判断 |
 
 > **注意**：`phoneNumber` 在某些实现中会含 `*` 掩码字符（如 `79584***456`），无法转换为数字，必须视为字符串处理。本项目通过 `coerce_str_value` 同时兼容 integer 和 string 格式。
 
 本项目通过 `id_json_pointers`、`phone_json_pointers`、`price_json_pointers` 配置提取各字段。
+`activationEndTime` 当前也会被读取，用于 `same_activation_retry` 的过期时间判断。
 
 ### 错误响应（同 getNumber）
 

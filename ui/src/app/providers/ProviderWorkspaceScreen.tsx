@@ -1,4 +1,6 @@
 import {
+  Minus,
+  Plus,
   ChevronsUpDown,
   ShoppingCart,
   Sliders,
@@ -21,11 +23,13 @@ import type {
   ProviderPriceItem,
   ProviderSectionId,
   ProviderSummary,
+  ReusePoolSummary,
   SelectorKind,
   StoreQueryState,
 } from '../types';
 import {
   formatCountryLabel,
+  formatRelativeTime,
   formatServiceLabel,
 } from '../../lib/formatters';
 import { formatOperatorLabel } from '../utils';
@@ -45,6 +49,7 @@ const WORKSPACE_SECTIONS: Array<{
 export type ProviderWorkspaceScreenProps = {
   manifest: ProviderManifest;
   summary?: ProviderSummary;
+  reusePool?: ReusePoolSummary[];
   section: ProviderSectionId;
   compact?: boolean;
   prices: ProviderPriceItem[];
@@ -64,6 +69,7 @@ export type ProviderWorkspaceScreenProps = {
   onRefresh: () => void;
   onFetchPrices: () => void;
   onSave: () => void;
+  onClearReusePool: () => void;
   onOpenRawJson: () => void;
   onOpenSelector: (kind: SelectorKind) => void;
   storeQuery: StoreQueryState;
@@ -122,6 +128,7 @@ export function ProviderWorkspaceScreen(props: ProviderWorkspaceScreenProps) {
           <WorkspaceConfig
             manifest={manifest}
             summary={props.summary}
+            reusePool={props.reusePool}
             compact={compact}
             isConnected={isConnected}
             balanceLabel={props.balanceLabel}
@@ -133,6 +140,7 @@ export function ProviderWorkspaceScreen(props: ProviderWorkspaceScreenProps) {
             onToggleEnabled={props.onToggleEnabled}
             onRefresh={props.onRefresh}
             onSave={props.onSave}
+            onClearReusePool={props.onClearReusePool}
             onOpenRawJson={props.onOpenRawJson}
             onOpenSelector={props.onOpenSelector}
           />
@@ -178,6 +186,7 @@ function findMatchingOption(options: OptionItem[] | undefined, value: string) {
 function WorkspaceConfig(props: {
   manifest: ProviderManifest;
   summary?: ProviderSummary;
+  reusePool?: ReusePoolSummary[];
   compact: boolean;
   isConnected: boolean;
   balanceLabel: string;
@@ -193,6 +202,7 @@ function WorkspaceConfig(props: {
   onToggleEnabled: (enabled: boolean) => void;
   onRefresh: () => void;
   onSave: () => void;
+  onClearReusePool: () => void;
   onOpenRawJson: () => void;
   onOpenSelector: (kind: SelectorKind) => void;
 }) {
@@ -207,6 +217,26 @@ function WorkspaceConfig(props: {
       ? t('Stale Cache')
       : t('No Cache');
   const toggleLabel = props.isConnected ? t('Enabled') : t('Disabled');
+  function handleReuseMaxStep(nextValue: number) {
+    props.onManifestFieldChange('defaults', 'reuse_max', Math.max(1, nextValue));
+  }
+  function handleReuseMaxInput(rawValue: string) {
+    const trimmed = rawValue.trim();
+    if (!trimmed) return;
+    const parsed = Number.parseInt(trimmed, 10);
+    if (!Number.isFinite(parsed)) return;
+    props.onManifestFieldChange('defaults', 'reuse_max', Math.max(1, parsed));
+  }
+  function handleReuseTtlStep(nextValue: number) {
+    props.onManifestFieldChange('defaults', 'reuse_ttl_hours', Math.max(1, nextValue));
+  }
+  function handleReuseTtlInput(rawValue: string) {
+    const trimmed = rawValue.trim();
+    if (!trimmed) return;
+    const parsed = Number.parseInt(trimmed, 10);
+    if (!Number.isFinite(parsed)) return;
+    props.onManifestFieldChange('defaults', 'reuse_ttl_hours', Math.max(1, parsed));
+  }
 
   return (
     <div className={cx('flex flex-col gap-5', props.compact && 'gap-4')}>
@@ -255,7 +285,7 @@ function WorkspaceConfig(props: {
       </div>
 
       <div className="overflow-hidden rounded-[10px] border border-[var(--ds-color-card-border)] bg-ds-surface shadow-ds backdrop-blur-ds">
-        <ConfigRow label="API 密钥" last>
+        <ConfigRow label="API 密钥">
           <input
             className={cx(
               'min-h-control w-full rounded-sm border border-ds-border-strong bg-ds-surface px-4 py-[11px] text-utility tracking-[var(--ds-type-utility-tracking)] text-ds-text-primary',
@@ -267,6 +297,79 @@ function WorkspaceConfig(props: {
             placeholder={t('Paste provider API key')}
           />
         </ConfigRow>
+        <ConfigRow label={t('Reuse phone')}>
+          <div className="flex justify-end">
+            <ToggleSwitch
+              checked={manifest.defaults.reuse_phone}
+              onChange={(value) => props.onManifestFieldChange('defaults', 'reuse_phone', value)}
+              ariaLabel={t('Reuse phone')}
+            />
+          </div>
+        </ConfigRow>
+        <ConfigRow label={t('Max reuse count')}>
+          <div className="flex items-center justify-end gap-2">
+            <AppButton
+              variant="outline"
+              size="utility"
+              aria-label={t('Decrease max reuse count')}
+              className="w-10 min-w-10 px-0"
+              onClick={() => handleReuseMaxStep(manifest.defaults.reuse_max - 1)}
+            >
+              <Minus size={18} strokeWidth={2.4} />
+            </AppButton>
+            <input
+              className={cx(
+                'min-h-control-compact w-[88px] rounded-sm border border-ds-border-strong bg-ds-surface px-3 py-2 text-center text-utility tracking-[var(--ds-type-utility-tracking)] text-ds-text-primary [-moz-appearance:textfield] [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:appearance-none',
+              )}
+              type="number"
+              min={1}
+              step={1}
+              value={manifest.defaults.reuse_max}
+              onChange={(e) => handleReuseMaxInput(e.target.value)}
+            />
+            <AppButton
+              variant="outline"
+              size="utility"
+              aria-label={t('Increase max reuse count')}
+              className="w-10 min-w-10 px-0"
+              onClick={() => handleReuseMaxStep(manifest.defaults.reuse_max + 1)}
+            >
+              <Plus size={18} strokeWidth={2.4} />
+            </AppButton>
+          </div>
+        </ConfigRow>
+        <ConfigRow label={t('Reuse TTL (hours)')} last>
+          <div className="flex items-center justify-end gap-2">
+            <AppButton
+              variant="outline"
+              size="utility"
+              aria-label={t('Decrease reuse ttl')}
+              className="w-10 min-w-10 px-0"
+              onClick={() => handleReuseTtlStep(manifest.defaults.reuse_ttl_hours - 1)}
+            >
+              <Minus size={18} strokeWidth={2.4} />
+            </AppButton>
+            <input
+              className={cx(
+                'min-h-control-compact w-[88px] rounded-sm border border-ds-border-strong bg-ds-surface px-3 py-2 text-center text-utility tracking-[var(--ds-type-utility-tracking)] text-ds-text-primary [-moz-appearance:textfield] [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:appearance-none',
+              )}
+              type="number"
+              min={1}
+              step={1}
+              value={manifest.defaults.reuse_ttl_hours}
+              onChange={(e) => handleReuseTtlInput(e.target.value)}
+            />
+            <AppButton
+              variant="outline"
+              size="utility"
+              aria-label={t('Increase reuse ttl')}
+              className="w-10 min-w-10 px-0"
+              onClick={() => handleReuseTtlStep(manifest.defaults.reuse_ttl_hours + 1)}
+            >
+              <Plus size={18} strokeWidth={2.4} />
+            </AppButton>
+          </div>
+        </ConfigRow>
         <div className="h-px bg-ds-border" />
         <div className={cx('flex items-center justify-between px-5 py-3', props.compact && 'px-4 py-2.5')}>
           <div>
@@ -277,6 +380,9 @@ function WorkspaceConfig(props: {
             )}
           </div>
           <div className="flex items-center gap-2">
+            <AppButton variant="danger-outline" size="utility" onClick={props.onClearReusePool} disabled={props.busyAction.includes('clear-reuse-pool') || props.busyAction.includes('save')}>
+              {props.busyAction.includes('clear-reuse-pool') ? t('Clearing…') : t('Clear Reuse Pool')}
+            </AppButton>
             <AppButton variant="ghost" size="utility" className="min-h-0 px-0 py-0 text-ds-accent-blue" onClick={props.onRefresh} disabled={props.busyAction.includes('refresh') || props.busyAction.includes('save')}>
               {props.busyAction.includes('refresh') ? t('Refreshing…') : t('Refresh')}
             </AppButton>
@@ -284,6 +390,34 @@ function WorkspaceConfig(props: {
               {props.busyAction.includes('save') ? t('Saving…') : t('Save')}
             </AppButton>
           </div>
+        </div>
+      </div>
+
+      <div className="overflow-hidden rounded-[10px] border border-[var(--ds-color-card-border)] bg-ds-surface shadow-ds backdrop-blur-ds">
+        <div className="px-5 py-3">
+          <h3 className="m-0 text-[14px] font-semibold text-ds-text-primary">{t('Reuse Pool')}</h3>
+        </div>
+        <div className="h-px bg-ds-border" />
+        <div className="flex flex-col gap-2 px-5 py-4">
+          {(props.reusePool ?? []).filter((entry) => entry.provider === manifest.id).length > 0 ? (
+            (props.reusePool ?? [])
+              .filter((entry) => entry.provider === manifest.id)
+              .map((entry) => (
+                <div key={`${entry.provider}-${entry.service}-${entry.country}-${entry.last_used_at ?? ''}`} className="flex items-center justify-between gap-3 rounded-[8px] bg-ds-surface-subtle px-3 py-2 text-[12px]">
+                  <div className="flex min-w-0 flex-col gap-1">
+                    <span className="text-ds-text-primary">{formatServiceLabel(entry.service, language)} · {formatCountryLabel(entry.country, language)}</span>
+                    <span className="text-ds-text-secondary">
+                      {entry.last_used_at ? `${t('Last used')}: ${formatRelativeTime(entry.last_used_at, language)}` : t('Last used') + ': —'}
+                      {' · '}
+                      {entry.expires_at ? `${t('Expires')}: ${formatRelativeTime(entry.expires_at, language)}` : t('Expires') + ': —'}
+                    </span>
+                  </div>
+                  <span className="text-ds-text-secondary">{entry.active_count}/{entry.max_reuse}</span>
+                </div>
+              ))
+          ) : (
+            <div className="text-[13px] text-ds-text-secondary">{t('No reuse candidates yet')}</div>
+          )}
         </div>
       </div>
     </div>

@@ -1,7 +1,7 @@
 use chrono::{DateTime, Utc};
 use plugin_sdk::ProviderManifest;
 use serde::{Deserialize, Serialize};
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, HashMap};
 use uuid::Uuid;
 
 fn default_true() -> bool {
@@ -50,6 +50,8 @@ pub struct AcquireCodeResponse {
     pub price: Option<f64>,
     pub status: TicketStatus,
     pub created_at: DateTime<Utc>,
+    #[serde(default)]
+    pub acquire_path: AcquirePath,
     #[serde(default)]
     pub routing_plan_id: Option<String>,
     #[serde(default)]
@@ -291,6 +293,8 @@ pub struct ProviderSummary {
     pub balance_fetched_at: Option<DateTime<Utc>>,
     #[serde(default)]
     pub can_enable: bool,
+    #[serde(default)]
+    pub reuse_capabilities: Vec<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -489,10 +493,28 @@ pub struct ProviderManifestSaveResponse {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ReusePoolClearResponse {
+    pub provider: String,
+    pub removed: u32,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct RuntimeSnapshot {
     pub providers: Vec<ProviderSummary>,
     pub tickets: Vec<TicketRecord>,
     pub logs: Vec<LogEntry>,
+    #[serde(default)]
+    pub reuse_pool: Vec<ReusePoolSummary>,
+}
+
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, Default)]
+#[serde(rename_all = "snake_case")]
+pub enum AcquirePath {
+    #[default]
+    FreshAcquire,
+    ExactReuse,
+    IntentReuse,
+    SameActivationRetry,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -510,9 +532,15 @@ pub struct TicketRecord {
     pub created_at: DateTime<Utc>,
     pub updated_at: DateTime<Utc>,
     #[serde(default)]
+    pub acquire_path: AcquirePath,
+    #[serde(default)]
     pub code: Option<String>,
     #[serde(default)]
     pub message: Option<String>,
+    #[serde(default)]
+    pub same_activation_retry_supported: bool,
+    #[serde(default)]
+    pub same_activation_retry_expires_at: Option<DateTime<Utc>>,
     #[serde(default)]
     pub routing_plan_id: Option<String>,
     #[serde(default)]
@@ -531,6 +559,8 @@ pub struct TicketRecord {
     pub routing_candidate_item_ids: Vec<String>,
     #[serde(default)]
     pub routing_attempt_count: u32,
+    #[serde(default)]
+    pub reuse_count: u32,
 }
 
 impl TicketRecord {
@@ -554,8 +584,11 @@ impl TicketRecord {
             status: TicketStatus::Pending,
             created_at: now,
             updated_at: now,
+            acquire_path: AcquirePath::FreshAcquire,
             code: None,
             message: None,
+            same_activation_retry_supported: false,
+            same_activation_retry_expires_at: None,
             routing_plan_id: None,
             routing_plan_name: None,
             routing_item_id: None,
@@ -565,6 +598,7 @@ impl TicketRecord {
             routing_current_round: None,
             routing_candidate_item_ids: Vec::new(),
             routing_attempt_count: 0,
+            reuse_count: 0,
         }
     }
 }
@@ -588,6 +622,38 @@ pub struct LogEntry {
     pub message: String,
 }
 
+pub type ReuseKey = (String, String, String);
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ReusePoolEntry {
+    #[serde(default)]
+    pub reuse_key: Option<String>,
+    pub phone_number: String,
+    pub provider: String,
+    pub service: String,
+    pub country: String,
+    pub upstream_id: Option<String>,
+    pub reuse_count: u32,
+    pub max_reuse: u32,
+    pub last_used_at: DateTime<Utc>,
+    pub expires_at: DateTime<Utc>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+pub struct ReusePoolSummary {
+    pub provider: String,
+    pub service: String,
+    pub country: String,
+    #[serde(default)]
+    pub active_count: u32,
+    #[serde(default)]
+    pub max_reuse: u32,
+    #[serde(default)]
+    pub last_used_at: Option<DateTime<Utc>>,
+    #[serde(default)]
+    pub expires_at: Option<DateTime<Utc>>,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct RuntimeStateStore {
     #[serde(default)]
@@ -596,4 +662,57 @@ pub struct RuntimeStateStore {
     pub logs: Vec<LogEntry>,
     #[serde(default)]
     pub provider_balance_cache: Vec<ProviderBalanceCacheEntry>,
+    #[serde(default)]
+    pub reuse_pool: HashMap<String, Vec<ReusePoolEntry>>,
+}
+
+/// Three-provider reuse capability truth.
+/// Locked rules:
+/// - Retry != reuse: SameActivationRetry is NOT number-pool reuse
+/// - SmsBower exact path deferred until evidence sufficient
+/// - All three providers remain in final architecture
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+pub enum ReuseCapability {
+    ExactNumberReuse,
+    IntentReuse,
+    SameActivationRetry,
+    Unsupported,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ProviderCapabilityMatrix {
+    capabilities: HashMap<String, Vec<ReuseCapability>>,
+}
+
+impl Default for ProviderCapabilityMatrix {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl ProviderCapabilityMatrix {
+    pub fn new() -> Self {
+        let mut capabilities = HashMap::new();
+        capabilities.insert(
+            "fivesim".to_string(),
+            vec![ReuseCapability::ExactNumberReuse, ReuseCapability::IntentReuse],
+        );
+        capabilities.insert(
+            "herosms".to_string(),
+            vec![ReuseCapability::ExactNumberReuse, ReuseCapability::SameActivationRetry],
+        );
+        capabilities.insert(
+            "smsbower".to_string(),
+            vec![ReuseCapability::SameActivationRetry],
+        );
+        Self { capabilities }
+    }
+
+    pub fn capabilities_for(&self, provider_id: &str) -> &[ReuseCapability] {
+        self.capabilities.get(provider_id).map(|v| v.as_slice()).unwrap_or(&[])
+    }
+
+    pub fn supports(&self, provider_id: &str, cap: ReuseCapability) -> bool {
+        self.capabilities_for(provider_id).contains(&cap)
+    }
 }

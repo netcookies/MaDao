@@ -15,6 +15,7 @@ import type {
   StoreQueryState,
 } from '../app/types';
 import {
+  clearProviderReusePool,
   fetchRuntimeAccessInfo,
   fetchProviderOptionsCache,
   fetchOptionCacheOverview,
@@ -539,6 +540,19 @@ export function useProviderRuntime(
     }
   }
 
+  async function clearReusePool(providerId: string) {
+    try {
+      ui.setBusyAction(`clear-reuse-pool-${providerId}`);
+      const result = await clearProviderReusePool(providerId);
+      await loadSnapshot();
+      ui.setStatusMessage(translate('cleared_reuse_pool_for_provider', { provider: providerId, count: result.removed }));
+    } catch (error) {
+      ui.setStatusMessage(translate('failed_clear_reuse_pool', { error: formatError(error) }));
+    } finally {
+      ui.setBusyAction('');
+    }
+  }
+
   function updateStoreQuery(providerId: string, patch: Partial<StoreQueryState>) {
     const options = data.providerOptions[providerId];
     data.setStoreQueries((current) => ({
@@ -607,6 +621,7 @@ export function useProviderRuntime(
     fetchVisibleBalances,
     refreshProvider,
     fetchPrices,
+    clearReusePool,
     updateStoreQuery,
     reorderProviders,
     setApiKey,

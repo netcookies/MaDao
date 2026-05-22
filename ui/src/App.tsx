@@ -383,6 +383,7 @@ export function App() {
     fetchVisibleBalances,
     refreshProvider,
     fetchPrices,
+    clearReusePool,
     updateStoreQuery,
     reorderProviders,
     setApiKey,
@@ -1889,6 +1890,7 @@ export function App() {
               <OverviewScreen
                 stats={overviewStats}
                 activity={recentActivity}
+                snapshot={snapshot}
                 providers={manifestsById}
                 decorations={ticketDecorations}
                 onViewAll={() => setActiveScreen('messages')}
@@ -1961,6 +1963,7 @@ export function App() {
                 key={selectedProvider}
                 manifest={selectedManifest}
                 summary={selectedSummary}
+                reusePool={snapshot?.reuse_pool}
                 section={activeProviderSection}
                 compact
                 prices={sortedPrices}
@@ -1980,6 +1983,7 @@ export function App() {
                 onRefresh={() => void refreshProvider(selectedProvider)}
                 onFetchPrices={() => void fetchPrices(selectedProvider)}
                 onSave={() => void saveProvider(selectedProvider)}
+                onClearReusePool={() => void clearReusePool(selectedProvider)}
                 onOpenRawJson={() => setShowManifestModal(true)}
                 onOpenSelector={openSelector}
                 storeQuery={selectedStoreQuery}

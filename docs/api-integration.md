@@ -16,10 +16,25 @@ http://127.0.0.1:7822
 
 1. 查询可用 provider 和运行时状态：`GET /api/providers`
 2. 读取或更新 provider manifest：`GET/PUT /api/providers/{id}/manifest`
-3. 动态发现国家 / 运营商 / 服务：`countries -> operators -> services`
-4. 发起接码：`POST /api/acquire`
-5. 轮询或回调收码：`POST /api/poll` 或 `POST /api/tickets/{ticket_id}/callbacks`
-6. 成功后结束 / 失败后取消：`POST /api/release`
+3. 清空指定 provider 的本地复用池：`POST /api/providers/{id}/reuse-pool`
+4. 动态发现国家 / 运营商 / 服务：`countries -> operators -> services`
+5. 发起接码：`POST /api/acquire`
+6. 轮询或回调收码：`POST /api/poll` 或 `POST /api/tickets/{ticket_id}/callbacks`
+7. 成功后结束 / 失败后取消：`POST /api/release`
+
+当前 `GET /api/providers` 返回的 `RuntimeSnapshot` 还会包含复用相关状态：
+
+- `providers[].reuse_capabilities`
+- `tickets[].acquire_path`
+- `tickets[].same_activation_retry_supported`
+- `tickets[].same_activation_retry_expires_at`
+- `reuse_pool[]`
+
+当前 provider manifest 的复用控制字段包括：
+
+- `defaults.reuse_phone`
+- `defaults.reuse_max`
+- `defaults.reuse_ttl_hours`
 
 ## 常用接口
 
@@ -166,6 +181,13 @@ curl -X PUT http://127.0.0.1:7822/api/providers/herosms/manifest \
 1. manifest 持久化到用户配置目录
 2. `ProviderRegistry` 重载
 3. UI 与运行时快照刷新
+
+如果你要手动清空某个 provider 的本地复用池，可以调用：
+
+```bash
+curl -X POST http://127.0.0.1:7822/api/providers/herosms/reuse-pool \
+  -H 'Authorization: Bearer YOUR_HTTP_SECRET'
+```
 
 这意味着你可以把 `码到` 当作本地 provider orchestration service 使用，而不是只能手工点 UI。
 

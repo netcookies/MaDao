@@ -1,0 +1,9 @@
+{
+  "id": 12345679,
+  "phone": "+79001234567",
+  "price": 12.0,
+  "status": "PENDING",
+  "product": "openai",
+  "country": "russia",
+  "reuse": true
+}

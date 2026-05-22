@@ -18,6 +18,7 @@ min_balance = 0.0
 max_tries = 1
 poll_timeout_sec = 15
 reuse_max = 3
+reuse_ttl_hours = 24
 
 [mock]
 balance = 999.0

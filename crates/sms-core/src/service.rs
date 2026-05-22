@@ -1,15 +1,19 @@
 use crate::error::SmsError;
 use crate::models::{
-    AcquireCodeRequest, AcquireCodeResponse, LogEntry, NotificationFeed, OptionCacheOverview,
-    OptionCacheState, OptionItem, OptionListResponse, PollCodeRequest, PollCodeResponse,
-    ProviderBalance, ProviderBalanceCacheEntry, ProviderDynamicOptions, ProviderManifestList,
+    AcquireCodeRequest, AcquireCodeResponse, AcquirePath, LogEntry, NotificationFeed,
+    OptionCacheOverview, OptionCacheState, OptionItem, OptionListResponse, PollCodeRequest,
+    PollCodeResponse, ProviderBalance, ProviderBalanceCacheEntry, ProviderCapabilityMatrix,
+    ProviderDynamicOptions, ProviderManifestList,
     ProviderManifestSaveResponse, ProviderOperatorsQuery, ProviderOptionCacheEntry,
     ProviderPriceQuery, ProviderPriceResponse, ProviderRawOptionAuditEntry, ProviderReorderRequest,
     ProviderServicesQuery, ProviderSummary, ReleaseCodeRequest, ReleaseCodeResponse,
-    RoutingExecutionMode, RoutingFailoverRequest, RoutingPlan, RoutingPlanItem, RoutingPlanList,
-    RoutingPlanStore, RuntimeAccessInfo, RuntimeSettings, RuntimeSettingsUpdate, RuntimeSnapshot, RuntimeStateStore,
-    TicketCallbackListResponse, TicketCallbackRegistrationRequest, TicketCallbackSubscription,
-    TicketCodeCallbackPayload, TicketListResponse, TicketRecord, TicketStatus,
+    ReuseCapability, ReusePoolEntry, ReusePoolSummary, RoutingExecutionMode,
+    RoutingFailoverRequest, RoutingPlan, RoutingPlanItem, RoutingPlanList, RoutingPlanStore,
+    RuntimeAccessInfo, RuntimeSettings, RuntimeSettingsUpdate, RuntimeSnapshot,
+    RuntimeStateStore,
+    TicketCallbackListResponse,
+    TicketCallbackRegistrationRequest, TicketCallbackSubscription, TicketCodeCallbackPayload,
+    TicketListResponse, TicketRecord, TicketStatus,
 };
 use crate::options::{
     OptionKind, ProviderOptionCacheStore, ProviderRawOptionAuditStore, build_cache_overview,
@@ -24,7 +28,7 @@ use chrono::Utc;
 use parking_lot::RwLock;
 use plugin_sdk::ProviderManifest;
 use reqwest::Client;
-use std::collections::{BTreeMap, VecDeque};
+use std::collections::{BTreeMap, HashMap, VecDeque};
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
@@ -35,6 +39,7 @@ const ROUTING_PLANS_FILE_NAME: &str = "routing-plans.json";
 const RUNTIME_STATE_FILE_NAME: &str = "runtime-state.json";
 const ROUTING_ANY_PROVIDER: &str = "any";
 const DEFAULT_TICKET_BUFFER: usize = 500;
+const DEFAULT_REUSE_TTL_HOURS: i64 = 24;
 const LOW_BALANCE_PATTERNS: [&str; 8] = [
     "no balance",
     "not enough balance",
@@ -60,6 +65,7 @@ pub struct SmsService {
     provider_option_cache: RwLock<ProviderOptionCacheStore>,
     provider_raw_option_audit: RwLock<ProviderRawOptionAuditStore>,
     provider_balance_cache: RwLock<BTreeMap<String, ProviderBalanceCacheEntry>>,
+    reuse_pool: RwLock<HashMap<String, Vec<ReusePoolEntry>>>,
     callback_subscriptions: RwLock<BTreeMap<String, Vec<TicketCallbackSubscription>>>,
     callback_client: Client,
     log_buffer: usize,
@@ -168,6 +174,7 @@ impl SmsService {
             .into_iter()
             .map(|entry| (entry.provider.clone(), entry))
             .collect::<BTreeMap<_, _>>();
+        let reuse_pool = runtime_state.reuse_pool;
 
         Self {
             registry: Arc::new(RwLock::new(registry)),
@@ -183,6 +190,7 @@ impl SmsService {
             provider_option_cache: RwLock::new(provider_option_cache),
             provider_raw_option_audit: RwLock::new(provider_raw_option_audit),
             provider_balance_cache: RwLock::new(runtime_balances),
+            reuse_pool: RwLock::new(reuse_pool),
             callback_subscriptions: RwLock::new(BTreeMap::new()),
             callback_client: Client::builder()
                 .timeout(std::time::Duration::from_secs(5))
@@ -215,18 +223,327 @@ impl SmsService {
             .values()
             .cloned()
             .collect::<Vec<_>>();
+        let reuse_pool = self.reuse_pool.read().clone();
         save_runtime_state(
             path,
             &RuntimeStateStore {
                 tickets,
                 logs,
                 provider_balance_cache,
+                reuse_pool,
             },
         )
     }
 
     fn persist_runtime_state_quietly(&self) {
         let _ = self.persist_runtime_state();
+    }
+
+    fn peek_exact_reuse_from_pool(
+        &self,
+        provider: &str,
+        service: &str,
+        country: &str,
+    ) -> Option<ReusePoolEntry> {
+        let now = Utc::now();
+        let mut pool = self.reuse_pool.write();
+        let entries = pool.get_mut(provider)?;
+        entries.retain(|e| e.expires_at > now && e.reuse_count < e.max_reuse);
+        entries
+            .iter()
+            .find(|e| e.service == service && e.country == country)
+            .cloned()
+    }
+
+    fn record_exact_reuse_candidate(&self, ticket: &TicketRecord, reused_entry: Option<ReusePoolEntry>) {
+        let reuse_enabled = self
+            .registry
+            .read()
+            .manifest(&ticket.provider)
+            .map(|manifest| manifest.defaults.reuse_phone)
+            .unwrap_or(true);
+        if !reuse_enabled {
+            return;
+        }
+        self.record_reuse_candidate_with_key(
+            ticket,
+            match ticket.provider.as_str() {
+                "herosms" => ticket.upstream_id.clone(),
+                "fivesim" => Some(ticket.phone_number.clone()),
+                _ => None,
+            },
+            reused_entry,
+        );
+    }
+
+    fn record_reuse_candidate_with_key(
+        &self,
+        ticket: &TicketRecord,
+        reuse_key: Option<String>,
+        reused_entry: Option<ReusePoolEntry>,
+    ) {
+        let Some(reuse_key) = reuse_key.filter(|value| !value.trim().is_empty()) else {
+            return;
+        };
+        let now = Utc::now();
+        let ttl_hours = self
+            .registry
+            .read()
+            .manifest(&ticket.provider)
+            .map(|manifest| manifest.defaults.reuse_ttl_hours.max(1) as i64)
+            .unwrap_or(DEFAULT_REUSE_TTL_HOURS);
+        let entry = ReusePoolEntry {
+            reuse_key: Some(reuse_key),
+            phone_number: ticket.phone_number.clone(),
+            provider: ticket.provider.clone(),
+            service: ticket.service.clone(),
+            country: ticket.country.clone(),
+            upstream_id: ticket.upstream_id.clone(),
+            reuse_count: reused_entry.as_ref().map(|entry| entry.reuse_count + 1).unwrap_or(0),
+            max_reuse: self
+                .registry
+                .read()
+                .manifest(&ticket.provider)
+                .map(|manifest| manifest.defaults.reuse_max)
+                .unwrap_or(2),
+            last_used_at: now,
+            expires_at: now + chrono::Duration::hours(ttl_hours),
+        };
+        {
+            let mut pool = self.reuse_pool.write();
+            pool.entry(ticket.provider.clone()).or_default().push(entry);
+        }
+        self.log(
+            "reuse_pool",
+            "info",
+            format!(
+                "reuse_pool: recorded candidate provider={} phone={}",
+                ticket.provider, ticket.phone_number
+            ),
+        );
+    }
+
+    fn prepare_reuse_request(&self, request: &mut AcquireCodeRequest) -> Option<ReusePoolEntry> {
+        let reuse_enabled = request
+            .reuse_phone
+            .or_else(|| {
+                self.registry
+                    .read()
+                    .manifest(&request.provider)
+                    .ok()
+                    .map(|manifest| manifest.defaults.reuse_phone)
+            })
+            .unwrap_or(true);
+        if !reuse_enabled {
+            return None;
+        }
+        let matrix = ProviderCapabilityMatrix::new();
+        let service = request.service.as_deref().unwrap_or_default();
+        let country = request.country.as_deref().unwrap_or_default();
+        if matrix.supports(&request.provider, ReuseCapability::ExactNumberReuse)
+            && let Some(candidate) =
+                self.peek_exact_reuse_from_pool(&request.provider, service, country)
+        {
+            request.reuse_phone = Some(true);
+            request.reuse_key = candidate
+                .reuse_key
+                .clone()
+                .or_else(|| Some(candidate.phone_number.clone()));
+            self.log(
+                "reuse_pool",
+                "info",
+                format!(
+                    "reuse_pool: candidate found provider={} service={} phone={}",
+                    request.provider, service, candidate.phone_number
+                ),
+            );
+            return Some(candidate);
+        }
+        if matrix.supports(&request.provider, ReuseCapability::IntentReuse) {
+            request.reuse_phone = Some(true);
+        }
+        None
+    }
+
+    async fn try_same_activation_retry_acquire(
+        &self,
+        provider_id: &str,
+        request: &AcquireCodeRequest,
+    ) -> Result<Option<AcquireCodeResponse>, SmsError> {
+        let reuse_enabled = request
+            .reuse_phone
+            .or_else(|| {
+                self.registry
+                    .read()
+                    .manifest(provider_id)
+                    .ok()
+                    .map(|manifest| manifest.defaults.reuse_phone)
+            })
+            .unwrap_or(true);
+        if !reuse_enabled {
+            return Ok(None);
+        }
+        let matrix = ProviderCapabilityMatrix::new();
+        if !matrix.supports(provider_id, ReuseCapability::SameActivationRetry) {
+            return Ok(None);
+        }
+        let Some(candidate) = self.try_same_activation_retry_candidate(
+            provider_id,
+            request.service.as_deref().unwrap_or_default(),
+            request.country.as_deref().unwrap_or_default(),
+        ) else {
+            return Ok(None);
+        };
+        self.log(
+            "reuse_pool",
+            "info",
+            format!(
+                "reuse_pool: retry candidate found provider={} service={} phone={}",
+                provider_id,
+                request.service.as_deref().unwrap_or_default(),
+                candidate.phone_number
+            ),
+        );
+        let provider = {
+            let registry = self.registry.read();
+            registry.get(provider_id)?
+        };
+        let retry_result = provider.release(&candidate, crate::models::ReleaseAction::Retry).await;
+        let now = Utc::now();
+        match retry_result {
+            Ok(message) => {
+                let updated = {
+                    let mut tickets = self.tickets.write();
+                    let Some(ticket) = tickets.get_mut(&candidate.id) else {
+                        return Ok(None);
+                    };
+                    ticket.updated_at = now;
+                    ticket.status = TicketStatus::WaitingCode;
+                    ticket.code = None;
+                    ticket.message = Some(message);
+                    ticket.acquire_path = AcquirePath::SameActivationRetry;
+                    ticket.reuse_count += 1;
+                    ticket.clone()
+                };
+                self.persist_runtime_state_quietly();
+                Ok(Some(AcquireCodeResponse {
+                    ticket_id: updated.id.clone(),
+                    provider: updated.provider.clone(),
+                    service: updated.service.clone(),
+                    country: updated.country.clone(),
+                    phone_number: updated.phone_number.clone(),
+                    upstream_id: updated.upstream_id.clone(),
+                    price: updated.price,
+                    status: updated.status.clone(),
+                    created_at: updated.created_at,
+                    acquire_path: updated.acquire_path,
+                    routing_plan_id: updated.routing_plan_id.clone(),
+                    routing_plan_name: updated.routing_plan_name.clone(),
+                    routing_item_id: updated.routing_item_id.clone(),
+                    routing_item_index: updated.routing_item_index,
+                }))
+            }
+            Err(error) => {
+                {
+                    let mut tickets = self.tickets.write();
+                    if let Some(ticket) = tickets.get_mut(&candidate.id) {
+                        ticket.same_activation_retry_supported = false;
+                        ticket.same_activation_retry_expires_at = Some(now);
+                        ticket.updated_at = now;
+                    }
+                }
+                self.persist_runtime_state_quietly();
+                self.log(
+                    "reuse_pool",
+                    "warn",
+                    format!(
+                        "reuse_pool: retry candidate invalidated provider={} ticket={} error={}",
+                        provider_id, candidate.id, error
+                    ),
+                );
+                Ok(None)
+            }
+        }
+    }
+
+    async fn acquire_ticket_for_provider(
+        &self,
+        provider_id: &str,
+        request: &AcquireCodeRequest,
+    ) -> Result<TicketRecord, SmsError> {
+        let cached_options = self
+            .provider_option_cache
+            .read()
+            .entries
+            .get(provider_id)
+            .cloned();
+        let provider = {
+            let registry = self.registry.read();
+            registry.get(provider_id)?
+        };
+        if !provider.manifest().enabled {
+            return Err(SmsError::ProviderDisabled(provider_id.to_string()));
+        }
+        self.log_upstream_request(
+            provider_id,
+            "acquire",
+            format!(
+                "service={} country={}",
+                request.service.clone().unwrap_or_default(),
+                request.country.clone().unwrap_or_default()
+            ),
+        );
+        let ticket = match provider
+            .acquire(&self.translate_acquire_request(
+                provider.manifest(),
+                request,
+                cached_options.as_ref().map(|entry| &entry.options),
+            ))
+            .await
+        {
+            Ok(ticket) => {
+                self.log_upstream_response(provider_id, "acquire", "200", "ticket acquired");
+                ticket
+            }
+            Err(error) => {
+                self.log_upstream_response(provider_id, "acquire", "error", error.to_string());
+                return Err(error);
+            }
+        };
+        let mut ticket = normalize_ticket_record(
+            provider.manifest(),
+            cached_options.as_ref().map(|entry| &entry.options),
+            ticket,
+        );
+        let capabilities = ProviderCapabilityMatrix::new();
+        let reuse_enabled = request
+            .reuse_phone
+            .or(Some(provider.manifest().defaults.reuse_phone))
+            .unwrap_or(false);
+        if capabilities.supports(provider_id, ReuseCapability::SameActivationRetry)
+            && ticket.same_activation_retry_supported
+        {
+            if ticket.same_activation_retry_expires_at.is_none() {
+                ticket.same_activation_retry_expires_at = Some(
+                    ticket.created_at
+                        + chrono::Duration::seconds(
+                            provider.manifest().defaults.poll_timeout_sec as i64,
+                        ),
+                );
+            }
+        }
+        ticket.acquire_path = if request.reuse_key.is_some()
+            && capabilities.supports(provider_id, ReuseCapability::ExactNumberReuse)
+        {
+            AcquirePath::ExactReuse
+        } else if reuse_enabled
+            && capabilities.supports(provider_id, ReuseCapability::IntentReuse)
+        {
+            AcquirePath::IntentReuse
+        } else {
+            AcquirePath::FreshAcquire
+        };
+        Ok(ticket)
     }
 
     fn trim_tickets(&self, tickets: &mut BTreeMap<String, TicketRecord>) {
@@ -337,57 +654,22 @@ impl SmsService {
 
     async fn acquire_code_for_provider(
         &self,
-        request: AcquireCodeRequest,
+        mut request: AcquireCodeRequest,
     ) -> Result<AcquireCodeResponse, SmsError> {
-        let cached_options = self
-            .provider_option_cache
-            .read()
-            .entries
-            .get(&request.provider)
-            .cloned();
-        let provider = {
-            let registry = self.registry.read();
-            registry.get(&request.provider)?
-        };
-        if !provider.manifest().enabled {
-            return Err(SmsError::ProviderDisabled(request.provider));
-        }
-        self.log_upstream_request(
-            &request.provider,
-            "acquire",
-            format!(
-                "service={} country={}",
-                request.service.clone().unwrap_or_default(),
-                request.country.clone().unwrap_or_default()
-            ),
-        );
-        let ticket = match provider
-            .acquire(&self.translate_acquire_request(
-                provider.manifest(),
-                &request,
-                cached_options.as_ref().map(|entry| &entry.options),
-            ))
-            .await
+        if let Some(response) = self
+            .try_same_activation_retry_acquire(&request.provider, &request)
+            .await?
         {
-            Ok(ticket) => {
-                self.log_upstream_response(&request.provider, "acquire", "200", "ticket acquired");
-                ticket
-            }
-            Err(error) => {
-                self.log_upstream_response(
-                    &request.provider,
-                    "acquire",
-                    "error",
-                    error.to_string(),
-                );
-                return Err(error);
-            }
-        };
-        let ticket = normalize_ticket_record(
-            provider.manifest(),
-            cached_options.as_ref().map(|entry| &entry.options),
-            ticket,
-        );
+            return Ok(response);
+        }
+        let exact_reuse_candidate = self.prepare_reuse_request(&mut request);
+        let mut ticket = self
+            .acquire_ticket_for_provider(&request.provider, &request)
+            .await?;
+        if let Some(candidate) = exact_reuse_candidate.as_ref() {
+            self.consume_exact_reuse_candidate(&ticket.provider, candidate);
+            ticket.reuse_count = candidate.reuse_count + 1;
+        }
         let response = AcquireCodeResponse {
             ticket_id: ticket.id.clone(),
             provider: ticket.provider.clone(),
@@ -398,6 +680,7 @@ impl SmsService {
             price: ticket.price,
             status: ticket.status.clone(),
             created_at: ticket.created_at,
+            acquire_path: ticket.acquire_path,
             routing_plan_id: ticket.routing_plan_id.clone(),
             routing_plan_name: ticket.routing_plan_name.clone(),
             routing_item_id: ticket.routing_item_id.clone(),
@@ -521,21 +804,6 @@ impl SmsService {
         let mut last_error = None;
 
         for provider_id in provider_ids {
-            let cached_options = self
-                .provider_option_cache
-                .read()
-                .entries
-                .get(&provider_id)
-                .cloned();
-            let provider = {
-                let registry = self.registry.read();
-                registry.get(&provider_id)?
-            };
-            if !provider.manifest().enabled {
-                last_error = Some(SmsError::ProviderDisabled(provider_id.clone()));
-                continue;
-            }
-
             let mut routed = request.clone();
             routed.provider = provider_id.clone();
             routed.service = Some(plan.service.clone());
@@ -565,27 +833,16 @@ impl SmsService {
                 }
             }
 
-            let translated = self.translate_acquire_request(
-                provider.manifest(),
-                &routed,
-                cached_options.as_ref().map(|entry| &entry.options),
-            );
-            self.log_upstream_request(
-                &provider_id,
-                "acquire",
-                format!(
-                    "service={} country={}",
-                    translated.service.clone().unwrap_or_default(),
-                    translated.country.clone().unwrap_or_default()
-                ),
-            );
-            let mut ticket = match provider.acquire(&translated).await {
-                Ok(ticket) => {
-                    self.log_upstream_response(&provider_id, "acquire", "200", "ticket acquired");
-                    ticket
-                }
+            if let Some(response) = self
+                .try_same_activation_retry_acquire(&provider_id, &routed)
+                .await?
+            {
+                return Ok(response);
+            }
+            self.prepare_reuse_request(&mut routed);
+            let mut ticket = match self.acquire_ticket_for_provider(&provider_id, &routed).await {
+                Ok(ticket) => ticket,
                 Err(error) => {
-                    self.log_upstream_response(&provider_id, "acquire", "error", error.to_string());
                     self.maybe_disable_provider_for_low_balance(&provider_id, &error);
                     last_error = Some(error);
                     continue;
@@ -600,11 +857,6 @@ impl SmsService {
             ticket.routing_current_round = Some(round);
             ticket.routing_candidate_item_ids = candidate_item_ids.to_vec();
             ticket.routing_attempt_count = (attempt_index + 1) as u32;
-            ticket = normalize_ticket_record(
-                provider.manifest(),
-                cached_options.as_ref().map(|entry| &entry.options),
-                ticket,
-            );
 
             let response = AcquireCodeResponse {
                 ticket_id: ticket.id.clone(),
@@ -616,6 +868,7 @@ impl SmsService {
                 price: ticket.price,
                 status: ticket.status.clone(),
                 created_at: ticket.created_at,
+                acquire_path: ticket.acquire_path,
                 routing_plan_id: ticket.routing_plan_id.clone(),
                 routing_plan_name: ticket.routing_plan_name.clone(),
                 routing_item_id: ticket.routing_item_id.clone(),
@@ -735,6 +988,15 @@ impl SmsService {
             ticket.status = next_status.clone();
             ticket.message = Some(message.clone());
         })?;
+        if next_status == TicketStatus::Finished {
+            let reused_entry = if matches!(current.acquire_path, AcquirePath::ExactReuse) && current.reuse_count > 0 {
+                self.last_reused_entry_for_ticket(&current)
+            } else {
+                None
+            };
+            self.record_exact_reuse_candidate(&current, reused_entry);
+            self.persist_runtime_state_quietly();
+        }
         Ok(ReleaseCodeResponse {
             ticket_id: current.id,
             provider: current.provider,
@@ -1782,15 +2044,152 @@ impl SmsService {
                     || !settings.option_cache_enabled
                     || self.provider_option_cache_state_with_settings(&manifest.id, &settings)
                         == OptionCacheState::Fresh,
+                reuse_capabilities: ProviderCapabilityMatrix::new()
+                    .capabilities_for(&manifest.id)
+                    .iter()
+                    .map(|cap| match cap {
+                        ReuseCapability::ExactNumberReuse => "exact_reuse".to_string(),
+                        ReuseCapability::IntentReuse => "intent_reuse".to_string(),
+                        ReuseCapability::SameActivationRetry => "same_activation_retry".to_string(),
+                        ReuseCapability::Unsupported => "unsupported".to_string(),
+                    })
+                    .collect(),
             })
             .collect();
         let tickets = sorted_tickets(self.tickets.read().values().cloned().collect());
         let logs = self.logs.read().iter().cloned().collect();
+        let reuse_pool = self
+            .reuse_pool
+            .read()
+            .iter()
+            .flat_map(|(provider, entries)| {
+                let mut grouped: HashMap<(String, String), ReusePoolSummary> = HashMap::new();
+                for entry in entries {
+                    let summary = grouped
+                        .entry((entry.service.clone(), entry.country.clone()))
+                        .or_insert_with(|| ReusePoolSummary {
+                            provider: provider.clone(),
+                            service: entry.service.clone(),
+                            country: entry.country.clone(),
+                            active_count: 0,
+                            max_reuse: 0,
+                            last_used_at: None,
+                            expires_at: None,
+                        });
+                    summary.active_count += 1;
+                    summary.max_reuse = summary.max_reuse.max(entry.max_reuse);
+                    summary.last_used_at = match summary.last_used_at {
+                        Some(current) if current >= entry.last_used_at => Some(current),
+                        _ => Some(entry.last_used_at),
+                    };
+                    summary.expires_at = match summary.expires_at {
+                        Some(current) if current >= entry.expires_at => Some(current),
+                        _ => Some(entry.expires_at),
+                    };
+                }
+                grouped.into_values().collect::<Vec<_>>()
+            })
+            .collect();
         RuntimeSnapshot {
             providers,
             tickets,
             logs,
+            reuse_pool,
         }
+    }
+
+    fn try_same_activation_retry_candidate(
+        &self,
+        provider: &str,
+        service: &str,
+        country: &str,
+    ) -> Option<TicketRecord> {
+        let now = Utc::now();
+        let max_reuse = self
+            .registry
+            .read()
+            .manifest(provider)
+            .map(|manifest| manifest.defaults.reuse_max)
+            .unwrap_or(2);
+        self.tickets
+            .read()
+            .values()
+            .filter(|ticket| {
+                ticket.provider == provider
+                    && ticket.service == service
+                    && ticket.country == country
+                    && ticket.same_activation_retry_supported
+                    && ticket.same_activation_retry_expires_at.is_none_or(|expires_at| expires_at > now)
+                    && ticket.reuse_count < max_reuse
+                    && matches!(
+                        ticket.status,
+                        TicketStatus::WaitingCode | TicketStatus::CodeReceived
+                    )
+            })
+            .max_by_key(|ticket| ticket.updated_at)
+            .cloned()
+    }
+
+    pub fn clear_provider_reuse_pool(
+        &self,
+        provider_id: &str,
+    ) -> Result<crate::models::ReusePoolClearResponse, SmsError> {
+        self.registry.read().manifest(provider_id)?;
+        let removed = {
+            let mut pool = self.reuse_pool.write();
+            pool.remove(provider_id)
+                .map(|entries| entries.len() as u32)
+                .unwrap_or(0)
+        };
+        self.persist_runtime_state_quietly();
+        self.log(
+            "reuse_pool",
+            "info",
+            format!("reuse_pool: cleared provider={} removed={}", provider_id, removed),
+        );
+        Ok(crate::models::ReusePoolClearResponse {
+            provider: provider_id.to_string(),
+            removed,
+        })
+    }
+
+    fn consume_exact_reuse_candidate(&self, provider: &str, candidate: &ReusePoolEntry) {
+        let mut pool = self.reuse_pool.write();
+        let Some(entries) = pool.get_mut(provider) else {
+            return;
+        };
+        if let Some(pos) = entries.iter().position(|entry| {
+            entry.phone_number == candidate.phone_number
+                && entry.service == candidate.service
+                && entry.country == candidate.country
+                && entry.reuse_key == candidate.reuse_key
+        }) {
+            entries.remove(pos);
+        }
+    }
+
+    fn last_reused_entry_for_ticket(&self, ticket: &TicketRecord) -> Option<ReusePoolEntry> {
+        Some(ReusePoolEntry {
+            reuse_key: match ticket.provider.as_str() {
+                "herosms" => ticket.upstream_id.clone(),
+                "fivesim" => Some(ticket.phone_number.clone()),
+                _ => None,
+            },
+            phone_number: ticket.phone_number.clone(),
+            provider: ticket.provider.clone(),
+            service: ticket.service.clone(),
+            country: ticket.country.clone(),
+            upstream_id: ticket.upstream_id.clone(),
+            reuse_count: ticket.reuse_count,
+            max_reuse: self
+                .registry
+                .read()
+                .manifest(&ticket.provider)
+                .map(|manifest| manifest.defaults.reuse_max)
+                .unwrap_or(2),
+            last_used_at: ticket.updated_at,
+            expires_at: ticket.updated_at,
+        })
     }
 
     pub fn option_cache_overview(&self) -> OptionCacheOverview {
@@ -3217,8 +3616,11 @@ mod tests {
                 status: TicketStatus::Pending,
                 created_at: Utc::now(),
                 updated_at: Utc::now() + chrono::Duration::seconds(index as i64),
+                acquire_path: AcquirePath::FreshAcquire,
                 code: None,
                 message: None,
+                same_activation_retry_supported: false,
+                same_activation_retry_expires_at: None,
                 routing_plan_id: None,
                 routing_plan_name: None,
                 routing_item_id: None,
@@ -3228,6 +3630,7 @@ mod tests {
                 routing_current_round: None,
                 routing_candidate_item_ids: Vec::new(),
                 routing_attempt_count: 0,
+                reuse_count: 0,
             });
         }
 
@@ -3311,8 +3714,11 @@ mod tests {
             status: TicketStatus::WaitingCode,
             created_at: Utc::now(),
             updated_at: Utc::now(),
+            acquire_path: AcquirePath::FreshAcquire,
             code: None,
             message: None,
+            same_activation_retry_supported: false,
+            same_activation_retry_expires_at: None,
             routing_plan_id: Some("openai-plan".to_string()),
             routing_plan_name: Some("OpenAI Plan".to_string()),
             routing_item_id: Some("mock-first".to_string()),
@@ -3322,6 +3728,7 @@ mod tests {
             routing_current_round: Some(41),
             routing_candidate_item_ids: vec!["mock-first".to_string()],
             routing_attempt_count: 41,
+            reuse_count: 0,
         });
 
         let next = service
@@ -3511,9 +3918,12 @@ mod tests {
                 status: TicketStatus::Cancelled,
                 created_at: Utc::now(),
                 updated_at: Utc::now(),
+                acquire_path: AcquirePath::FreshAcquire,
                 price: None,
                 code: None,
                 message: None,
+                same_activation_retry_supported: false,
+                same_activation_retry_expires_at: None,
                 upstream_id: None,
                 routing_plan_id: Some("openai-plan".to_string()),
                 routing_plan_name: Some("OpenAI Plan".to_string()),
@@ -3527,6 +3937,7 @@ mod tests {
                     "mock-second".to_string(),
                 ],
                 routing_attempt_count: 1,
+                reuse_count: 0,
             },
         );
         drop(tickets);

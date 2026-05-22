@@ -677,6 +677,27 @@ paths:
           $ref: '#/components/responses/BadRequest'
         '401':
           $ref: '#/components/responses/Unauthorized'
+  /api/providers/{provider}/reuse-pool:
+    post:
+      tags: [provider-manifests]
+      summary: Clear provider reuse pool
+      operationId: clearProviderReusePool
+      security:
+        - bearerAuth: []
+        - sessionCookie: []
+      parameters:
+        - $ref: '#/components/parameters/ProviderId'
+      responses:
+        '200':
+          description: Reuse pool cleared
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ReusePoolClearResponse'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
     put:
       tags: [provider-manifests]
       summary: Save provider manifest
@@ -1254,6 +1275,10 @@ components:
           format: date-time
         can_enable:
           type: boolean
+        reuse_capabilities:
+          type: array
+          items:
+            type: string
       required:
         - id
         - name
@@ -1514,6 +1539,16 @@ components:
         cache_refresh_error:
           type: string
       required: [manifest, option_cache_state]
+    ReusePoolClearResponse:
+      type: object
+      additionalProperties: false
+      properties:
+        provider:
+          type: string
+        removed:
+          type: integer
+          minimum: 0
+      required: [provider, removed]
     RuntimeSnapshot:
       type: object
       additionalProperties: false
@@ -1530,7 +1565,11 @@ components:
           type: array
           items:
             $ref: '#/components/schemas/LogEntry'
-      required: [providers, tickets, logs]
+        reuse_pool:
+          type: array
+          items:
+            $ref: '#/components/schemas/ReusePoolSummary'
+      required: [providers, tickets, logs, reuse_pool]
     TicketRecord:
       type: object
       additionalProperties: false
@@ -1557,10 +1596,17 @@ components:
         updated_at:
           type: string
           format: date-time
+        acquire_path:
+          $ref: '#/components/schemas/AcquirePath'
         code:
           type: string
         message:
           type: string
+        same_activation_retry_supported:
+          type: boolean
+        same_activation_retry_expires_at:
+          type: string
+          format: date-time
         routing_plan_id:
           type: string
         routing_plan_name:
@@ -1593,8 +1639,40 @@ components:
         - status
         - created_at
         - updated_at
+        - acquire_path
+        - same_activation_retry_supported
         - routing_candidate_item_ids
         - routing_attempt_count
+    AcquirePath:
+      type: string
+      enum:
+        - fresh_acquire
+        - exact_reuse
+        - intent_reuse
+        - same_activation_retry
+    ReusePoolSummary:
+      type: object
+      additionalProperties: false
+      properties:
+        provider:
+          type: string
+        service:
+          type: string
+        country:
+          type: string
+        active_count:
+          type: integer
+          minimum: 0
+        max_reuse:
+          type: integer
+          minimum: 0
+        last_used_at:
+          type: string
+          format: date-time
+        expires_at:
+          type: string
+          format: date-time
+      required: [provider, service, country, active_count, max_reuse]
     TicketStatus:
       type: string
       enum:
@@ -1702,6 +1780,9 @@ components:
         reuse_max:
           type: integer
           minimum: 0
+        reuse_ttl_hours:
+          type: integer
+          minimum: 1
       required:
         - service
         - country
@@ -1714,6 +1795,7 @@ components:
         - max_tries
         - poll_timeout_sec
         - reuse_max
+        - reuse_ttl_hours
     ProviderUiConfig:
       type: object
       additionalProperties: false

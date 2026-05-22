@@ -37,9 +37,16 @@ export function MessagesScreen(props: MessagesScreenProps) {
     return i18n.exists(message) ? t(message) : message;
   }
 
-  function formatTicketError(message: string | null | undefined) {
+function formatTicketError(message: string | null | undefined) {
     if (!message) return null;
     return formatProviderErrorMessage(message, language);
+  }
+
+  function getReusePath(ticket: TicketRecord) {
+    if (ticket.acquire_path === 'same_activation_retry') return t('Retry reuse');
+    if (ticket.acquire_path === 'exact_reuse') return t('Exact reuse');
+    if (ticket.acquire_path === 'intent_reuse') return t('Intent reuse');
+    return null;
   }
 
   const visibleTickets = [...props.tickets]
@@ -89,6 +96,7 @@ export function MessagesScreen(props: MessagesScreenProps) {
           const elapsedDurationMs = getElapsedDurationMs(ticket.created_at, now);
           const cancelLocked = cancelRemainingMs > 0;
           const ticketError = formatTicketError(ticket.message);
+          const reusePath = getReusePath(ticket);
           const providerIconUrl = providerManifest?.ui?.icon_url;
           const providerBadgeLabel = providerManifest?.ui?.badge_label;
 
@@ -114,6 +122,11 @@ export function MessagesScreen(props: MessagesScreenProps) {
                   </span>
                   <div className="inline-flex items-center gap-2 rounded-md bg-ds-surface-subtle px-3 py-1.5">
                     <span className="inline-flex items-center gap-1.5 text-body-strong tracking-[var(--ds-type-body-strong-tracking)] text-ds-text-primary">
+                      {reusePath && (
+                        <span className="inline-flex items-center rounded-pill bg-ds-state-success/10 px-2 py-0.5 text-[11px] font-semibold text-ds-state-success">
+                          {t('Free')}
+                        </span>
+                      )}
                       <ResourceBadge
                         kind="country"
                         value={ticket.country}
@@ -183,6 +196,11 @@ export function MessagesScreen(props: MessagesScreenProps) {
                     <ResourceBadge kind="provider" value={ticket.provider} size="sm" iconUrl={providerIconUrl} fallbackLabel={providerBadgeLabel ?? undefined} />
                     <span>{t('Provider: {{provider}}', { provider: formatProviderLabel(ticket.provider, language) })}</span>
                   </span>
+                  {reusePath && (
+                    <span className="text-[12px] leading-[1.4] text-ds-text-secondary">
+                      {t('Reuse path')}: {reusePath}
+                    </span>
+                  )}
                   {usesRoutingPlan && (
                     <span className="text-[12px] leading-[1.4] text-ds-text-secondary">
                       {t('Routing: {{route}}', { route: ticket.routing_plan_name ?? ticket.routing_plan_id ?? '' })}

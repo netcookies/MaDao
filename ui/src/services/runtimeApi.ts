@@ -9,6 +9,7 @@ import type {
   ProviderManifestSaveResponse,
   ProviderManifestList,
   ProviderPriceResponse,
+  ReusePoolClearResponse,
   RoutingPlan,
   RoutingPlanList,
   RuntimeSettings,
@@ -31,6 +32,7 @@ export {
 import {
   acquireActivationViaSocket,
   clearNotificationsViaSocket,
+  clearProviderReusePoolViaSocket,
   deleteRoutingPlanViaSocket,
   failoverRoutingTicketViaSocket,
   fetchNotificationsViaSocket,
@@ -166,6 +168,14 @@ export async function reloadProviderRegistry(): Promise<void> {
     headers: IS_DESKTOP_RUNTIME ? await buildDesktopHttpHeaders(false) : undefined,
   });
   if (!response.ok) throw new Error(await readErrorMessage(response));
+}
+
+export async function clearProviderReusePool(providerId: string): Promise<ReusePoolClearResponse> {
+  if (USE_SOCKET_TRANSPORT) return clearProviderReusePoolViaSocket(providerId);
+  return readJson<ReusePoolClearResponse>(await fetch(`${API_BASE}/api/providers/${providerId}/reuse-pool`, {
+    method: 'POST',
+    headers: IS_DESKTOP_RUNTIME ? await buildDesktopHttpHeaders(false) : undefined,
+  }));
 }
 
 export async function fetchProviderCountries(providerId: string): Promise<OptionListResponse> {

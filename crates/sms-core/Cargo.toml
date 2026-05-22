@@ -22,4 +22,6 @@ uuid.workspace = true
 
 [dev-dependencies]
 axum.workspace = true
+tempfile = "3"
+tokio = { workspace = true, features = ["macros", "rt-multi-thread"] }
 toml.workspace = true
