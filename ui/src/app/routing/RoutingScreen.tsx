@@ -66,6 +66,7 @@ export type RoutingScreenProps = {
   onSelectPlan: (planId: string) => void;
   onBackToList: () => void;
   onCreatePlan: () => void;
+  onDuplicatePlan: (planId: string) => void;
   onDeletePlan: (planId: string) => void;
   onUpdatePlan: (plan: RoutingPlan) => void;
   onUpdateRoutingFilter: (value: RoutingPlanFilter) => void;
@@ -111,6 +112,13 @@ function summarizePrice(item: RoutingPlanItem, t: (key: string) => string) {
   return t('No price limit');
 }
 
+function normalizeSelectableOperator(operator: string) {
+  const trimmed = operator.trim();
+  const lowered = trimmed.toLowerCase();
+  if (!trimmed || lowered === 'any' || lowered === 'default') return '';
+  return trimmed;
+}
+
 export function RoutingScreen(props: RoutingScreenProps) {
   const { i18n } = useTranslation();
   const language = (i18n.resolvedLanguage ?? i18n.language ?? 'en') as LanguageCode;
@@ -143,6 +151,7 @@ export function RoutingScreen(props: RoutingScreenProps) {
         routingFilter={props.routingFilter}
         routingSearch={props.routingSearch}
         onCreatePlan={props.onCreatePlan}
+        onDuplicatePlan={props.onDuplicatePlan}
         onSelectPlan={props.onSelectPlan}
         onTogglePlan={(planItem, enabled) => props.onUpdatePlan({ ...planItem, enabled })}
         onUpdateRoutingFilter={props.onUpdateRoutingFilter}
@@ -163,6 +172,7 @@ export function RoutingScreen(props: RoutingScreenProps) {
         busyAction={props.busyAction}
         onBackToList={props.onBackToList}
         onDeletePlan={props.onDeletePlan}
+        onDuplicatePlan={props.onDuplicatePlan}
         onUpdatePlan={props.onUpdatePlan}
         onOpenServicePicker={props.onOpenServicePicker}
         onAddItem={props.onAddItem}
@@ -212,6 +222,7 @@ function RoutingPlanMatrixScreen(props: {
   routingFilter: RoutingPlanFilter;
   routingSearch: string;
   onCreatePlan: () => void;
+  onDuplicatePlan: (planId: string) => void;
   onSelectPlan: (planId: string) => void;
   onTogglePlan: (plan: RoutingPlan, enabled: boolean) => void;
   onUpdateRoutingFilter: (value: RoutingPlanFilter) => void;
@@ -324,6 +335,7 @@ function RoutingPlanDetailScreen(props: {
   language: 'en' | 'zh';
   busyAction: string;
   onBackToList: () => void;
+  onDuplicatePlan: (planId: string) => void;
   onDeletePlan: (planId: string) => void;
   onUpdatePlan: (plan: RoutingPlan) => void;
   onOpenServicePicker: () => void;
@@ -397,6 +409,14 @@ function RoutingPlanDetailScreen(props: {
         </div>
 
         <div className="flex flex-wrap items-center gap-3">
+          <AppButton
+            variant="outline"
+            size="utility"
+            onClick={() => props.onDuplicatePlan(props.plan.id)}
+            disabled={!props.plan.id || props.busyAction === 'delete-routing-plan' || props.busyAction === 'save-routing-plan'}
+          >
+            {t('Duplicate Plan')}
+          </AppButton>
           <AppButton
             variant="danger-outline"
             size="utility"
@@ -919,6 +939,23 @@ function RoutingItemEditorModal(props: {
       ? 'border-ds-border-strong bg-ds-surface text-ds-text-primary'
       : 'border-ds-border bg-ds-window text-ds-text-secondary opacity-70'
   }`;
+  const selectionChipClass = 'inline-flex items-center gap-2 rounded-pill border px-2.5 py-1 text-[11px] font-medium transition-[background-color,color,border-color,opacity] duration-fast ease-[var(--ds-motion-transition-fast)]';
+  const currentCountry = editor.country;
+  const currentOperator = editor.operator;
+
+  function applyPriceRowCountry(country: string) {
+    props.onChange({
+      country,
+      operator: currentCountry === country ? currentOperator : '',
+    });
+  }
+
+  function applyPriceRowOperator(item: ProviderPriceItem) {
+    props.onChange({
+      country: item.country,
+      operator: normalizeSelectableOperator(item.operator),
+    });
+  }
 
   return (
     <Modal
@@ -1053,13 +1090,40 @@ function RoutingItemEditorModal(props: {
                 className="flex items-center gap-3 border-b border-ds-border px-4 py-3 last:border-b-0"
               >
                 <div className="min-w-0 flex-1">
-                  <div className="inline-flex min-w-0 items-center gap-2 truncate text-[13px] font-medium text-ds-text-primary">
-                    <ResourceBadge kind="country" value={item.country} size="sm" iconUrl={props.countryIconUrls?.[item.country]} />
-                    <span className="truncate">
-                      {formatCountryLabel(item.country, props.language)} · {item.operator_label || formatOperatorLabel(item.operator || 'any', props.language)}
-                    </span>
+                  <div className="flex min-w-0 flex-wrap items-center gap-1.5 text-[13px] font-medium text-ds-text-primary">
+                    <button
+                      type="button"
+                      onClick={() => applyPriceRowCountry(item.country)}
+                      className={cx(
+                        selectionChipClass,
+                        editor.country === item.country
+                          ? 'border-ds-accent-blue bg-ds-accent-soft text-ds-accent-blue'
+                          : 'border-ds-border bg-ds-surface text-ds-text-primary hover:border-ds-accent-blue hover:text-ds-accent-blue',
+                      )}
+                      title={t('Select Candidate Country')}
+                    >
+                      <ResourceBadge kind="country" value={item.country} size="sm" iconUrl={props.countryIconUrls?.[item.country]} />
+                      <span className="truncate">{formatCountryLabel(item.country, props.language)}</span>
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => applyPriceRowOperator(item)}
+                      className={cx(
+                        selectionChipClass,
+                        !operatorSelectable && 'cursor-not-allowed opacity-50',
+                        operatorSelectable && editor.country === item.country && editor.operator === normalizeSelectableOperator(item.operator)
+                          ? 'border-ds-accent-blue bg-ds-accent-soft text-ds-accent-blue'
+                          : operatorSelectable
+                            ? 'border-ds-border bg-ds-surface text-ds-text-primary hover:border-ds-accent-blue hover:text-ds-accent-blue'
+                            : 'border-ds-border bg-ds-window text-ds-text-secondary',
+                      )}
+                      title={t('Select Candidate Carrier')}
+                      disabled={!operatorSelectable}
+                    >
+                      <span className="truncate">{item.operator_label || formatOperatorLabel(item.operator || 'any', props.language)}</span>
+                    </button>
                   </div>
-                  <div className="mt-0.5 text-[11px] text-ds-text-secondary">
+                  <div className="mt-0.5 pl-2.5 text-[11px] text-ds-text-secondary">
                     {t('stock')}: {item.stock.toLocaleString()}
                   </div>
                 </div>

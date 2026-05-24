@@ -991,6 +991,27 @@ export function App() {
     setActiveScreen('routing');
   }
 
+  function duplicateRoutingPlan(planId: string) {
+    if (busyAction === 'save-routing-plan') return;
+    const sourcePlan = routingPlans.find((plan) => plan.id === planId);
+    if (!sourcePlan) return;
+    const duplicatedAt = Date.now();
+    const draft: RoutingPlan = {
+      ...sourcePlan,
+      id: '',
+      name: `${sourcePlan.name} Copy`,
+      items: sourcePlan.items.map((item, index) => ({
+        ...item,
+        id: `draft-item-${duplicatedAt}-${index + 1}`,
+      })),
+    };
+    setRoutingPlans((current) => [...current.filter((item) => item.id !== ''), draft]);
+    setSelectedRoutingPlanId(draft.id);
+    setRoutingView('detail');
+    setActiveScreen('routing');
+    pushStatusMessage(translate('duplicated_routing_plan', { name: sourcePlan.name }));
+  }
+
   function addRoutingPlanItem() {
     setRoutingPlans((current) => current.map((plan) => {
       const isSelected = selectedRoutingPlanMatcher(plan);
@@ -1992,6 +2013,7 @@ export function App() {
                 onSelectPlan={openRoutingPlanDetail}
                 onBackToList={closeRoutingPlanDetail}
                 onCreatePlan={createRoutingPlan}
+                onDuplicatePlan={duplicateRoutingPlan}
                 onDeletePlan={(planId) => void removeRoutingPlan(planId)}
                 onUpdatePlan={updateRoutingPlanDraft}
                 onUpdateRoutingFilter={setRoutingFilter}

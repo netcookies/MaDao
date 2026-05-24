@@ -68,6 +68,7 @@ export type TicketRecord = {
   phone_number: string;
   status: string;
   created_at?: string;
+  updated_at?: string;
   acquire_path?: 'fresh_acquire' | 'exact_reuse' | 'intent_reuse' | 'same_activation_retry';
   price?: number | null;
   code?: string | null;

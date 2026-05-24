@@ -128,6 +128,7 @@ const PROVIDERS: ProviderManifest[] = [
       max_tries: 3,
       poll_timeout_sec: 180,
       reuse_max: 2,
+      reuse_ttl_hours: 24,
     },
     five_sim: {
       base_url: 'https://5sim.net/v1',
@@ -154,6 +155,7 @@ const PROVIDERS: ProviderManifest[] = [
       max_tries: 2,
       poll_timeout_sec: 120,
       reuse_max: 2,
+      reuse_ttl_hours: 24,
     },
     handler_api: {
       base_url: 'https://hero.internal/api',
@@ -180,6 +182,7 @@ const PROVIDERS: ProviderManifest[] = [
       max_tries: 2,
       poll_timeout_sec: 180,
       reuse_max: 1,
+      reuse_ttl_hours: 24,
     },
     handler_api: {
       base_url: 'https://bower.internal/api',
@@ -784,6 +787,7 @@ function renderPageTarget(target: ScreenshotTarget, t: (key: string, options?: R
         onSelectPlan={noop}
         onBackToList={noop}
         onCreatePlan={noop}
+        onDuplicatePlan={noop}
         onDeletePlan={noop}
         onUpdatePlan={noop}
         onUpdateRoutingFilter={noop}
