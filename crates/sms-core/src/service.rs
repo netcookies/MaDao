@@ -1,33 +1,33 @@
 use crate::error::SmsError;
 use crate::models::{
     AcquireCodeRequest, AcquireCodeResponse, AcquirePath, LogEntry, NotificationFeed,
-    OptionCacheOverview, OptionCacheState, OptionItem, OptionListResponse, PollCodeRequest,
-    PollCodeResponse, ProviderBalance, ProviderBalanceCacheEntry, ProviderCapabilityMatrix,
-    ProviderDynamicOptions, ProviderManifestList,
+    OpenAiSmsRegionsCache, OptionCacheOverview, OptionCacheState, OptionItem, OptionListResponse,
+    PollCodeRequest, PollCodeResponse, ProviderBalance, ProviderBalanceCacheEntry,
+    ProviderCapabilityMatrix, ProviderDynamicOptions, ProviderManifestList,
     ProviderManifestSaveResponse, ProviderOperatorsQuery, ProviderOptionCacheEntry,
     ProviderPriceQuery, ProviderPriceResponse, ProviderRawOptionAuditEntry, ProviderReorderRequest,
     ProviderServicesQuery, ProviderSummary, ReleaseCodeRequest, ReleaseCodeResponse,
     ReuseCapability, ReusePoolEntry, ReusePoolSummary, RoutingExecutionMode,
     RoutingFailoverRequest, RoutingPlan, RoutingPlanItem, RoutingPlanList, RoutingPlanStore,
-    RuntimeAccessInfo, RuntimeSettings, RuntimeSettingsUpdate, RuntimeSnapshot,
-    RuntimeStateStore,
-    TicketCallbackListResponse,
-    TicketCallbackRegistrationRequest, TicketCallbackSubscription, TicketCodeCallbackPayload,
-    TicketListResponse, TicketRecord, TicketStatus,
+    RuntimeAccessInfo, RuntimeSettings, RuntimeSettingsUpdate, RuntimeSnapshot, RuntimeStateStore,
+    TicketCallbackListResponse, TicketCallbackRegistrationRequest, TicketCallbackSubscription,
+    TicketCodeCallbackPayload, TicketListResponse, TicketRecord, TicketStatus,
 };
 use crate::options::{
     OptionKind, ProviderOptionCacheStore, ProviderRawOptionAuditStore, build_cache_overview,
-    cache_state, load_option_cache_store, load_raw_option_audit_store,
-    normalize_loaded_provider_options, normalize_operator_options, normalize_price_items,
-    normalize_provider_options, normalize_ticket_record, operator_country_cache_key,
+    cache_state, canonical_country_key, canonical_service_key, load_option_cache_store,
+    load_raw_option_audit_store, normalize_loaded_provider_options, normalize_operator_options,
+    normalize_price_items, normalize_provider_options, normalize_ticket_record,
+    operator_country_cache_key,
     resolve_provider_operator_value, resolve_provider_value, save_option_cache_store,
     save_raw_option_audit_store, with_cache_state,
 };
 use crate::registry::ProviderRegistry;
-use chrono::Utc;
+use chrono::{Duration, Utc};
 use parking_lot::RwLock;
 use plugin_sdk::ProviderManifest;
 use reqwest::Client;
+use serde::Deserialize;
 use std::collections::{BTreeMap, HashMap, VecDeque};
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -40,6 +40,10 @@ const RUNTIME_STATE_FILE_NAME: &str = "runtime-state.json";
 const ROUTING_ANY_PROVIDER: &str = "any";
 const DEFAULT_TICKET_BUFFER: usize = 500;
 const DEFAULT_REUSE_TTL_HOURS: i64 = 24;
+const OPENAI_AUTH_BOOTSTRAP_URL: &str = "https://auth.openai.com";
+const OPENAI_SMS_REGIONS_CACHE_TTL_HOURS: i64 = 24;
+const OPENAI_SMS_DYNAMIC_CONFIG_KEY: &str =
+    "phone-verification-sms-regions-by-verification-channel";
 const LOW_BALANCE_PATTERNS: [&str; 8] = [
     "no balance",
     "not enough balance",
@@ -66,10 +70,43 @@ pub struct SmsService {
     provider_raw_option_audit: RwLock<ProviderRawOptionAuditStore>,
     provider_balance_cache: RwLock<BTreeMap<String, ProviderBalanceCacheEntry>>,
     reuse_pool: RwLock<HashMap<String, Vec<ReusePoolEntry>>>,
+    openai_sms_regions_cache: RwLock<OpenAiSmsRegionsCache>,
     callback_subscriptions: RwLock<BTreeMap<String, Vec<TicketCallbackSubscription>>>,
     callback_client: Client,
     log_buffer: usize,
     ticket_buffer: usize,
+}
+
+#[derive(Debug, Deserialize)]
+struct OpenAiBootstrapPage {
+    #[serde(rename = "track")]
+    _track: Option<String>,
+    #[serde(rename = "statsigClientInitData")]
+    statsig_client_init_data: OpenAiStatsigClientInitData,
+}
+
+#[derive(Debug, Deserialize)]
+struct OpenAiStatsigClientInitData {
+    bootstrap: String,
+}
+
+#[derive(Debug, Deserialize)]
+struct OpenAiStatsigBootstrap {
+    #[serde(default)]
+    dynamic_configs: BTreeMap<String, OpenAiDynamicConfigEntry>,
+}
+
+#[derive(Debug, Deserialize)]
+struct OpenAiDynamicConfigEntry {
+    value: OpenAiSmsRegionsPayload,
+}
+
+#[derive(Debug, Deserialize, Default)]
+struct OpenAiSmsRegionsPayload {
+    #[serde(default)]
+    sms: Vec<String>,
+    #[serde(default)]
+    whatsapp: Vec<String>,
 }
 
 impl SmsService {
@@ -110,6 +147,7 @@ impl SmsService {
                 auto_fallback: true,
                 option_cache_enabled: true,
                 option_cache_poll_interval_minutes: 30,
+                only_show_openai_sms_countries: false,
                 check_updates_on_launch: true,
                 http_port: 7822,
                 http_secret: generate_runtime_secret(),
@@ -125,15 +163,22 @@ impl SmsService {
             .as_ref()
             .and_then(|path| load_option_cache_store(path).ok())
             .unwrap_or_default();
-        let provider_option_cache = {
+        let (provider_option_cache, provider_option_cache_recanonicalized) = {
             let registry_ref = &registry;
             let mut normalized_store = ProviderOptionCacheStore::default();
+            let mut changed = false;
             for (provider_id, entry) in provider_option_cache.entries {
                 if let Ok(manifest) = registry_ref.manifest(&provider_id) {
+                    let original_options = entry.options.clone();
+                    let normalized_options =
+                        normalize_loaded_provider_options(&manifest, entry.options);
+                    let original_serialized = serde_json::to_string(&original_options).ok();
+                    let normalized_serialized = serde_json::to_string(&normalized_options).ok();
+                    changed |= original_serialized != normalized_serialized;
                     normalized_store.entries.insert(
                         provider_id.clone(),
                         ProviderOptionCacheEntry {
-                            options: normalize_loaded_provider_options(&manifest, entry.options),
+                            options: normalized_options,
                             ..entry
                         },
                     );
@@ -141,8 +186,13 @@ impl SmsService {
                     normalized_store.entries.insert(provider_id, entry);
                 }
             }
-            normalized_store
+            (normalized_store, changed)
         };
+        if provider_option_cache_recanonicalized {
+            if let Some(path) = &provider_options_path {
+                let _ = save_option_cache_store(path, &provider_option_cache);
+            }
+        }
         let provider_raw_option_audit = provider_options_raw_path
             .as_ref()
             .and_then(|path| load_raw_option_audit_store(path).ok())
@@ -163,18 +213,44 @@ impl SmsService {
                     .map(|parent| parent.join(ROUTING_PLANS_FILE_NAME))
             })
         });
-        let routing_plans = routing_plans_path
+        let (routing_plans, routing_plans_recanonicalized) = routing_plans_path
             .as_ref()
             .and_then(|path| load_routing_plans(path).ok())
-            .unwrap_or_default();
-        let runtime_tickets = normalize_runtime_tickets(runtime_state.tickets);
-        let runtime_logs = normalize_runtime_logs(runtime_state.logs, log_buffer);
-        let runtime_balances = runtime_state
-            .provider_balance_cache
+            .map(normalize_loaded_routing_plans)
+            .unwrap_or_else(|| (RoutingPlanStore::default(), false));
+        if routing_plans_recanonicalized {
+            if let Some(path) = &routing_plans_path {
+                let _ = save_routing_plans(path, &routing_plans);
+            }
+        }
+        let RuntimeStateStore {
+            tickets,
+            logs,
+            provider_balance_cache,
+            reuse_pool,
+            openai_sms_regions_cache,
+        } = runtime_state;
+        let (runtime_tickets, reuse_pool, runtime_state_recanonicalized) =
+            normalize_runtime_state(tickets, reuse_pool);
+        let runtime_logs = normalize_runtime_logs(logs, log_buffer);
+        let runtime_balances = provider_balance_cache
             .into_iter()
             .map(|entry| (entry.provider.clone(), entry))
             .collect::<BTreeMap<_, _>>();
-        let reuse_pool = runtime_state.reuse_pool;
+        if runtime_state_recanonicalized {
+            if let Some(path) = &runtime_state_path {
+                let _ = save_runtime_state(
+                    path,
+                    &RuntimeStateStore {
+                        tickets: runtime_tickets.values().cloned().collect(),
+                        logs: runtime_logs.iter().cloned().collect(),
+                        provider_balance_cache: runtime_balances.values().cloned().collect(),
+                        reuse_pool: reuse_pool.clone(),
+                        openai_sms_regions_cache: openai_sms_regions_cache.clone(),
+                    },
+                );
+            }
+        }
 
         Self {
             registry: Arc::new(RwLock::new(registry)),
@@ -191,6 +267,7 @@ impl SmsService {
             provider_raw_option_audit: RwLock::new(provider_raw_option_audit),
             provider_balance_cache: RwLock::new(runtime_balances),
             reuse_pool: RwLock::new(reuse_pool),
+            openai_sms_regions_cache: RwLock::new(openai_sms_regions_cache),
             callback_subscriptions: RwLock::new(BTreeMap::new()),
             callback_client: Client::builder()
                 .timeout(std::time::Duration::from_secs(5))
@@ -205,6 +282,25 @@ impl SmsService {
         if let Some(path) = &self.runtime_settings_path {
             let _ = save_runtime_settings(path, &self.runtime_settings());
         }
+    }
+
+    pub fn openai_sms_regions_cache(&self) -> OpenAiSmsRegionsCache {
+        self.openai_sms_regions_cache.read().clone()
+    }
+
+    pub fn openai_sms_region_codes(&self) -> Vec<String> {
+        self.openai_sms_regions_cache().sms_regions
+    }
+
+    pub async fn get_openai_sms_regions_cache(&self) -> OpenAiSmsRegionsCache {
+        if self.should_refresh_openai_sms_regions() {
+            let _ = self.refresh_openai_sms_regions_cache().await;
+        }
+        self.openai_sms_regions_cache()
+    }
+
+    pub async fn get_openai_sms_region_codes(&self) -> Vec<String> {
+        self.get_openai_sms_regions_cache().await.sms_regions
     }
 
     pub fn registry(&self) -> Arc<RwLock<ProviderRegistry>> {
@@ -224,6 +320,7 @@ impl SmsService {
             .cloned()
             .collect::<Vec<_>>();
         let reuse_pool = self.reuse_pool.read().clone();
+        let openai_sms_regions_cache = self.openai_sms_regions_cache.read().clone();
         save_runtime_state(
             path,
             &RuntimeStateStore {
@@ -231,12 +328,93 @@ impl SmsService {
                 logs,
                 provider_balance_cache,
                 reuse_pool,
+                openai_sms_regions_cache,
             },
         )
     }
 
     fn persist_runtime_state_quietly(&self) {
         let _ = self.persist_runtime_state();
+    }
+
+    fn should_refresh_openai_sms_regions(&self) -> bool {
+        let cache = self.openai_sms_regions_cache.read();
+        match cache.fetched_at {
+            Some(fetched_at) => {
+                Utc::now() - fetched_at >= Duration::hours(OPENAI_SMS_REGIONS_CACHE_TTL_HOURS)
+            }
+            None => true,
+        }
+    }
+
+    async fn fetch_openai_sms_regions_payload(&self) -> Result<OpenAiSmsRegionsPayload, SmsError> {
+        let html = self
+            .callback_client
+            .get(OPENAI_AUTH_BOOTSTRAP_URL)
+            .send()
+            .await
+            .map_err(|err| {
+                SmsError::Upstream(format!("fetch openai auth bootstrap failed: {err}"))
+            })?
+            .text()
+            .await
+            .map_err(|err| {
+                SmsError::Upstream(format!("read openai auth bootstrap failed: {err}"))
+            })?;
+        let bootstrap_json = extract_bootstrap_json(&html).ok_or_else(|| {
+            SmsError::Upstream("openai auth bootstrap payload not found".to_string())
+        })?;
+        let page: OpenAiBootstrapPage = serde_json::from_str(&bootstrap_json).map_err(|err| {
+            SmsError::Config(format!("parse openai bootstrap page failed: {err}"))
+        })?;
+        let statsig: OpenAiStatsigBootstrap =
+            serde_json::from_str(&page.statsig_client_init_data.bootstrap).map_err(|err| {
+                SmsError::Config(format!("parse openai statsig bootstrap failed: {err}"))
+            })?;
+        let config_id = statsig_config_id(OPENAI_SMS_DYNAMIC_CONFIG_KEY);
+        statsig
+            .dynamic_configs
+            .get(&config_id)
+            .map(|entry| OpenAiSmsRegionsPayload {
+                sms: normalize_region_codes(&entry.value.sms),
+                whatsapp: normalize_region_codes(&entry.value.whatsapp),
+            })
+            .ok_or_else(|| {
+                SmsError::Upstream(format!(
+                    "openai statsig config `{OPENAI_SMS_DYNAMIC_CONFIG_KEY}` missing"
+                ))
+            })
+    }
+
+    pub async fn refresh_openai_sms_regions_cache(
+        &self,
+    ) -> Result<OpenAiSmsRegionsCache, SmsError> {
+        let payload = self.fetch_openai_sms_regions_payload().await?;
+        let sms_regions = payload.sms;
+        let whatsapp_regions = payload.whatsapp;
+        let sms_only_regions = sms_regions
+            .iter()
+            .filter(|code| !whatsapp_regions.contains(*code))
+            .cloned()
+            .collect::<Vec<_>>();
+        let mut all_regions = sms_regions.clone();
+        for code in &whatsapp_regions {
+            if !all_regions.contains(code) {
+                all_regions.push(code.clone());
+            }
+        }
+        all_regions.sort();
+        let next = OpenAiSmsRegionsCache {
+            sms_regions,
+            sms_only_regions,
+            whatsapp_regions,
+            all_regions,
+            fetched_at: Some(Utc::now()),
+        };
+        *self.openai_sms_regions_cache.write() = next.clone();
+        self.persist_runtime_state_quietly();
+        self.log("config", "info", "openai sms region cache refreshed");
+        Ok(next)
     }
 
     fn peek_exact_reuse_from_pool(
@@ -255,7 +433,11 @@ impl SmsService {
             .cloned()
     }
 
-    fn record_exact_reuse_candidate(&self, ticket: &TicketRecord, reused_entry: Option<ReusePoolEntry>) {
+    fn record_exact_reuse_candidate(
+        &self,
+        ticket: &TicketRecord,
+        reused_entry: Option<ReusePoolEntry>,
+    ) {
         let reuse_enabled = self
             .registry
             .read()
@@ -299,7 +481,10 @@ impl SmsService {
             service: ticket.service.clone(),
             country: ticket.country.clone(),
             upstream_id: ticket.upstream_id.clone(),
-            reuse_count: reused_entry.as_ref().map(|entry| entry.reuse_count + 1).unwrap_or(0),
+            reuse_count: reused_entry
+                .as_ref()
+                .map(|entry| entry.reuse_count + 1)
+                .unwrap_or(0),
             max_reuse: self
                 .registry
                 .read()
@@ -365,6 +550,26 @@ impl SmsService {
         None
     }
 
+    fn normalize_acquire_request(mut request: AcquireCodeRequest) -> AcquireCodeRequest {
+        if let Some(service) = request.service.as_ref() {
+            let canonical = canonical_service_key(service, Some(service));
+            request.service = if canonical.is_empty() {
+                None
+            } else {
+                Some(canonical)
+            };
+        }
+        if let Some(country) = request.country.as_ref() {
+            let canonical = canonical_country_key(country, Some(country), None);
+            request.country = if canonical.is_empty() {
+                None
+            } else {
+                Some(canonical)
+            };
+        }
+        request
+    }
+
     async fn try_same_activation_retry_acquire(
         &self,
         provider_id: &str,
@@ -408,7 +613,9 @@ impl SmsService {
             let registry = self.registry.read();
             registry.get(provider_id)?
         };
-        let retry_result = provider.release(&candidate, crate::models::ReleaseAction::Retry).await;
+        let retry_result = provider
+            .release(&candidate, crate::models::ReleaseAction::Retry)
+            .await;
         let now = Utc::now();
         match retry_result {
             Ok(message) => {
@@ -536,8 +743,7 @@ impl SmsService {
             && capabilities.supports(provider_id, ReuseCapability::ExactNumberReuse)
         {
             AcquirePath::ExactReuse
-        } else if reuse_enabled
-            && capabilities.supports(provider_id, ReuseCapability::IntentReuse)
+        } else if reuse_enabled && capabilities.supports(provider_id, ReuseCapability::IntentReuse)
         {
             AcquirePath::IntentReuse
         } else {
@@ -643,6 +849,7 @@ impl SmsService {
         &self,
         request: AcquireCodeRequest,
     ) -> Result<AcquireCodeResponse, SmsError> {
+        let request = Self::normalize_acquire_request(request);
         if request.routing_plan_id.is_some() || request.routing_plan_name.is_some() {
             return self.acquire_code_by_routing_plan(request).await;
         }
@@ -840,7 +1047,10 @@ impl SmsService {
                 return Ok(response);
             }
             self.prepare_reuse_request(&mut routed);
-            let mut ticket = match self.acquire_ticket_for_provider(&provider_id, &routed).await {
+            let mut ticket = match self
+                .acquire_ticket_for_provider(&provider_id, &routed)
+                .await
+            {
                 Ok(ticket) => ticket,
                 Err(error) => {
                     self.maybe_disable_provider_for_low_balance(&provider_id, &error);
@@ -989,7 +1199,9 @@ impl SmsService {
             ticket.message = Some(message.clone());
         })?;
         if next_status == TicketStatus::Finished {
-            let reused_entry = if matches!(current.acquire_path, AcquirePath::ExactReuse) && current.reuse_count > 0 {
+            let reused_entry = if matches!(current.acquire_path, AcquirePath::ExactReuse)
+                && current.reuse_count > 0
+            {
                 self.last_reused_entry_for_ticket(&current)
             } else {
                 None
@@ -1304,7 +1516,7 @@ impl SmsService {
     pub async fn list_provider_services(
         &self,
         provider_id: &str,
-        query: ProviderServicesQuery,
+        mut query: ProviderServicesQuery,
     ) -> Result<OptionListResponse, SmsError> {
         let provider = {
             let registry = self.registry.read();
@@ -1314,6 +1526,26 @@ impl SmsService {
             return Err(SmsError::InvalidRequest(format!(
                 "provider `{provider_id}` requires api_key before resource discovery"
             )));
+        }
+        let cached_options = self
+            .provider_option_cache
+            .read()
+            .entries
+            .get(provider_id)
+            .cloned();
+        if let Some(country) = query.country.as_ref().and_then(|value| {
+            let trimmed = value.trim();
+            if trimmed.is_empty() {
+                None
+            } else {
+                Some(trimmed.to_string())
+            }
+        }) {
+            query.country = Some(resolve_provider_value(
+                cached_options.as_ref().map(|entry| &entry.options),
+                OptionKind::Country,
+                &country,
+            ));
         }
         let items = provider.list_services(query).await?;
         Ok(OptionListResponse {
@@ -1345,23 +1577,25 @@ impl SmsService {
         let mut canonical_country_key = None;
         if let Some(country) = query.country.as_ref().and_then(|value| {
             let trimmed = value.trim();
-            if trimmed.is_empty() { None } else { Some(trimmed.to_string()) }
+            if trimmed.is_empty() {
+                None
+            } else {
+                Some(trimmed.to_string())
+            }
         }) {
             let country_key = operator_country_cache_key(Some(&country));
             canonical_country_key = country_key.clone();
             let settings = self.runtime_settings();
             if settings.option_cache_enabled {
-                if let Some((items, fetched_at)) = cached_options
-                    .as_ref()
-                    .and_then(|entry| {
-                        country_key.as_ref().and_then(|key| {
-                            entry.options
-                                .operators_by_country
-                                .get(key)
-                                .map(|operators| (operators.operators.clone(), operators.fetched_at))
-                        })
+                if let Some((items, fetched_at)) = cached_options.as_ref().and_then(|entry| {
+                    country_key.as_ref().and_then(|key| {
+                        entry
+                            .options
+                            .operators_by_country
+                            .get(key)
+                            .map(|operators| (operators.operators.clone(), operators.fetched_at))
                     })
-                {
+                }) {
                     if cache_state(fetched_at, &settings) == OptionCacheState::Fresh {
                         return Ok(OptionListResponse {
                             provider: provider_id.to_string(),
@@ -1787,7 +2021,9 @@ impl SmsService {
             operators: default_operators.clone(),
             operators_by_country: country_seed
                 .as_ref()
-                .and_then(|country| operator_country_cache_key(Some(country)).map(|key| (country, key)))
+                .and_then(|country| {
+                    operator_country_cache_key(Some(country)).map(|key| (country, key))
+                })
                 .map(|(_, key)| {
                     BTreeMap::from([(
                         key,
@@ -1870,6 +2106,10 @@ impl SmsService {
         }
         if plan.execution_rounds != 0 {
             plan.execution_rounds = plan.execution_rounds.max(1);
+        }
+        normalize_routing_plan_service(&mut plan);
+        for item in &mut plan.items {
+            normalize_routing_plan_item(item);
         }
         if plan.name.trim().is_empty() {
             return Err(SmsError::InvalidRequest(
@@ -1981,6 +2221,7 @@ impl SmsService {
         current.option_cache_enabled = update.option_cache_enabled;
         current.option_cache_poll_interval_minutes =
             update.option_cache_poll_interval_minutes.max(1);
+        current.only_show_openai_sms_countries = update.only_show_openai_sms_countries;
         current.check_updates_on_launch = update.check_updates_on_launch;
         current.http_port = update.http_port.max(1);
         if let Some(path) = &self.runtime_settings_path {
@@ -2119,7 +2360,9 @@ impl SmsService {
                     && ticket.service == service
                     && ticket.country == country
                     && ticket.same_activation_retry_supported
-                    && ticket.same_activation_retry_expires_at.is_none_or(|expires_at| expires_at > now)
+                    && ticket
+                        .same_activation_retry_expires_at
+                        .is_none_or(|expires_at| expires_at > now)
                     && ticket.reuse_count < max_reuse
                     && matches!(
                         ticket.status,
@@ -2145,7 +2388,10 @@ impl SmsService {
         self.log(
             "reuse_pool",
             "info",
-            format!("reuse_pool: cleared provider={} removed={}", provider_id, removed),
+            format!(
+                "reuse_pool: cleared provider={} removed={}",
+                provider_id, removed
+            ),
         );
         Ok(crate::models::ReusePoolClearResponse {
             provider: provider_id.to_string(),
@@ -2554,9 +2800,19 @@ impl SmsService {
                 OptionKind::Country,
                 country,
             ));
+        } else if !manifest.defaults.country.trim().is_empty() {
+            translated.country = Some(resolve_provider_value(
+                options,
+                OptionKind::Country,
+                &manifest.defaults.country,
+            ));
         }
         if let Some(operator) = translated.metadata.get("operator").cloned() {
-            let resolved = resolve_provider_value(options, OptionKind::Operator, &operator);
+            let resolved = resolve_provider_operator_value(
+                options,
+                &operator,
+                translated.country.as_deref(),
+            );
             translated.metadata.insert("operator".to_string(), resolved);
         }
         translated
@@ -2626,6 +2882,68 @@ fn generate_runtime_secret() -> String {
     Uuid::now_v7().simple().to_string()
 }
 
+fn extract_bootstrap_json(html: &str) -> Option<String> {
+    let marker = "<script id=\"bootstrap-inert-script\" type=\"application/json\">";
+    let start = html.find(marker)? + marker.len();
+    let end = html[start..].find("</script>")? + start;
+    Some(html[start..end].trim().to_string())
+}
+
+fn statsig_config_id(key: &str) -> String {
+    let mut hash: i32 = 0;
+    for byte in key.bytes() {
+        hash = ((hash << 5).wrapping_sub(hash)).wrapping_add(byte as i32);
+    }
+    (hash as u32).to_string()
+}
+
+fn normalize_region_codes(values: &[String]) -> Vec<String> {
+    let mut deduped = Vec::new();
+    for value in values {
+        let normalized = value.trim().to_ascii_uppercase();
+        if normalized.len() == 2
+            && normalized.chars().all(|char| char.is_ascii_alphabetic())
+            && !deduped.contains(&normalized)
+        {
+            deduped.push(normalized);
+        }
+    }
+    deduped
+}
+
+fn normalize_routing_plan_service(plan: &mut RoutingPlan) -> bool {
+    let canonical = canonical_service_key(&plan.service, Some(&plan.service));
+    if plan.service == canonical {
+        return false;
+    }
+    plan.service = canonical;
+    true
+}
+
+fn normalize_routing_plan_country(country: &mut String) -> bool {
+    let canonical = canonical_country_key(country, Some(country.as_str()), None);
+    if *country == canonical {
+        return false;
+    }
+    *country = canonical;
+    true
+}
+
+fn normalize_routing_plan_item(item: &mut RoutingPlanItem) -> bool {
+    normalize_routing_plan_country(&mut item.country)
+}
+
+fn normalize_loaded_routing_plans(mut store: RoutingPlanStore) -> (RoutingPlanStore, bool) {
+    let mut changed = false;
+    for plan in &mut store.plans {
+        changed |= normalize_routing_plan_service(plan);
+        for item in &mut plan.items {
+            changed |= normalize_routing_plan_item(item);
+        }
+    }
+    (store, changed)
+}
+
 fn load_routing_plans(path: &Path) -> Result<RoutingPlanStore, SmsError> {
     if !path.exists() {
         return Ok(RoutingPlanStore::default());
@@ -2647,14 +2965,58 @@ fn save_routing_plans(path: &Path, store: &RoutingPlanStore) -> Result<(), SmsEr
         .map_err(|err| SmsError::Io(format!("write routing plans failed: {err}")))
 }
 
-fn normalize_runtime_tickets(tickets: Vec<TicketRecord>) -> BTreeMap<String, TicketRecord> {
+fn normalize_runtime_ticket(mut ticket: TicketRecord) -> (TicketRecord, bool) {
+    let canonical_service = canonical_service_key(&ticket.service, Some(&ticket.service));
+    let canonical_country = canonical_country_key(&ticket.country, Some(&ticket.country), None);
+    let changed = ticket.service != canonical_service || ticket.country != canonical_country;
+    ticket.service = canonical_service;
+    ticket.country = canonical_country;
+    (ticket, changed)
+}
+
+fn normalize_reuse_pool_entry(mut entry: ReusePoolEntry) -> (ReusePoolEntry, bool) {
+    let canonical_service = canonical_service_key(&entry.service, Some(&entry.service));
+    let canonical_country = canonical_country_key(&entry.country, Some(&entry.country), None);
+    let changed = entry.service != canonical_service || entry.country != canonical_country;
+    entry.service = canonical_service;
+    entry.country = canonical_country;
+    (entry, changed)
+}
+
+fn normalize_runtime_state(
+    tickets: Vec<TicketRecord>,
+    reuse_pool: HashMap<String, Vec<ReusePoolEntry>>,
+) -> (BTreeMap<String, TicketRecord>, HashMap<String, Vec<ReusePoolEntry>>, bool) {
+    let mut changed = false;
+    let runtime_tickets = normalize_runtime_tickets(tickets, &mut changed);
+    let mut normalized_reuse_pool = HashMap::new();
+    for (provider, entries) in reuse_pool {
+        let mut normalized_entries = Vec::with_capacity(entries.len());
+        for entry in entries {
+            let (entry, entry_changed) = normalize_reuse_pool_entry(entry);
+            changed |= entry_changed;
+            normalized_entries.push(entry);
+        }
+        normalized_reuse_pool.insert(provider, normalized_entries);
+    }
+    (runtime_tickets, normalized_reuse_pool, changed)
+}
+
+fn normalize_runtime_tickets(
+    tickets: Vec<TicketRecord>,
+    changed: &mut bool,
+) -> BTreeMap<String, TicketRecord> {
     let mut sorted = sorted_tickets(tickets);
     if sorted.len() > DEFAULT_TICKET_BUFFER {
         sorted.truncate(DEFAULT_TICKET_BUFFER);
     }
     sorted
         .into_iter()
-        .map(|ticket| (ticket.id.clone(), ticket))
+        .map(|ticket| {
+            let (ticket, ticket_changed) = normalize_runtime_ticket(ticket);
+            *changed |= ticket_changed;
+            (ticket.id.clone(), ticket)
+        })
         .collect()
 }
 
@@ -2854,6 +3216,29 @@ mod tests {
     }
 
     #[test]
+    fn statsig_config_id_matches_openai_sms_region_key() {
+        assert_eq!(
+            statsig_config_id("phone-verification-sms-regions-by-verification-channel"),
+            "2516824722"
+        );
+    }
+
+    #[test]
+    fn extract_bootstrap_json_reads_embedded_script_payload() {
+        let html = r#"
+        <html>
+          <body>
+            <script id="bootstrap-inert-script" type="application/json">
+              {"statsigClientInitData":{"bootstrap":"{\"dynamic_configs\":{}}"}}
+            </script>
+          </body>
+        </html>
+        "#;
+        let payload = extract_bootstrap_json(html).unwrap();
+        assert!(payload.contains("statsigClientInitData"));
+    }
+
+    #[test]
     fn persistent_service_recanoicalizes_legacy_cached_countries_on_load() {
         let base = std::env::temp_dir().join(format!("madao-cache-migrate-{}", Uuid::now_v7()));
         fs::create_dir_all(&base).unwrap();
@@ -2890,9 +3275,13 @@ mod tests {
 
         let service = make_persistent_service(&base);
         let cached = service.provider_cached_options("smsbower").unwrap();
-        assert_eq!(cached.countries[0].value, "ukraine");
+        assert_eq!(cached.countries[0].value, "UA");
         assert_eq!(cached.countries[0].label, "Ukraine");
         assert_eq!(cached.countries[0].provider_value.as_deref(), Some("1"));
+
+        let persisted = fs::read_to_string(base.join("provider-options-cache.json")).unwrap();
+        assert!(persisted.contains(r#""value": "UA""#));
+        assert!(persisted.contains(r#""provider_value": "1""#));
     }
 
     fn routing_plan() -> RoutingPlan {
@@ -2908,7 +3297,7 @@ mod tests {
                 RoutingPlanItem {
                     id: "mock-first".to_string(),
                     provider: "mock".to_string(),
-                    country: "usa".to_string(),
+                    country: "US".to_string(),
                     operator: String::new(),
                     enabled: true,
                     price_mode: RoutingPriceMode::Fixed,
@@ -2919,7 +3308,7 @@ mod tests {
                 RoutingPlanItem {
                     id: "mock-second".to_string(),
                     provider: "mock".to_string(),
-                    country: "canada".to_string(),
+                    country: "CA".to_string(),
                     operator: String::new(),
                     enabled: true,
                     price_mode: RoutingPriceMode::Any,
@@ -3046,6 +3435,69 @@ mod tests {
         let plans = service.list_routing_plans();
         assert_eq!(plans.plans.len(), 1);
         assert_eq!(plans.plans[0].service, "openai");
+    }
+
+    #[test]
+    fn routing_plan_save_canonicalizes_legacy_service_aliases() {
+        let service = make_service();
+        let aliases = ["dr", "chatgpt", "gpt", "codex"];
+
+        for alias in aliases {
+            let mut plan = routing_plan();
+            plan.id = format!("{alias}-plan");
+            plan.name = format!("{alias} plan");
+            plan.service = alias.to_string();
+
+            let saved = service.save_routing_plan(plan).unwrap();
+
+            assert_eq!(saved.service, "openai");
+        }
+    }
+
+    #[test]
+    fn persistent_service_recanonicalizes_legacy_routing_plan_services_on_load() {
+        let base = std::env::temp_dir().join(format!("madao-routing-migrate-{}", Uuid::now_v7()));
+        fs::create_dir_all(&base).unwrap();
+        fs::write(
+            base.join("routing-plans.json"),
+            r#"{
+  "plans": [
+    {
+      "id": "legacy-openai-plan",
+      "name": "Legacy OpenAI Plan",
+      "service": "dr",
+      "description": "legacy alias",
+      "enabled": true,
+      "execution_mode": "sequential",
+      "execution_rounds": 1,
+      "items": [
+        {
+          "id": "legacy-item-1",
+          "provider": "mock",
+          "country": "US",
+          "operator": "",
+          "enabled": true,
+          "price_mode": "any",
+          "min_price": null,
+          "max_price": null,
+          "fixed_price": null
+        }
+      ]
+    }
+  ]
+}"#,
+        )
+        .unwrap();
+
+        let service = make_persistent_service(&base);
+        let plans = service.list_routing_plans();
+        assert_eq!(plans.plans.len(), 1);
+        assert_eq!(plans.plans[0].service, "openai");
+
+        let persisted = fs::read_to_string(base.join("routing-plans.json")).unwrap();
+        assert!(persisted.contains(r#""service": "openai""#));
+        assert!(!persisted.contains(r#""service": "dr""#));
+        assert!(persisted.contains(r#""country": "US""#));
     }
 
     #[test]
@@ -3179,14 +3631,14 @@ mod tests {
 
         assert_eq!(failover.routing_item_id.as_deref(), Some("mock-second"));
         assert_eq!(failover.routing_item_index, Some(1));
-        assert_eq!(failover.country, "canada");
+        assert_eq!(failover.country, "CA");
 
         let logs = service.runtime_snapshot().logs;
         assert!(logs.iter().any(|entry| {
             entry.scope == "upstream:mock"
                 && entry
                     .message
-                    .contains("acquire service=openai country=canada")
+                    .contains("acquire service=openai country=CA")
         }));
     }
 
@@ -3299,14 +3751,11 @@ mod tests {
         });
 
         let base_url = format!("http://{addr}/stubs/handler_api.php");
-        let service = make_service_with_provider_overrides(&[(
-            "smsbower",
-            move |manifest| {
-                if let Some(config) = manifest.handler_api.as_mut() {
-                    config.base_url = base_url.clone();
-                }
-            },
-        )]);
+        let service = make_service_with_provider_overrides(&[("smsbower", move |manifest| {
+            if let Some(config) = manifest.handler_api.as_mut() {
+                config.base_url = base_url.clone();
+            }
+        })]);
         {
             let mut cache = service.provider_option_cache.write();
             cache.entries.insert(
@@ -3405,7 +3854,7 @@ mod tests {
                             provider_icon_url: None,
                         }],
                         operators_by_country: BTreeMap::from([(
-                            "usa".to_string(),
+                            "us".to_string(),
                             crate::models::ProviderCountryOperatorOptions {
                                 raw_operators: vec![OptionItem {
                                     value: "cached-carrier".to_string(),
@@ -3437,7 +3886,7 @@ mod tests {
             .list_provider_operators(
                 "mock",
                 ProviderOperatorsQuery {
-                    country: Some("usa".to_string()),
+                    country: Some("US".to_string()),
                 },
             )
             .await

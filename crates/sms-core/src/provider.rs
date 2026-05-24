@@ -4,7 +4,6 @@ use crate::models::{
     ProviderOperatorsQuery, ProviderPriceItem, ProviderPriceQuery, ProviderServicesQuery,
     ReleaseAction, TicketRecord,
 };
-use chrono::{DateTime, Utc};
 use crate::smsbower_assets::{
     SmsBowerFaqService, country_icon_url as smsbower_country_icon_url,
     fallback_service_icon_url as smsbower_fallback_service_icon_url,
@@ -12,6 +11,7 @@ use crate::smsbower_assets::{
     fetch_faq_services_map as smsbower_fetch_faq_services_map,
 };
 use async_trait::async_trait;
+use chrono::{DateTime, Utc};
 use plugin_sdk::{FiveSimConfig, HandlerApiConfig, MockConfig, ProviderKind, ProviderManifest};
 use reqwest::Client;
 use serde::Deserialize;
@@ -47,7 +47,11 @@ fn coerce_bool(value: &Value) -> Option<bool> {
     value
         .as_bool()
         .or_else(|| value.as_u64().map(|v| v != 0))
-        .or_else(|| value.as_str().map(|v| matches!(v.trim(), "1" | "true" | "TRUE" | "True")))
+        .or_else(|| {
+            value
+                .as_str()
+                .map(|v| matches!(v.trim(), "1" | "true" | "TRUE" | "True"))
+        })
 }
 
 #[derive(Debug, Deserialize)]
@@ -485,7 +489,8 @@ impl HeroSmsProvider {
             .and_then(coerce_bool)
             .unwrap_or(false);
         let expiry = json.and_then(|value| {
-            value.pointer("/activationEndTime")
+            value
+                .pointer("/activationEndTime")
                 .and_then(Value::as_str)
                 .and_then(|raw| DateTime::parse_from_rfc3339(raw).ok())
                 .map(|value| value.with_timezone(&Utc))
@@ -991,7 +996,11 @@ impl SmsProvider for HeroSmsProvider {
         let country = self
             .manifest
             .resolved_country_hint(request.country.as_deref());
-        if let Some(activation_id) = request.reuse_key.as_deref().filter(|value| !value.is_empty()) {
+        if let Some(activation_id) = request
+            .reuse_key
+            .as_deref()
+            .filter(|value| !value.is_empty())
+        {
             return self.reactivate(activation_id, &service, &country).await;
         }
         let mut params = vec![("service", service.clone()), ("country", country.clone())];
@@ -1574,7 +1583,11 @@ impl SmsProvider for FiveSimProvider {
         let country = self
             .manifest
             .resolved_country_hint(request.country.as_deref());
-        let endpoint = if let Some(number) = request.reuse_key.as_deref().filter(|value| !value.is_empty()) {
+        let endpoint = if let Some(number) = request
+            .reuse_key
+            .as_deref()
+            .filter(|value| !value.is_empty())
+        {
             format!(
                 "{}/{}/{}",
                 self.config.reuse_endpoint_prefix.trim_end_matches('/'),
@@ -1600,9 +1613,9 @@ impl SmsProvider for FiveSimProvider {
         }
         if request.reuse_key.is_none()
             && request
-            .reuse_phone
-            .or(Some(self.manifest.defaults.reuse_phone))
-            .unwrap_or(false)
+                .reuse_phone
+                .or(Some(self.manifest.defaults.reuse_phone))
+                .unwrap_or(false)
         {
             params.push(("reuse", "1".to_string()));
         }
@@ -2429,7 +2442,10 @@ mod tests {
         let items = state.items.lock().clone();
         assert_eq!(items.len(), 1);
         assert_eq!(items[0].0, "POST");
-        assert_eq!(items[0].1.get("action").map(String::as_str), Some("reactivate"));
+        assert_eq!(
+            items[0].1.get("action").map(String::as_str),
+            Some("reactivate")
+        );
         assert_eq!(
             items[0].1.get("activationId").map(String::as_str),
             Some("abc123")
@@ -2446,7 +2462,10 @@ mod tests {
             paths: Arc<parking_lot::Mutex<Vec<String>>>,
         }
 
-        async fn handler(State(state): State<RequestState>, uri: axum::http::Uri) -> Json<serde_json::Value> {
+        async fn handler(
+            State(state): State<RequestState>,
+            uri: axum::http::Uri,
+        ) -> Json<serde_json::Value> {
             state.paths.lock().push(uri.path().to_string());
             Json(json!({
                 "payload": {

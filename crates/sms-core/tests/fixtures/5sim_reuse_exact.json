@@ -4,6 +4,6 @@
   "price": 15.0,
   "status": "PENDING",
   "product": "openai",
-  "country": "russia",
+  "country": "RU",
   "operator": "any"
 }

@@ -38,8 +38,17 @@ http://127.0.0.1:7822
 - `auto_fallback`
 - `option_cache_enabled`
 - `option_cache_poll_interval_minutes`
+- `only_show_openai_sms_countries`
 - `check_updates_on_launch`
 - `GET /api/settings/option-cache`
+
+`only_show_openai_sms_countries` 的过滤规则不是“仅保留 `sms_regions`”，而是：
+
+```text
+当前平台支持国家 - (whatsapp_regions - sms_regions)
+```
+
+也就是只排除 `whatsapp-only` 国家；如果某国家同时在 `sms_regions` 与 `whatsapp_regions` 中，仍然保留。
 
 provider manifest 的复用配置当前包括：
 
@@ -92,20 +101,21 @@ provider manifest 的复用配置当前包括：
 `HeroSMS` / `SmsBower`：
 
 1. `GET /api/providers/{provider}/countries`
-2. `POST /api/providers/{provider}/operators`，body 可传 `{ "country": "50" }`
+2. `POST /api/providers/{provider}/operators`，body 可传 `{ "country": "US" }`
 3. `POST /api/providers/{provider}/services`，body 可为空
 
 `5SIM`：
 
 1. `GET /api/providers/fivesim/countries`
-2. `POST /api/providers/fivesim/operators`，body 传 `{ "country": "england" }`
-3. `POST /api/providers/fivesim/services`，body 传 `{ "country": "england", "operator": "any" }`
+2. `POST /api/providers/fivesim/operators`，body 传 `{ "country": "GB" }`
+3. `POST /api/providers/fivesim/services`，body 传 `{ "country": "GB", "operator": "any" }`
 
 说明：
 
 - 三家现在统一要求先配置 `api_key` 才允许动态发现这些资源
 - `5SIM` 的服务发现是级联的，依赖 `country + operator`
 - `HeroSMS` / `SmsBower` 当前服务发现不依赖 `country/operator`
+- 所有对外 `country` 主字段现在统一使用 `ISO 3166-1 alpha-2` 大写码；旧 slug / 国家名 / provider 数字值仍可兼容读取
 - UI 侧对 `5SIM` 会按国家下的 operator 列表逐个探测 products，再合并成 service 列表；
   不再依赖 `operator=any` 的单点请求结果
 
@@ -119,6 +129,12 @@ POST /api/acquire
   "country": "local"
 }
 ```
+
+说明：
+
+- 常规 `country` 输入与响应主语义已统一为 `ISO 3166-1 alpha-2` 大写码，例如 `US`、`GB`
+- `local` / `any` 仍是合法 sentinel，分别表示本地流与自动选择流
+- 旧 slug、国家名、provider 数字值仍可兼容读取，但系统新写入会统一回写 canonical 值
 
 复用相关说明：
 

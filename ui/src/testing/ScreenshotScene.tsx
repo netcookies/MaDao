@@ -118,7 +118,7 @@ const PROVIDERS: ProviderManifest[] = [
     service_aliases: {},
     defaults: {
       service: 'openai',
-      country: 'usa',
+      country: 'US',
       auto_pick_country: true,
       verify_on_register: false,
       reuse_phone: true,
@@ -144,7 +144,7 @@ const PROVIDERS: ProviderManifest[] = [
     service_aliases: {},
     defaults: {
       service: 'telegram',
-      country: 'england',
+      country: 'GB',
       auto_pick_country: false,
       verify_on_register: false,
       reuse_phone: true,
@@ -170,7 +170,7 @@ const PROVIDERS: ProviderManifest[] = [
     service_aliases: {},
     defaults: {
       service: 'whatsapp',
-      country: 'germany',
+      country: 'DE',
       auto_pick_country: false,
       verify_on_register: false,
       reuse_phone: false,
@@ -196,7 +196,7 @@ const PROVIDER_SUMMARIES: ProviderSummary[] = [
     protocol: '5SIM REST',
     primary_endpoint: 'https://5sim.net/v1',
     default_service: 'openai',
-    default_country: 'usa',
+    default_country: 'US',
     homepage: 'https://5sim.net',
     description: 'Primary marketplace provider for global OTP supply.',
     priority: 1,
@@ -211,7 +211,7 @@ const PROVIDER_SUMMARIES: ProviderSummary[] = [
     protocol: 'herosms',
     primary_endpoint: 'https://hero.internal/api',
     default_service: 'telegram',
-    default_country: 'england',
+    default_country: 'GB',
     homepage: 'https://internal.example/herosms',
     description: 'Fallback private gateway for Telegram-heavy traffic.',
     priority: 2,
@@ -226,7 +226,7 @@ const PROVIDER_SUMMARIES: ProviderSummary[] = [
     protocol: 'smsbower',
     primary_endpoint: 'https://bower.internal/api',
     default_service: 'whatsapp',
-    default_country: 'germany',
+    default_country: 'DE',
     homepage: 'https://internal.example/smsbower',
     description: 'Backup lane used for WhatsApp and regional overflow.',
     priority: 3,
@@ -240,7 +240,7 @@ const TICKETS: TicketRecord[] = [
     id: 'T-0048',
     provider: 'fivesim',
     service: 'openai',
-    country: 'usa',
+      country: 'US',
     phone_number: '+1 (555) 019-2834',
     status: 'CodeReceived',
     price: 0.04,
@@ -251,7 +251,7 @@ const TICKETS: TicketRecord[] = [
     id: 'T-0047',
     provider: 'herosms',
     service: 'telegram',
-    country: 'england',
+      country: 'GB',
     phone_number: '+44 7700 900077',
     status: 'WaitingCode',
     price: 0.02,
@@ -262,7 +262,7 @@ const TICKETS: TicketRecord[] = [
     id: 'T-0046',
     provider: 'smsbower',
     service: 'paypal',
-    country: 'australia',
+    country: 'AU',
     phone_number: '+61 7000 000000',
     status: 'Expired',
     price: null,
@@ -280,7 +280,7 @@ const OVERVIEW_ACTIVITY: TicketRecord[] = [
     id: 'OA-1',
     provider: 'fivesim',
     service: 'openai',
-    country: 'usa',
+      country: 'US',
     phone_number: '+1 (555) 019-2834',
     status: 'Delivered',
     price: null,
@@ -291,7 +291,7 @@ const OVERVIEW_ACTIVITY: TicketRecord[] = [
     id: 'OA-2',
     provider: 'herosms',
     service: 'telegram',
-    country: 'england',
+      country: 'GB',
     phone_number: '+44 7700 900077',
     status: 'Pending',
     price: null,
@@ -302,7 +302,7 @@ const OVERVIEW_ACTIVITY: TicketRecord[] = [
     id: 'OA-3',
     provider: 'smsbower',
     service: 'whatsapp',
-    country: 'australia',
+      country: 'AU',
     phone_number: '+61 7000 000000',
     status: 'Failed',
     price: null,
@@ -356,7 +356,7 @@ const NOTIFICATIONS: NotificationFeed = {
       timestamp: '2026-05-03T14:23:05.123Z',
       scope: 'provider',
       level: 'error',
-      message: 'FiveSim rate limit exceeded while acquiring telegram/usa.',
+      message: 'FiveSim rate limit exceeded while acquiring telegram/US.',
     },
     {
       timestamp: '2026-05-03T14:22:50.000Z',
@@ -388,9 +388,9 @@ const PROVIDER_OPTIONS: Record<string, ProviderDynamicOptions> = {
       { value: 'paypal', label: 'PayPal', hint: 'Finance' },
     ],
     countries: [
-      { value: 'usa', label: 'usa', hint: 'High stock' },
-      { value: 'england', label: 'uk', hint: 'Premium' },
-      { value: 'germany', label: 'germany', hint: 'Regional' },
+      { value: 'US', label: 'United States', hint: 'High stock' },
+      { value: 'GB', label: 'United Kingdom', hint: 'Premium' },
+      { value: 'DE', label: 'Germany', hint: 'Regional' },
     ],
     operators: [
       { value: 'verizon', label: 'verizon', hint: 'US' },
@@ -405,8 +405,8 @@ const PROVIDER_OPTIONS: Record<string, ProviderDynamicOptions> = {
       { value: 'discord', label: 'Discord', hint: 'Community' },
     ],
     countries: [
-      { value: 'england', label: 'uk', hint: 'Primary' },
-      { value: 'usa', label: 'usa', hint: 'Fallback' },
+      { value: 'GB', label: 'United Kingdom', hint: 'Primary' },
+      { value: 'US', label: 'United States', hint: 'Fallback' },
     ],
     operators: [
       { value: 'ee', label: 'ee', hint: 'UK' },
@@ -420,8 +420,8 @@ const PROVIDER_OPTIONS: Record<string, ProviderDynamicOptions> = {
       { value: 'telegram', label: 'Telegram', hint: 'Overflow' },
     ],
     countries: [
-      { value: 'germany', label: 'germany', hint: 'Primary' },
-      { value: 'australia', label: 'australia', hint: 'Overflow' },
+      { value: 'DE', label: 'Germany', hint: 'Primary' },
+      { value: 'AU', label: 'Australia', hint: 'Overflow' },
     ],
     operators: [
       { value: 'telefonica', label: 'telefonica', hint: 'DE' },
@@ -443,7 +443,7 @@ const ROUTING_PLANS: RoutingPlan[] = [
       {
         id: 'hero-ca',
         provider: 'herosms',
-        country: 'canada',
+        country: 'CA',
         operator: '',
         enabled: true,
         price_mode: 'range',
@@ -454,7 +454,7 @@ const ROUTING_PLANS: RoutingPlan[] = [
       {
         id: 'fivesim-us',
         provider: 'fivesim',
-        country: 'usa',
+        country: 'US',
         operator: 'verizon',
         enabled: true,
         price_mode: 'fixed',
@@ -467,12 +467,12 @@ const ROUTING_PLANS: RoutingPlan[] = [
 ];
 
 const PRICE_ITEMS: ProviderPriceItem[] = [
-  { country: 'usa', display_name: 'United States', operator: 'verizon', price: 0.889, stock: 1420 },
-  { country: 'england', display_name: 'United Kingdom', operator: 'o2', price: 1.129, stock: 884 },
-  { country: 'germany', display_name: 'Germany', operator: 'vodafone', price: 0.942, stock: 616 },
-  { country: 'australia', display_name: 'Australia', operator: 'optus', price: 1.488, stock: 194 },
-  { country: 'canada', display_name: 'Canada', operator: 'rogers', price: 1.031, stock: 402 },
-  { country: 'japan', display_name: 'Japan', operator: 'softbank', price: 1.904, stock: 74 },
+  { country: 'US', display_name: 'United States', operator: 'verizon', price: 0.889, stock: 1420 },
+  { country: 'GB', display_name: 'United Kingdom', operator: 'o2', price: 1.129, stock: 884 },
+  { country: 'DE', display_name: 'Germany', operator: 'vodafone', price: 0.942, stock: 616 },
+  { country: 'AU', display_name: 'Australia', operator: 'optus', price: 1.488, stock: 194 },
+  { country: 'CA', display_name: 'Canada', operator: 'rogers', price: 1.031, stock: 402 },
+  { country: 'JP', display_name: 'Japan', operator: 'softbank', price: 1.904, stock: 74 },
 ];
 
 const ACTIVATION_FORM: ActivationFormState = {
@@ -835,12 +835,21 @@ function renderPageTarget(target: ScreenshotTarget, t: (key: string, options?: R
         optionCacheEnabled
         optionCachePollIntervalMinutes={30}
         optionCacheOverview={{ fresh_providers: 2, stale_providers: 1, missing_providers: 0, last_refresh_at: null }}
+        onlyShowOpenAiSmsCountries={false}
         checkUpdatesOnLaunch
         updateCheckBusy={false}
         isDesktopRuntime
+        isWebRuntime={false}
+        httpPort={7822}
+        httpSecret="demo-secret"
+        httpSecretOverridden={false}
         onOptionCacheEnabledChange={noop}
         onOptionCachePollIntervalChange={noop}
+        onOnlyShowOpenAiSmsCountriesChange={noop}
         onCheckUpdatesOnLaunchChange={noop}
+        onHttpPortChange={noop}
+        onRegenerateHttpSecret={noop}
+        regenerateSecretBusy={false}
         onCheckForUpdates={noop}
         apiBase="http://127.0.0.1:7822"
         socketPath="/tmp/madao-sms.sock"

@@ -1,18 +1,15 @@
 use plugin_sdk::ProviderManifest;
 use serde::Serialize;
 use sms_core::config::ServerConfig;
-use sms_core::models::{RuntimeAccessInfo, RuntimeSettings};
-use sms_core::socket_api::SocketCommand;
 use sms_core::models::ProviderSummary;
+use sms_core::models::{RuntimeAccessInfo, RuntimeSettings};
 use sms_core::registry::ProviderRegistry;
 use sms_core::service::SmsService;
+use sms_core::socket_api::SocketCommand;
 use sms_server::{spawn_http_server, spawn_socket_server};
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
-use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
-#[cfg(unix)]
-use tokio::net::UnixStream;
 use tauri::Emitter;
 use tauri::Manager;
 use tauri::WebviewWindow;
@@ -20,6 +17,9 @@ use tauri::WindowEvent;
 use tauri::image::Image;
 use tauri::menu::{CheckMenuItemBuilder, Menu, MenuBuilder, MenuItem, SubmenuBuilder};
 use tauri::tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent};
+use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
+#[cfg(unix)]
+use tokio::net::UnixStream;
 
 const MENU_COMMAND_EVENT: &str = "menu-command";
 const TRAY_ID: &str = "madao-menu-bar";
@@ -640,8 +640,13 @@ fn socket_command_from_payload(
         "provider_manifests" => Ok(SocketCommand::ProviderManifests),
         "routing_plans" => Ok(SocketCommand::RoutingPlans),
         "save_routing_plan" => Ok(SocketCommand::SaveRoutingPlan {
-            plan: serde_json::from_value(payload.get("plan").cloned().ok_or_else(|| "missing plan".to_string())?)
-                .map_err(|err| err.to_string())?,
+            plan: serde_json::from_value(
+                payload
+                    .get("plan")
+                    .cloned()
+                    .ok_or_else(|| "missing plan".to_string())?,
+            )
+            .map_err(|err| err.to_string())?,
         }),
         "delete_routing_plan" => Ok(SocketCommand::DeleteRoutingPlan {
             plan_id: payload
@@ -728,6 +733,7 @@ fn socket_command_from_payload(
         }),
         "regenerate_http_secret" => Ok(SocketCommand::RegenerateHttpSecret),
         "runtime_access_info" => Ok(SocketCommand::RuntimeAccessInfo),
+        "open_ai_sms_regions" => Ok(SocketCommand::OpenAiSmsRegions),
         "option_cache_overview" => Ok(SocketCommand::OptionCacheOverview),
         "balance" => Ok(SocketCommand::Balance {
             provider: payload
@@ -901,7 +907,10 @@ pub fn run() {
                 if let Err(error) = spawn_socket_server(socket_service, &socket_path).await {
                     eprintln!("embedded socket server failed to start: {error}");
                 } else {
-                    eprintln!("embedded socket server listening on {}", socket_path.display());
+                    eprintln!(
+                        "embedded socket server listening on {}",
+                        socket_path.display()
+                    );
                 }
             });
             tauri::async_runtime::spawn(async move {

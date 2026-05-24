@@ -20,7 +20,7 @@ priority = 10
 
 [defaults]
 service = "telegram"
-country = "russia"
+country = "RU"
 
 [mock]
 balance = 100.0
@@ -52,11 +52,8 @@ fn setup_service() -> (SmsService, TempDir) {
 
     let registry = ProviderRegistry::load_from_dir(&providers_dir).unwrap();
     let state_path = dir.path().join("runtime-state.json");
-    let service = SmsService::with_persistence_paths(
-        registry, 100, None,
-        Some(state_path),
-        None, None, None,
-    );
+    let service =
+        SmsService::with_persistence_paths(registry, 100, None, Some(state_path), None, None, None);
     (service, dir)
 }
 
@@ -86,15 +83,13 @@ fn setup_service_with_state(tickets: Vec<TicketRecord>) -> (SmsService, TempDir)
         logs: vec![],
         provider_balance_cache: vec![],
         reuse_pool: HashMap::new(),
+        openai_sms_regions_cache: Default::default(),
     };
     fs::write(&state_path, serde_json::to_string(&state).unwrap()).unwrap();
 
     let registry = ProviderRegistry::load_from_dir(&providers_dir).unwrap();
-    let service = SmsService::with_persistence_paths(
-        registry, 100, None,
-        Some(state_path),
-        None, None, None,
-    );
+    let service =
+        SmsService::with_persistence_paths(registry, 100, None, Some(state_path), None, None, None);
     (service, dir)
 }
 
@@ -104,7 +99,7 @@ async fn test_exact_reuse_5sim() {
     let request = AcquireCodeRequest {
         provider: "fivesim".to_string(),
         service: Some("telegram".to_string()),
-        country: Some("russia".to_string()),
+        country: Some("RU".to_string()),
         ..default_request()
     };
     let resp = service.acquire_code(request.clone()).await.unwrap();
@@ -126,7 +121,7 @@ async fn test_exact_reuse_herosms() {
     let request = AcquireCodeRequest {
         provider: "herosms".to_string(),
         service: Some("telegram".to_string()),
-        country: Some("russia".to_string()),
+        country: Some("RU".to_string()),
         ..default_request()
     };
     let resp = service.acquire_code(request.clone()).await.unwrap();
@@ -148,7 +143,7 @@ async fn test_intent_reuse_no_cross_service() {
     let request = AcquireCodeRequest {
         provider: "fivesim".to_string(),
         service: Some("telegram".to_string()),
-        country: Some("russia".to_string()),
+        country: Some("RU".to_string()),
         ..default_request()
     };
     let resp = service.acquire_code(request).await.unwrap();
@@ -163,7 +158,7 @@ async fn test_intent_reuse_no_cross_service() {
     let request2 = AcquireCodeRequest {
         provider: "fivesim".to_string(),
         service: Some("whatsapp".to_string()),
-        country: Some("russia".to_string()),
+        country: Some("RU".to_string()),
         ..default_request()
     };
     let resp2 = service.acquire_code(request2).await.unwrap();
@@ -177,7 +172,7 @@ async fn test_same_activation_retry_not_pool() {
     let request = AcquireCodeRequest {
         provider: "herosms".to_string(),
         service: Some("telegram".to_string()),
-        country: Some("russia".to_string()),
+        country: Some("RU".to_string()),
         ..default_request()
     };
     let resp = service.acquire_code(request.clone()).await.unwrap();
@@ -202,7 +197,7 @@ async fn test_same_activation_retry_auto_reuse_herosms() {
     let mut ticket = TicketRecord::new(
         "herosms".to_string(),
         "telegram".to_string(),
-        "russia".to_string(),
+        "RU".to_string(),
         "+79001234567".to_string(),
         Some("retry-hero-1".to_string()),
         Some(0.06),
@@ -217,7 +212,7 @@ async fn test_same_activation_retry_auto_reuse_herosms() {
         .acquire_code(AcquireCodeRequest {
             provider: "herosms".to_string(),
             service: Some("telegram".to_string()),
-            country: Some("russia".to_string()),
+            country: Some("RU".to_string()),
             ..default_request()
         })
         .await
@@ -232,7 +227,7 @@ async fn test_same_activation_retry_auto_reuse_smsbower() {
     let mut ticket = TicketRecord::new(
         "smsbower".to_string(),
         "telegram".to_string(),
-        "russia".to_string(),
+        "RU".to_string(),
         "+79001234567".to_string(),
         Some("retry-smsbower-1".to_string()),
         Some(0.06),
@@ -247,7 +242,7 @@ async fn test_same_activation_retry_auto_reuse_smsbower() {
         .acquire_code(AcquireCodeRequest {
             provider: "smsbower".to_string(),
             service: Some("telegram".to_string()),
-            country: Some("russia".to_string()),
+            country: Some("RU".to_string()),
             ..default_request()
         })
         .await
@@ -262,7 +257,7 @@ async fn test_same_activation_retry_expired_falls_back_to_fresh() {
     let mut ticket = TicketRecord::new(
         "smsbower".to_string(),
         "telegram".to_string(),
-        "russia".to_string(),
+        "RU".to_string(),
         "+79001234567".to_string(),
         Some("retry-smsbower-expired".to_string()),
         Some(0.06),
@@ -277,7 +272,7 @@ async fn test_same_activation_retry_expired_falls_back_to_fresh() {
         .acquire_code(AcquireCodeRequest {
             provider: "smsbower".to_string(),
             service: Some("telegram".to_string()),
-            country: Some("russia".to_string()),
+            country: Some("RU".to_string()),
             ..default_request()
         })
         .await
@@ -291,7 +286,7 @@ async fn test_same_activation_retry_disabled_by_reuse_switch() {
     let mut ticket = TicketRecord::new(
         "smsbower".to_string(),
         "telegram".to_string(),
-        "russia".to_string(),
+        "RU".to_string(),
         "+79001234567".to_string(),
         Some("retry-disabled".to_string()),
         Some(0.06),
@@ -306,7 +301,7 @@ async fn test_same_activation_retry_disabled_by_reuse_switch() {
         .acquire_code(AcquireCodeRequest {
             provider: "smsbower".to_string(),
             service: Some("telegram".to_string()),
-            country: Some("russia".to_string()),
+            country: Some("RU".to_string()),
             reuse_phone: Some(false),
             ..default_request()
         })
@@ -323,7 +318,7 @@ async fn test_exact_reuse_disabled_by_reuse_switch() {
     let request = AcquireCodeRequest {
         provider: "fivesim".to_string(),
         service: Some("telegram".to_string()),
-        country: Some("russia".to_string()),
+        country: Some("RU".to_string()),
         ..default_request()
     };
     let resp = service.acquire_code(request.clone()).await.unwrap();
@@ -351,7 +346,7 @@ async fn test_exact_reuse_respects_max_reuse_limit() {
     let base_request = AcquireCodeRequest {
         provider: "fivesim".to_string(),
         service: Some("telegram".to_string()),
-        country: Some("russia".to_string()),
+        country: Some("RU".to_string()),
         ..default_request()
     };
 
@@ -384,7 +379,7 @@ async fn test_clear_provider_reuse_pool() {
     let request = AcquireCodeRequest {
         provider: "fivesim".to_string(),
         service: Some("telegram".to_string()),
-        country: Some("russia".to_string()),
+        country: Some("RU".to_string()),
         ..default_request()
     };
     let resp = service.acquire_code(request).await.unwrap();
@@ -415,7 +410,7 @@ async fn test_stale_eviction_ttl() {
         phone_number: "+79001234567".to_string(),
         provider: "fivesim".to_string(),
         service: "telegram".to_string(),
-        country: "russia".to_string(),
+        country: "RU".to_string(),
         upstream_id: Some("mock-activation".to_string()),
         reuse_count: 0,
         max_reuse: 2,
@@ -429,21 +424,19 @@ async fn test_stale_eviction_ttl() {
         logs: vec![],
         provider_balance_cache: vec![],
         reuse_pool: pool,
+        openai_sms_regions_cache: Default::default(),
     };
     let state_path = dir.path().join("runtime-state.json");
     fs::write(&state_path, serde_json::to_string(&state).unwrap()).unwrap();
 
     let providers_dir = dir.path().join("providers");
     let registry = ProviderRegistry::load_from_dir(&providers_dir).unwrap();
-    let service = SmsService::with_persistence_paths(
-        registry, 100, None,
-        Some(state_path),
-        None, None, None,
-    );
+    let service =
+        SmsService::with_persistence_paths(registry, 100, None, Some(state_path), None, None, None);
     let request = AcquireCodeRequest {
         provider: "fivesim".to_string(),
         service: Some("telegram".to_string()),
-        country: Some("russia".to_string()),
+        country: Some("RU".to_string()),
         ..default_request()
     };
     let _resp = service.acquire_code(request).await.unwrap();
@@ -457,7 +450,7 @@ async fn test_stale_eviction_max_count() {
         phone_number: "+79001234567".to_string(),
         provider: "fivesim".to_string(),
         service: "telegram".to_string(),
-        country: "russia".to_string(),
+        country: "RU".to_string(),
         upstream_id: Some("mock-activation".to_string()),
         reuse_count: 2,
         max_reuse: 2,
@@ -471,21 +464,19 @@ async fn test_stale_eviction_max_count() {
         logs: vec![],
         provider_balance_cache: vec![],
         reuse_pool: pool,
+        openai_sms_regions_cache: Default::default(),
     };
     let state_path = dir.path().join("runtime-state.json");
     fs::write(&state_path, serde_json::to_string(&state).unwrap()).unwrap();
 
     let providers_dir = dir.path().join("providers");
     let registry = ProviderRegistry::load_from_dir(&providers_dir).unwrap();
-    let service = SmsService::with_persistence_paths(
-        registry, 100, None,
-        Some(state_path),
-        None, None, None,
-    );
+    let service =
+        SmsService::with_persistence_paths(registry, 100, None, Some(state_path), None, None, None);
     let request = AcquireCodeRequest {
         provider: "fivesim".to_string(),
         service: Some("telegram".to_string()),
-        country: Some("russia".to_string()),
+        country: Some("RU".to_string()),
         ..default_request()
     };
     let _resp = service.acquire_code(request).await.unwrap();
@@ -497,7 +488,7 @@ async fn test_pool_persistence() {
     let request = AcquireCodeRequest {
         provider: "fivesim".to_string(),
         service: Some("telegram".to_string()),
-        country: Some("russia".to_string()),
+        country: Some("RU".to_string()),
         ..default_request()
     };
     let resp = service.acquire_code(request).await.unwrap();

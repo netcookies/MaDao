@@ -45,13 +45,10 @@ async fn main() -> anyhow::Result<()> {
         .map(|value| value.trim().to_string())
         .filter(|value| !value.is_empty());
 
-    let (http_addr, _http_handle) = spawn_http_server(
-        Arc::clone(&service),
-        &config,
-        http_secret_override,
-    )
-    .await
-    .with_context(|| format!("bind http listener failed: {}", config.http_bind))?;
+    let (http_addr, _http_handle) =
+        spawn_http_server(Arc::clone(&service), &config, http_secret_override)
+            .await
+            .with_context(|| format!("bind http listener failed: {}", config.http_bind))?;
 
     spawn_socket_server(Arc::clone(&service), &config.socket_path).await?;
 
@@ -71,7 +68,12 @@ async fn main() -> anyhow::Result<()> {
                 .filter(|value| !value.is_empty()),
         )
         .await
-        .with_context(|| format!("bind internal docker http listener failed: {}", internal_config.http_bind))?;
+        .with_context(|| {
+            format!(
+                "bind internal docker http listener failed: {}",
+                internal_config.http_bind
+            )
+        })?;
         println!("internal http listening on {}", internal_config.http_bind);
     }
 
@@ -124,10 +126,7 @@ fn daemon_config_dir() -> anyhow::Result<PathBuf> {
         .context("resolve daemon config dir failed")
 }
 
-fn ensure_runtime_config(
-    config_path: &Path,
-    template_path: &Path,
-) -> anyhow::Result<()> {
+fn ensure_runtime_config(config_path: &Path, template_path: &Path) -> anyhow::Result<()> {
     if config_path.exists() && !is_docker_runtime() {
         return Ok(());
     }
@@ -143,8 +142,8 @@ fn ensure_runtime_config(
     config.provider_dir = PathBuf::from("providers");
 
     if is_docker_runtime() {
-        config.http_bind = env::var("MADAO_HTTP_BIND")
-            .unwrap_or_else(|_| DEFAULT_DOCKER_HTTP_BIND.to_string());
+        config.http_bind =
+            env::var("MADAO_HTTP_BIND").unwrap_or_else(|_| DEFAULT_DOCKER_HTTP_BIND.to_string());
         config.socket_path = PathBuf::from(
             env::var("MADAO_SOCKET_PATH")
                 .unwrap_or_else(|_| DEFAULT_DOCKER_SOCKET_PATH.to_string()),

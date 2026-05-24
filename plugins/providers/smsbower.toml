@@ -19,7 +19,7 @@ openai = "dr"
 
 [defaults]
 service = "openai"
-country = "31"
+country = "HN"
 auto_pick_country = false
 verify_on_register = false
 reuse_phone = true

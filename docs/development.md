@@ -84,6 +84,15 @@ http://0.0.0.0:7822
 
 - `每次打开时检查更新`
 - `检查更新`
+- `仅显示 OpenAI 短信可用国家`
+
+其中 `仅显示 OpenAI 短信可用国家` 的实现语义固定为：
+
+```text
+当前平台支持国家 - (whatsapp_regions - sms_regions)
+```
+
+不要把它实现成“只保留 `sms_regions`”。项目约束是：`sms_regions` 优先于 `whatsapp_regions`，只有 `whatsapp-only` 国家才应被隐藏。
 
 更新信息来源于：
 

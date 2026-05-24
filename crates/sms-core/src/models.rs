@@ -435,6 +435,8 @@ pub struct RuntimeSettings {
     pub auto_fallback: bool,
     pub option_cache_enabled: bool,
     pub option_cache_poll_interval_minutes: u32,
+    #[serde(default = "default_only_show_openai_sms_countries")]
+    pub only_show_openai_sms_countries: bool,
     #[serde(default = "default_check_updates_on_launch")]
     pub check_updates_on_launch: bool,
     #[serde(default = "default_http_port")]
@@ -449,8 +451,13 @@ pub struct RuntimeSettingsUpdate {
     pub auto_fallback: bool,
     pub option_cache_enabled: bool,
     pub option_cache_poll_interval_minutes: u32,
+    pub only_show_openai_sms_countries: bool,
     pub check_updates_on_launch: bool,
     pub http_port: u16,
+}
+
+fn default_only_show_openai_sms_countries() -> bool {
+    false
 }
 
 fn default_check_updates_on_launch() -> bool {
@@ -664,6 +671,22 @@ pub struct RuntimeStateStore {
     pub provider_balance_cache: Vec<ProviderBalanceCacheEntry>,
     #[serde(default)]
     pub reuse_pool: HashMap<String, Vec<ReusePoolEntry>>,
+    #[serde(default)]
+    pub openai_sms_regions_cache: OpenAiSmsRegionsCache,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+pub struct OpenAiSmsRegionsCache {
+    #[serde(default)]
+    pub sms_regions: Vec<String>,
+    #[serde(default)]
+    pub sms_only_regions: Vec<String>,
+    #[serde(default)]
+    pub whatsapp_regions: Vec<String>,
+    #[serde(default)]
+    pub all_regions: Vec<String>,
+    #[serde(default)]
+    pub fetched_at: Option<DateTime<Utc>>,
 }
 
 /// Three-provider reuse capability truth.
@@ -695,11 +718,17 @@ impl ProviderCapabilityMatrix {
         let mut capabilities = HashMap::new();
         capabilities.insert(
             "fivesim".to_string(),
-            vec![ReuseCapability::ExactNumberReuse, ReuseCapability::IntentReuse],
+            vec![
+                ReuseCapability::ExactNumberReuse,
+                ReuseCapability::IntentReuse,
+            ],
         );
         capabilities.insert(
             "herosms".to_string(),
-            vec![ReuseCapability::ExactNumberReuse, ReuseCapability::SameActivationRetry],
+            vec![
+                ReuseCapability::ExactNumberReuse,
+                ReuseCapability::SameActivationRetry,
+            ],
         );
         capabilities.insert(
             "smsbower".to_string(),
@@ -709,7 +738,10 @@ impl ProviderCapabilityMatrix {
     }
 
     pub fn capabilities_for(&self, provider_id: &str) -> &[ReuseCapability] {
-        self.capabilities.get(provider_id).map(|v| v.as_slice()).unwrap_or(&[])
+        self.capabilities
+            .get(provider_id)
+            .map(|v| v.as_slice())
+            .unwrap_or(&[])
     }
 
     pub fn supports(&self, provider_id: &str, cap: ReuseCapability) -> bool {

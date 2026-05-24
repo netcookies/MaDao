@@ -1,25 +1,27 @@
+#[cfg(unix)]
+use anyhow::Context;
 use axum::extract::{Path, State};
 use axum::http::{HeaderMap, HeaderValue, StatusCode, header};
 use axum::routing::{get, post};
 use axum::{Json, Router, response::IntoResponse};
-#[cfg(unix)]
-use anyhow::Context;
-#[cfg(unix)]
-use sms_core::socket_api::SocketCommand;
+use parking_lot::RwLock;
 use serde::Serialize;
 use sms_core::config::ServerConfig;
 use sms_core::models::{
-    AcquireCodeRequest, HttpAuthLoginRequest, HttpAuthStatus, NotificationFeed, OptionCacheOverview, PollCodeRequest,
-    ProviderManifestList, ProviderOperatorsQuery, ProviderPriceQuery, ProviderReorderRequest, ReusePoolClearResponse,
-    ProviderServicesQuery, ReleaseCodeRequest, RoutingFailoverRequest, RoutingPlan,
+    AcquireCodeRequest, HttpAuthLoginRequest, HttpAuthStatus, NotificationFeed,
+    OpenAiSmsRegionsCache, OptionCacheOverview, PollCodeRequest, ProviderManifestList,
+    ProviderOperatorsQuery, ProviderPriceQuery, ProviderReorderRequest, ProviderServicesQuery,
+    ReleaseCodeRequest, ReusePoolClearResponse, RoutingFailoverRequest, RoutingPlan,
     RoutingPlanList, RuntimeAccessInfo, RuntimeSettings, RuntimeSettingsUpdate, RuntimeSnapshot,
     TicketCallbackRegistrationRequest, TicketListResponse,
 };
 use sms_core::service::SmsService;
+#[cfg(unix)]
+use sms_core::socket_api::SocketCommand;
 use std::net::SocketAddr;
 use std::path::Path as FsPath;
-use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
+use std::sync::atomic::{AtomicU64, Ordering};
 #[cfg(unix)]
 use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
 use tokio::net::TcpListener;
@@ -27,7 +29,6 @@ use tokio::net::TcpListener;
 use tokio::net::UnixListener;
 use tower_http::cors::CorsLayer;
 use tower_http::trace::TraceLayer;
-use parking_lot::RwLock;
 
 #[derive(Clone)]
 pub struct ApiState {
@@ -77,33 +78,74 @@ async fn handle_socket_command(service: &SmsService, line: &str) -> String {
             })
             .to_string(),
             SocketCommand::Snapshot => wrap_socket_plain_result(Ok(service.runtime_snapshot())),
-            SocketCommand::Acquire { request } => wrap_socket_result(service.acquire_code(request).await),
+            SocketCommand::Acquire { request } => {
+                wrap_socket_result(service.acquire_code(request).await)
+            }
             SocketCommand::Poll { request } => wrap_socket_result(service.poll_code(request).await),
-            SocketCommand::Release { request } => wrap_socket_result(service.release_code(request).await),
-            SocketCommand::RoutingFailover { request } => wrap_socket_result(service.failover_routing_attempt(request).await),
-            SocketCommand::Balance { provider } => wrap_socket_result(service.get_balance(&provider).await),
-            SocketCommand::Prices { request } => wrap_socket_result(service.get_prices(request).await),
-            SocketCommand::ProviderManifests => wrap_socket_plain_result(Ok(service.list_provider_manifests())),
-            SocketCommand::RoutingPlans => wrap_socket_plain_result(Ok(service.list_routing_plans())),
-            SocketCommand::RoutingPlan { plan_id } => wrap_socket_plain_result(service.routing_plan(&plan_id)),
-            SocketCommand::SaveRoutingPlan { plan } => wrap_socket_plain_result(service.save_routing_plan(plan)),
-            SocketCommand::DeleteRoutingPlan { plan_id } => wrap_socket_plain_result(service.delete_routing_plan(&plan_id)),
-            SocketCommand::ProviderManifest { provider } => wrap_socket_plain_result(service.provider_manifest(&provider)),
+            SocketCommand::Release { request } => {
+                wrap_socket_result(service.release_code(request).await)
+            }
+            SocketCommand::RoutingFailover { request } => {
+                wrap_socket_result(service.failover_routing_attempt(request).await)
+            }
+            SocketCommand::Balance { provider } => {
+                wrap_socket_result(service.get_balance(&provider).await)
+            }
+            SocketCommand::Prices { request } => {
+                wrap_socket_result(service.get_prices(request).await)
+            }
+            SocketCommand::ProviderManifests => {
+                wrap_socket_plain_result(Ok(service.list_provider_manifests()))
+            }
+            SocketCommand::RoutingPlans => {
+                wrap_socket_plain_result(Ok(service.list_routing_plans()))
+            }
+            SocketCommand::RoutingPlan { plan_id } => {
+                wrap_socket_plain_result(service.routing_plan(&plan_id))
+            }
+            SocketCommand::SaveRoutingPlan { plan } => {
+                wrap_socket_plain_result(service.save_routing_plan(plan))
+            }
+            SocketCommand::DeleteRoutingPlan { plan_id } => {
+                wrap_socket_plain_result(service.delete_routing_plan(&plan_id))
+            }
+            SocketCommand::ProviderManifest { provider } => {
+                wrap_socket_plain_result(service.provider_manifest(&provider))
+            }
             SocketCommand::SaveProviderManifest { provider, manifest } => {
                 wrap_socket_plain_result(service.save_provider_manifest(&provider, manifest).await)
             }
-            SocketCommand::ReloadProviders => wrap_socket_plain_result(service.reload_provider_registry()),
-            SocketCommand::RuntimeSettings => wrap_socket_plain_result(Ok(service.runtime_settings())),
-            SocketCommand::UpdateRuntimeSettings { request } => wrap_socket_plain_result(Ok(service.update_runtime_settings(request))),
-            SocketCommand::RegenerateHttpSecret => wrap_socket_plain_result(service.regenerate_http_secret()),
-            SocketCommand::RuntimeAccessInfo => wrap_socket_plain_result(Ok(service.runtime_access_info(None))),
-            SocketCommand::OptionCacheOverview => wrap_socket_plain_result(Ok(service.option_cache_overview())),
-            SocketCommand::Notifications => wrap_socket_plain_result(Ok(service.notification_feed())),
+            SocketCommand::ReloadProviders => {
+                wrap_socket_plain_result(service.reload_provider_registry())
+            }
+            SocketCommand::RuntimeSettings => {
+                wrap_socket_plain_result(Ok(service.runtime_settings()))
+            }
+            SocketCommand::UpdateRuntimeSettings { request } => {
+                wrap_socket_plain_result(Ok(service.update_runtime_settings(request)))
+            }
+            SocketCommand::RegenerateHttpSecret => {
+                wrap_socket_plain_result(service.regenerate_http_secret())
+            }
+            SocketCommand::RuntimeAccessInfo => {
+                wrap_socket_plain_result(Ok(service.runtime_access_info(None)))
+            }
+            SocketCommand::OpenAiSmsRegions => {
+                wrap_socket_result(Ok(service.get_openai_sms_regions_cache().await))
+            }
+            SocketCommand::OptionCacheOverview => {
+                wrap_socket_plain_result(Ok(service.option_cache_overview()))
+            }
+            SocketCommand::Notifications => {
+                wrap_socket_plain_result(Ok(service.notification_feed()))
+            }
             SocketCommand::ClearNotifications => {
                 service.clear_logs();
                 wrap_socket_plain_result(Ok(service.notification_feed()))
             }
-            SocketCommand::ProviderCountries { provider } => wrap_socket_result(service.list_provider_countries(&provider).await),
+            SocketCommand::ProviderCountries { provider } => {
+                wrap_socket_result(service.list_provider_countries(&provider).await)
+            }
             SocketCommand::ProviderServices { provider, request } => {
                 wrap_socket_result(service.list_provider_services(&provider, request).await)
             }
@@ -169,7 +211,9 @@ fn is_secret_authorized(state: &ApiState, headers: &HeaderMap) -> bool {
     let Ok(raw) = value.to_str() else {
         return false;
     };
-    let secret = state.service.effective_http_secret(state.http_secret.as_deref());
+    let secret = state
+        .service
+        .effective_http_secret(state.http_secret.as_deref());
     raw.strip_prefix("Bearer ")
         .map(str::trim)
         .map(|candidate| candidate == secret)
@@ -241,6 +285,10 @@ pub fn build_router(service: Arc<SmsService>, http_secret: Option<String>) -> Ro
         .route(
             "/api/settings/runtime/regenerate-secret",
             post(regenerate_http_secret),
+        )
+        .route(
+            "/api/settings/openai-sms-regions",
+            get(get_openai_sms_regions),
         )
         .route("/api/settings/option-cache", get(get_option_cache_overview))
         .route("/api/acquire", post(acquire_code))
@@ -356,7 +404,11 @@ async fn health() -> Json<serde_json::Value> {
 }
 
 async fn get_runtime_access_info(State(state): State<ApiState>) -> Json<RuntimeAccessInfo> {
-    Json(state.service.runtime_access_info(state.http_secret.as_deref()))
+    Json(
+        state
+            .service
+            .runtime_access_info(state.http_secret.as_deref()),
+    )
 }
 
 async fn http_auth_status(
@@ -368,10 +420,7 @@ async fn http_auth_status(
     })
 }
 
-async fn http_auth_check(
-    State(state): State<ApiState>,
-    headers: HeaderMap,
-) -> impl IntoResponse {
+async fn http_auth_check(State(state): State<ApiState>, headers: HeaderMap) -> impl IntoResponse {
     if is_http_authenticated(&state, &headers) {
         StatusCode::NO_CONTENT.into_response()
     } else {
@@ -389,7 +438,9 @@ async fn http_auth_login(
     State(state): State<ApiState>,
     Json(request): Json<HttpAuthLoginRequest>,
 ) -> impl IntoResponse {
-    let expected_secret = state.service.effective_http_secret(state.http_secret.as_deref());
+    let expected_secret = state
+        .service
+        .effective_http_secret(state.http_secret.as_deref());
     if request.secret != expected_secret {
         return (
             StatusCode::UNAUTHORIZED,
@@ -420,10 +471,7 @@ async fn http_auth_login(
         .into_response()
 }
 
-async fn http_auth_logout(
-    State(state): State<ApiState>,
-    headers: HeaderMap,
-) -> impl IntoResponse {
+async fn http_auth_logout(State(state): State<ApiState>, headers: HeaderMap) -> impl IntoResponse {
     if let Some(session_id) = extract_session_id(&headers) {
         state.sessions.write().retain(|item| item != &session_id);
     }
@@ -431,9 +479,7 @@ async fn http_auth_logout(
     let mut response_headers = HeaderMap::new();
     response_headers.insert(
         header::SET_COOKIE,
-        HeaderValue::from_static(
-            "madao_http_session=; Path=/; HttpOnly; SameSite=Lax; Max-Age=0",
-        ),
+        HeaderValue::from_static("madao_http_session=; Path=/; HttpOnly; SameSite=Lax; Max-Age=0"),
     );
     (
         StatusCode::OK,
@@ -661,6 +707,20 @@ async fn regenerate_http_secret(
     state.service.log_http_access(
         "POST",
         "/api/settings/runtime/regenerate-secret",
+        if result.is_ok() { "200" } else { "400" },
+    );
+    result
+}
+
+async fn get_openai_sms_regions(
+    State(state): State<ApiState>,
+    headers: HeaderMap,
+) -> Result<Json<OpenAiSmsRegionsCache>, (StatusCode, Json<ApiError>)> {
+    ensure_http_authenticated(&state, &headers)?;
+    let result = Ok(Json(state.service.get_openai_sms_regions_cache().await));
+    state.service.log_http_access(
+        "GET",
+        "/api/settings/openai-sms-regions",
         if result.is_ok() { "200" } else { "400" },
     );
     result

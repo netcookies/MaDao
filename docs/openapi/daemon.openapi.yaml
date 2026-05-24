@@ -374,6 +374,27 @@ paths:
           $ref: '#/components/responses/BadRequest'
         '401':
           $ref: '#/components/responses/Unauthorized'
+  /api/settings/openai-sms-regions:
+    get:
+      tags: [settings]
+      summary: Get cached OpenAI verification channel regions
+      description: >
+        Returns the locally cached OpenAI verification channel region sets. The UI uses
+        `sms_regions` as a keep-list and excludes only `whatsapp-only` countries, which is
+        equivalent to `all_supported_countries - (whatsapp_regions - sms_regions)`.
+      operationId: getOpenAiSmsRegions
+      security:
+        - bearerAuth: []
+        - sessionCookie: []
+      responses:
+        '200':
+          description: Cached OpenAI SMS region metadata
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/OpenAiSmsRegionsCache'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
   /api/settings/option-cache:
     get:
       tags: [settings]
@@ -896,6 +917,7 @@ components:
           type: string
         country:
           type: string
+          description: Canonical country code in ISO 3166-1 alpha-2 uppercase form, for example `US` or `GB`. Special sentinel values `local` and `any` are also accepted where the workflow supports them. Legacy slug, country-name, and provider numeric values are read-compatible but new writes use canonical values.
         max_price:
           type: number
         min_price:
@@ -927,6 +949,7 @@ components:
           type: string
         country:
           type: string
+          description: Canonical country code in ISO 3166-1 alpha-2 uppercase form. May also be `local` or `any` when the ticket originated from those sentinel flows.
         phone_number:
           type: string
         upstream_id:
@@ -1033,6 +1056,7 @@ components:
           type: string
         country:
           type: string
+          description: Canonical country code in ISO 3166-1 alpha-2 uppercase form. Request compatibility also accepts legacy slug, country-name, and provider numeric values.
         operator:
           type: string
       required: [provider]
@@ -1076,6 +1100,7 @@ components:
           type: string
         provider_country:
           type: string
+          description: Provider-native raw country value before canonicalization.
         provider_operator:
           type: string
         price:
@@ -1118,6 +1143,7 @@ components:
       properties:
         country:
           type: string
+          description: Canonical country code in ISO 3166-1 alpha-2 uppercase form. Special sentinel values `local` and `any` are allowed where the provider flow supports them.
         operator:
           type: string
     ProviderOperatorsQuery:
@@ -1126,6 +1152,7 @@ components:
       properties:
         country:
           type: string
+          description: Canonical country code in ISO 3166-1 alpha-2 uppercase form. Special sentinel values `local` and `any` are allowed where the provider flow supports them.
     OptionCacheState:
       type: string
       enum: [missing, fresh, stale]
@@ -1245,6 +1272,7 @@ components:
           type: string
         default_country:
           type: string
+          description: Default canonical country code in ISO 3166-1 alpha-2 uppercase form. Some manifests may also use `local` as an explicit local-only sentinel.
         homepage:
           type: string
         description:
@@ -1385,6 +1413,7 @@ components:
           type: string
         country:
           type: string
+          description: Canonical country code in ISO 3166-1 alpha-2 uppercase form. Empty string still means "inherit current request" in routing item editing contexts.
         phone_number:
           type: string
         code:
@@ -1417,6 +1446,7 @@ components:
           type: string
         country:
           type: string
+          description: Canonical country code in ISO 3166-1 alpha-2 uppercase form. May also be `local` for local mock/test flows.
         operator:
           type: string
         enabled:
@@ -1483,6 +1513,12 @@ components:
         option_cache_poll_interval_minutes:
           type: integer
           minimum: 0
+        only_show_openai_sms_countries:
+          type: boolean
+          description: >
+            When enabled, country selectors exclude only `whatsapp-only` countries. Any country
+            explicitly present in `sms_regions` remains visible even if it also appears in
+            `whatsapp_regions`.
         check_updates_on_launch:
           type: boolean
         http_port:
@@ -1496,6 +1532,7 @@ components:
         - auto_fallback
         - option_cache_enabled
         - option_cache_poll_interval_minutes
+        - only_show_openai_sms_countries
         - check_updates_on_launch
         - http_port
         - http_secret
@@ -1512,6 +1549,8 @@ components:
         option_cache_poll_interval_minutes:
           type: integer
           minimum: 0
+        only_show_openai_sms_countries:
+          type: boolean
         check_updates_on_launch:
           type: boolean
         http_port:
@@ -1523,8 +1562,38 @@ components:
         - auto_fallback
         - option_cache_enabled
         - option_cache_poll_interval_minutes
+        - only_show_openai_sms_countries
         - check_updates_on_launch
         - http_port
+    OpenAiSmsRegionsCache:
+      type: object
+      additionalProperties: false
+      properties:
+        sms_regions:
+          type: array
+          items:
+            type: string
+        sms_only_regions:
+          type: array
+          items:
+            type: string
+        whatsapp_regions:
+          type: array
+          items:
+            type: string
+        all_regions:
+          type: array
+          items:
+            type: string
+        fetched_at:
+          type: string
+          format: date-time
+          nullable: true
+      required:
+        - sms_regions
+        - sms_only_regions
+        - whatsapp_regions
+        - all_regions
     ProviderManifestSaveResponse:
       type: object
       additionalProperties: false
@@ -1582,6 +1651,7 @@ components:
           type: string
         country:
           type: string
+          description: Canonical country code in ISO 3166-1 alpha-2 uppercase form.
         phone_number:
           type: string
         upstream_id:
@@ -1660,6 +1730,7 @@ components:
           type: string
         country:
           type: string
+          description: Canonical country code in ISO 3166-1 alpha-2 uppercase form.
         active_count:
           type: integer
           minimum: 0

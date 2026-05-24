@@ -29,8 +29,14 @@ fn capability_truth_smsbower_capabilities() {
 
 #[test]
 fn capability_truth_retry_is_not_reuse() {
-    assert_ne!(ReuseCapability::SameActivationRetry, ReuseCapability::ExactNumberReuse);
-    assert_ne!(ReuseCapability::SameActivationRetry, ReuseCapability::IntentReuse);
+    assert_ne!(
+        ReuseCapability::SameActivationRetry,
+        ReuseCapability::ExactNumberReuse
+    );
+    assert_ne!(
+        ReuseCapability::SameActivationRetry,
+        ReuseCapability::IntentReuse
+    );
 }
 
 #[test]

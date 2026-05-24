@@ -1,3 +1,4 @@
+import countryMetadata from '../../../config/country-metadata.json';
 import type { LanguageCode } from '../app/types';
 import { i18n } from '../app/i18n';
 
@@ -22,38 +23,6 @@ const SERVICE_LABELS_EN: Record<string, string> = {
   paypal: 'PayPal',
   discord: 'Discord',
   yahoo: 'Yahoo',
-};
-
-const COUNTRY_LABELS_EN: Record<string, string> = {
-  any: 'All countries',
-  local: 'Local',
-  usa: 'United States',
-  us: 'United States',
-  '50': 'United States',
-  england: 'United Kingdom',
-  uk: 'United Kingdom',
-  '44': 'United Kingdom',
-  germany: 'Germany',
-  japan: 'Japan',
-  canada: 'Canada',
-  australia: 'Australia',
-  '61': 'Australia',
-  russia: 'Russia',
-  '0': 'Russia',
-  argentina: 'Argentina',
-  ar: 'Argentina',
-  vietnam: 'Vietnam',
-  southafrica: 'South Africa',
-  'south africa': 'South Africa',
-  'bosnia and herzegovina': 'Bosnia and Herzegovina',
-  bih: 'Bosnia and Herzegovina',
-  'trinidad and tobago': 'Trinidad and Tobago',
-  'czech republic': 'Czech Republic',
-  czechia: 'Czech Republic',
-  'north macedonia': 'North Macedonia',
-  'south korea': 'South Korea',
-  'north korea': 'North Korea',
-  jordan: 'Jordan',
 };
 
 const PROVIDER_LABELS: Record<LanguageCode, Record<string, string>> = {
@@ -94,12 +63,36 @@ const PROVIDER_PROTOCOL_LABELS: Record<LanguageCode, Record<string, string>> = {
   },
 };
 
+type CountryMetadata = {
+  labels: Record<string, string>;
+  aliases: Record<string, string>;
+};
+
+const COUNTRY_METADATA = countryMetadata as CountryMetadata;
+
 function pickLanguage(language: LanguageCode | undefined) {
   return language ?? 'en';
 }
 
 function i18nTokenKey(value: string) {
   return value.toLowerCase().replace(/[^a-z0-9]+/g, '_').replace(/^_+|_+$/g, '');
+}
+
+function normalizeCountryToken(country: string) {
+  return country.trim().toLowerCase().replace(/[_/-]+/g, ' ').replace(/\s+/g, ' ');
+}
+
+function isIsoAlpha2(value: string) {
+  return value.length === 2 && /^[A-Z]{2}$/.test(value);
+}
+
+function resolveRegionDisplayName(code: string, language: LanguageCode) {
+  try {
+    const displayNames = new Intl.DisplayNames([language], { type: 'region' });
+    return displayNames.of(code) ?? null;
+  } catch {
+    return null;
+  }
 }
 
 export function normalizeTicketStatus(status: string) {
@@ -230,44 +223,37 @@ export function formatReuseCapabilityLabel(capability: string, language?: Langua
   return labels[currentLanguage][normalized] ?? capability;
 }
 
-export function formatCountryLabel(country: string, language?: LanguageCode) {
-  const normalized = country.toLowerCase();
-  const currentLanguage = pickLanguage(language);
-  const englishLabel = COUNTRY_LABELS_EN[normalized] ?? titleCaseToken(country);
-  return i18n.getFixedT(currentLanguage)(`country_label_${i18nTokenKey(normalized)}`, { defaultValue: englishLabel });
+export function canonicalCountryValue(country: string) {
+  const normalized = normalizeCountryToken(country);
+  if (!normalized) return '';
+  const alias = COUNTRY_METADATA.aliases[normalized];
+  if (alias === 'ANY') return 'any';
+  if (alias === 'LOCAL') return 'local';
+  if (alias) return alias;
+  if (normalized.length === 2 && /^[a-z]{2}$/.test(normalized)) {
+    return normalized.toUpperCase();
+  }
+  return normalized;
 }
 
-export function canonicalCountryValue(country: string) {
-  const normalized = country.trim().toLowerCase().replace(/[_/-]+/g, ' ').replace(/\s+/g, ' ');
-  const aliases: Record<string, string> = {
-    ar: 'argentina',
-    argentina: 'argentina',
-    any: 'any',
-    usa: 'usa',
-    us: 'usa',
-    '50': 'usa',
-    'united states': 'usa',
-    america: 'usa',
-    england: 'uk',
-    uk: 'uk',
-    '44': 'uk',
-    'united kingdom': 'uk',
-    britain: 'uk',
-    local: 'local',
-    germany: 'germany',
-    japan: 'japan',
-    canada: 'canada',
-    australia: 'australia',
-    '61': 'australia',
-    russia: 'russia',
-    '0': 'russia',
-    'russian federation': 'russia',
-    vietnam: 'vietnam',
-    'viet nam': 'vietnam',
-    'south africa': 'southafrica',
-    southafrica: 'southafrica',
-  };
-  return aliases[normalized] ?? normalized;
+export function formatCountryLabel(country: string, language?: LanguageCode) {
+  const canonical = canonicalCountryValue(country);
+  const currentLanguage = pickLanguage(language);
+  if (canonical === 'any') {
+    return i18n.getFixedT(currentLanguage)('country_label_any', { defaultValue: 'All countries' });
+  }
+  if (canonical === 'local') {
+    return i18n.getFixedT(currentLanguage)('country_label_local', { defaultValue: 'Local' });
+  }
+  if (isIsoAlpha2(canonical)) {
+    const defaultEnglish = COUNTRY_METADATA.labels[canonical]
+      ?? resolveRegionDisplayName(canonical, 'en')
+      ?? canonical;
+    const translated = resolveRegionDisplayName(canonical, currentLanguage);
+    return translated ?? defaultEnglish;
+  }
+  const englishLabel = COUNTRY_METADATA.labels[canonical] ?? titleCaseToken(country);
+  return i18n.getFixedT(currentLanguage)(`country_label_${i18nTokenKey(canonical)}`, { defaultValue: englishLabel });
 }
 
 function titleCaseToken(value: string) {
@@ -276,6 +262,10 @@ function titleCaseToken(value: string) {
     .replace(/\s+/g, ' ')
     .trim()
     .split(' ')
-    .map((part) => part ? part[0].toUpperCase() + part.slice(1).toLowerCase() : part)
+    .map((part) => {
+      if (!part) return part;
+      if (part.length === 2 && /^[a-zA-Z]{2}$/.test(part)) return part.toUpperCase();
+      return part[0]!.toUpperCase() + part.slice(1).toLowerCase();
+    })
     .join(' ');
 }

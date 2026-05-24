@@ -1,6 +1,7 @@
 import { invoke } from '@tauri-apps/api/core';
 import type {
   NotificationFeed,
+  OpenAiSmsRegionsCache,
   OptionCacheOverview,
   OptionListResponse,
   ProviderBalance,
@@ -130,6 +131,10 @@ export function regenerateHttpSecretViaSocket(): Promise<RuntimeSettings> {
 
 export function fetchRuntimeAccessInfoViaSocket(): Promise<RuntimeAccessInfo> {
   return socketInvoke<RuntimeAccessInfo>('runtime_access_info');
+}
+
+export function fetchOpenAiSmsRegionsViaSocket(): Promise<OpenAiSmsRegionsCache> {
+  return socketInvoke<OpenAiSmsRegionsCache>('open_ai_sms_regions');
 }
 
 export function fetchOptionCacheOverviewViaSocket(): Promise<OptionCacheOverview> {

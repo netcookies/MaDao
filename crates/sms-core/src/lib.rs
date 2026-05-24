@@ -6,5 +6,5 @@ pub mod options;
 pub mod provider;
 pub mod registry;
 pub mod service;
-pub mod socket_api;
 pub mod smsbower_assets;
+pub mod socket_api;

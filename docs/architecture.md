@@ -36,6 +36,7 @@
 - `HeroSmsProvider / SmsBowerProvider / FiveSimProvider / MockProvider`
 - `ProviderRegistry`
 - `SmsService`
+- 运行时缓存 OpenAI 短信区域配置，并把设置页国家过滤语义固化在 Rust + UI 共享约束里
 
 这是系统的领域中心。
 
@@ -101,6 +102,29 @@ provider manifest (*.toml)
 - 行为差异：如取消冷却时间
 
 这类信息优先从 manifest 读取，避免前后端按 provider id 写死分支。
+
+## OpenAI 短信国家过滤
+
+设置页里的 `仅显示 OpenAI 短信可用国家` 不是简单地“只显示 `sms_regions`”。
+
+当前项目固定语义是：
+
+```text
+当前平台支持国家 - (whatsapp_regions - sms_regions)
+```
+
+也就是：
+
+- `sms_regions` 是显式保留名单
+- `whatsapp_regions` 只用于排除 `whatsapp-only` 国家
+- 如果某国家同时存在于 `sms_regions` 与 `whatsapp_regions`，仍然必须显示
+
+这条规则必须在以下层面保持一致：
+
+- Rust 侧 OpenAI 区域缓存
+- runtime settings 持久化字段
+- UI 国家选择器过滤逻辑
+- API / OpenAPI / 外部文档
 
 ## 热重载流
 

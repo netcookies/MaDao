@@ -9,75 +9,11 @@ import {
   type SimpleIcon,
 } from 'simple-icons';
 import { cx } from '../../../lib/cx';
+import { canonicalCountryValue } from '../../../lib/formatters';
 import fivesimIcon from '../../../assets/providers/fivesim.ico';
 import smsbowerIcon from '../../../assets/providers/smsbower.ico';
 
 type ResourceKind = 'provider' | 'service' | 'country';
-
-const COUNTRY_CODE_MAP: Record<string, keyof typeof flags> = {
-  ar: 'AR',
-  argentina: 'AR',
-  au: 'AU',
-  australia: 'AU',
-  'bosnia and herzegovina': 'BA',
-  bih: 'BA',
-  br: 'BR',
-  brazil: 'BR',
-  ca: 'CA',
-  canada: 'CA',
-  cn: 'CN',
-  china: 'CN',
-  de: 'DE',
-  deutschland: 'DE',
-  germany: 'DE',
-  england: 'GB',
-  gb: 'GB',
-  uk: 'GB',
-  '44': 'GB',
-  id: 'ID',
-  indonesia: 'ID',
-  in: 'IN',
-  india: 'IN',
-  jp: 'JP',
-  japan: 'JP',
-  jo: 'JO',
-  jordan: 'JO',
-  kz: 'KZ',
-  kazakhstan: 'KZ',
-  mk: 'MK',
-  'north macedonia': 'MK',
-  mx: 'MX',
-  mexico: 'MX',
-  my: 'MY',
-  malaysia: 'MY',
-  nl: 'NL',
-  netherlands: 'NL',
-  ph: 'PH',
-  philippines: 'PH',
-  kr: 'KR',
-  'south korea': 'KR',
-  kp: 'KP',
-  'north korea': 'KP',
-  ru: 'RU',
-  russia: 'RU',
-  '0': 'RU',
-  za: 'ZA',
-  southafrica: 'ZA',
-  'south africa': 'ZA',
-  sg: 'SG',
-  singapore: 'SG',
-  th: 'TH',
-  thailand: 'TH',
-  tr: 'TR',
-  turkey: 'TR',
-  tt: 'TT',
-  'trinidad and tobago': 'TT',
-  us: 'US',
-  usa: 'US',
-  '50': 'US',
-  vn: 'VN',
-  vietnam: 'VN',
-};
 
 const SERVICE_ICON_MAP: Record<string, SimpleIcon> = {
   discord: siDiscord,
@@ -198,12 +134,12 @@ function ServiceGlyph(props: { service: string }) {
 }
 
 function CountryGlyph(props: { country: string }) {
-  const country = normalizeValue(props.country);
-  const code = COUNTRY_CODE_MAP[country];
-  if (!code) {
+  const canonical = canonicalCountryValue(props.country);
+  const code = canonical.length === 2 ? canonical.toUpperCase() as keyof typeof flags : null;
+  if (!code || !(code in flags)) {
     return (
       <span className="flex h-full w-full items-center justify-center rounded-[inherit] bg-ds-surface-subtle text-[10px] font-semibold leading-none text-ds-text-secondary">
-        {country === 'any' ? 'ALL' : titleInitial(props.country)}
+        {canonical === 'any' ? 'ALL' : titleInitial(props.country)}
       </span>
     );
   }

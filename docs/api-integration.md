@@ -36,6 +36,12 @@ http://127.0.0.1:7822
 - `defaults.reuse_max`
 - `defaults.reuse_ttl_hours`
 
+国家字段约定：
+
+- 系统对外 `country` 主字段默认使用 `ISO 3166-1 alpha-2` 大写码，例如 `US`、`GB`
+- `local` / `any` 仍是合法 sentinel，分别表示本地流与自动选择流
+- 旧 slug、国家名、provider 数字值仍可兼容读取，但新写入与回写统一落 canonical 值
+
 ## 常用接口
 
 鉴权说明：
@@ -201,11 +207,24 @@ curl -X POST http://127.0.0.1:7822/api/providers/herosms/reuse-pool \
   "auto_fallback": true,
   "option_cache_enabled": true,
   "option_cache_poll_interval_minutes": 30,
+  "only_show_openai_sms_countries": false,
   "check_updates_on_launch": true
 }
 ```
 
 当前这组设置会持久化到用户配置目录下的 `runtime-settings.json`。
+
+其中 `only_show_openai_sms_countries` 的业务语义固定为：
+
+```text
+当前平台支持国家 - (whatsapp_regions - sms_regions)
+```
+
+解释：
+
+- `sms_regions` 内的国家始终保留
+- 只排除 `whatsapp-only` 国家
+- 如果一个国家同时存在于 `sms_regions` 和 `whatsapp_regions`，仍然视为“可接收短信”，必须继续显示
 
 ## 错误处理建议
 

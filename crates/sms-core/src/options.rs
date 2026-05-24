@@ -14,6 +14,7 @@ use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
 use std::fs;
 use std::path::Path;
+use std::sync::OnceLock;
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct ProviderOptionCacheStore {
@@ -252,6 +253,24 @@ pub fn normalize_operator_options(raw_operators: Vec<OptionItem>) -> Vec<OptionI
     )
 }
 
+#[derive(Debug, Clone, Deserialize)]
+struct CountryMetadata {
+    labels: BTreeMap<String, String>,
+    aliases: BTreeMap<String, String>,
+}
+
+static COUNTRY_METADATA: OnceLock<CountryMetadata> = OnceLock::new();
+
+fn country_metadata() -> &'static CountryMetadata {
+    COUNTRY_METADATA.get_or_init(|| {
+        serde_json::from_str(include_str!(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/../../config/country-metadata.json"
+        )))
+        .expect("country metadata should parse")
+    })
+}
+
 pub fn normalize_price_items(
     options: Option<&ProviderDynamicOptions>,
     items: Vec<ProviderPriceItem>,
@@ -287,6 +306,10 @@ pub fn normalize_price_items(
             item
         })
         .collect()
+}
+
+pub fn canonical_country_key(raw: &str, label: Option<&str>, hint: Option<&str>) -> String {
+    canonical_country_value(raw, label, hint)
 }
 
 pub fn normalize_ticket_record(
@@ -381,7 +404,11 @@ pub fn resolve_provider_operator_value(
 
 pub fn operator_country_cache_key(country: Option<&str>) -> Option<String> {
     country
-        .map(normalize_token)
+        .map(|value| canonical_country_value(value, Some(value), None))
+        .map(|value| match value.as_str() {
+            "any" | "local" => value,
+            _ => value.to_ascii_lowercase(),
+        })
         .filter(|value| !value.is_empty())
 }
 
@@ -390,9 +417,17 @@ pub fn operator_items_for_country<'a>(
     country: Option<&str>,
 ) -> Option<&'a Vec<OptionItem>> {
     let key = operator_country_cache_key(country)?;
-    options
-        .and_then(|item| item.operators_by_country.get(&key))
-        .map(|entry| &entry.operators)
+    let legacy_key = country.map(normalize_token);
+    options.and_then(|item| {
+        item.operators_by_country
+            .get(&key)
+            .or_else(|| {
+                legacy_key
+                    .as_ref()
+                    .and_then(|candidate| item.operators_by_country.get(candidate))
+            })
+            .map(|entry| &entry.operators)
+    })
 }
 
 pub fn build_cache_overview(
@@ -517,10 +552,32 @@ fn is_numeric_like(value: &str) -> bool {
     !trimmed.is_empty() && trimmed.chars().all(|char| char.is_ascii_digit())
 }
 
-fn canonical_service_value(manifest: &ProviderManifest, raw: &str, label: Option<&str>) -> String {
+pub(crate) fn canonical_service_key(raw: &str, label: Option<&str>) -> String {
     let raw_normalized = normalize_token(raw);
     let label = label.unwrap_or(raw);
     let label_normalized = normalize_token(label);
+
+    if matches!(raw_normalized.as_str(), "dr" | "codex")
+        || matches!(label_normalized.as_str(), "dr" | "codex")
+    {
+        return "openai".to_string();
+    }
+
+    if let Some((candidate, _)) = CANONICAL_SERVICE_PATTERNS.iter().find(|(_, patterns)| {
+        patterns
+            .iter()
+            .any(|pattern| pattern_matches(&raw_normalized, &label_normalized, pattern))
+    }) {
+        return (*candidate).to_string();
+    }
+    if !label_normalized.is_empty() && label_normalized != raw_normalized {
+        return label_normalized;
+    }
+    raw_normalized
+}
+
+fn canonical_service_value(manifest: &ProviderManifest, raw: &str, label: Option<&str>) -> String {
+    let raw_normalized = normalize_token(raw);
     let mut reverse_aliases = manifest
         .service_aliases
         .iter()
@@ -539,34 +596,54 @@ fn canonical_service_value(manifest: &ProviderManifest, raw: &str, label: Option
         return found.clone();
     }
 
-    if let Some((candidate, _)) = CANONICAL_SERVICE_PATTERNS.iter().find(|(_, patterns)| {
-        patterns
-            .iter()
-            .any(|pattern| pattern_matches(&raw_normalized, &label_normalized, pattern))
-    }) {
-        return (*candidate).to_string();
-    }
-    if !label_normalized.is_empty() && label_normalized != raw_normalized {
-        return label_normalized;
-    }
-    raw_normalized
+    canonical_service_key(raw, label)
 }
 
 fn canonical_country_value(raw: &str, label: Option<&str>, hint: Option<&str>) -> String {
     let raw_normalized = normalize_token(raw);
     let label_normalized = normalize_token(label.unwrap_or(""));
     let hint_normalized = normalize_token(hint.unwrap_or(""));
-    let textual_signals = [label_normalized.as_str(), hint_normalized.as_str()];
+    let metadata = country_metadata();
 
+    let resolve_alias = |signal: &str| {
+        metadata.aliases.get(signal).map(|found| match found.as_str() {
+            "ANY" => "any".to_string(),
+            "LOCAL" => "local".to_string(),
+            _ => found.clone(),
+        })
+    };
+
+    let raw_is_numeric = raw_normalized.chars().all(|char| char.is_ascii_digit());
+    if raw_is_numeric {
+        for signal in [label_normalized.as_str(), hint_normalized.as_str()] {
+            if signal.is_empty() {
+                continue;
+            }
+            if let Some(found) = resolve_alias(signal) {
+                return found;
+            }
+        }
+    }
+
+    for signal in [raw_normalized.as_str(), label_normalized.as_str(), hint_normalized.as_str()] {
+        if signal.is_empty() {
+            continue;
+        }
+        if let Some(found) = resolve_alias(signal) {
+            return found;
+        }
+    }
+
+    let textual_signals = [label_normalized.as_str(), hint_normalized.as_str()];
     if let Some(found) = find_canonical_alias(&textual_signals, CANONICAL_COUNTRY_TEXT_ALIASES) {
+        if let Some(code) = resolve_alias(&found) {
+            return code;
+        }
         return found;
     }
 
-    if raw_normalized == "us" {
-        return "usa".to_string();
-    }
-    if raw_normalized == "ar" {
-        return "argentina".to_string();
+    if raw_normalized.len() == 2 && raw_normalized.chars().all(|char| char.is_ascii_alphabetic()) {
+        return raw_normalized.to_ascii_uppercase();
     }
     if raw_normalized.chars().all(|char| char.is_ascii_digit()) {
         if !hint_normalized.is_empty()
@@ -626,6 +703,15 @@ fn resolved_service_label(canonical: &str, source_label: &str) -> String {
 }
 
 fn country_label(canonical: &str) -> String {
+    if canonical.eq_ignore_ascii_case("any") {
+        return "All countries".to_string();
+    }
+    if canonical.eq_ignore_ascii_case("local") {
+        return "Local".to_string();
+    }
+    if let Some(label) = country_metadata().labels.get(canonical) {
+        return label.clone();
+    }
     CANONICAL_COUNTRY_LABELS
         .iter()
         .find(|(key, _)| *key == canonical)
@@ -636,32 +722,20 @@ fn country_label(canonical: &str) -> String {
 fn resolved_country_label(canonical: &str, source_label: &str, source_hint: &str) -> String {
     let fallback_label = source_label.trim();
     let fallback_hint = source_hint.trim();
-    match canonical {
-        "any"
-        | "local"
-        | "usa"
-        | "uk"
-        | "germany"
-        | "japan"
-        | "canada"
-        | "australia"
-        | "russia"
-        | "argentina"
-        | "vietnam"
-        | "southafrica"
-        | "bosnia and herzegovina"
-        | "trinidad and tobago"
-        | "czech republic"
-        | "north macedonia"
-        | "south korea"
-        | "north korea"
-        | "jordan" => country_label(canonical),
-        _ if !fallback_label.is_empty() && fallback_label != canonical => {
-            fallback_label.to_string()
-        }
-        _ if !fallback_hint.is_empty() && fallback_hint != canonical => fallback_hint.to_string(),
-        _ => country_label(canonical),
+    if canonical.eq_ignore_ascii_case("any")
+        || canonical.eq_ignore_ascii_case("local")
+        || country_metadata().labels.contains_key(canonical)
+        || (canonical.len() == 2 && canonical.chars().all(|char| char.is_ascii_uppercase()))
+    {
+        return country_label(canonical);
     }
+    if !fallback_label.is_empty() && fallback_label != canonical {
+        return fallback_label.to_string();
+    }
+    if !fallback_hint.is_empty() && fallback_hint != canonical {
+        return fallback_hint.to_string();
+    }
+    country_label(canonical)
 }
 
 fn operator_label(canonical: &str) -> String {
@@ -700,8 +774,8 @@ fn title_case_token(input: &str) -> String {
                 "O2".to_string()
             } else if part.eq_ignore_ascii_case("uk") {
                 "UK".to_string()
-            } else if part.eq_ignore_ascii_case("usa") || part.eq_ignore_ascii_case("us") {
-                "United States".to_string()
+            } else if part.len() == 2 && part.chars().all(|char| char.is_ascii_alphabetic()) {
+                part.to_ascii_uppercase()
             } else {
                 let mut chars = part.chars();
                 match chars.next() {
@@ -726,10 +800,10 @@ mod tests {
     use crate::models::{
         OptionItem, ProviderCountryOperatorOptions, ProviderDynamicOptions, TicketRecord,
     };
+    use chrono::Utc;
     use plugin_sdk::{ProviderDefaults, ProviderKind, ProviderManifest};
     use serde::Deserialize;
     use std::collections::{BTreeMap, BTreeSet};
-    use chrono::Utc;
     use std::fs;
     use std::path::PathBuf;
 
@@ -756,19 +830,19 @@ mod tests {
     fn canonical_country_value_keeps_russia_distinct_from_usa() {
         assert_eq!(
             canonical_country_value("0", Some("Russia"), Some("Russia")),
-            "russia"
+            "RU"
         );
         assert_eq!(
             canonical_country_value("50", Some("Austria"), Some("Austria")),
-            "austria"
+            "AT"
         );
         assert_eq!(
             canonical_country_value("31", Some("South Africa"), Some("South Africa")),
-            "southafrica"
+            "ZA"
         );
         assert_eq!(
             canonical_country_value("us", Some("United States"), Some("United States")),
-            "usa"
+            "US"
         );
     }
 
@@ -776,19 +850,19 @@ mod tests {
     fn canonical_country_value_falls_back_to_label_for_numeric_ids() {
         assert_eq!(
             canonical_country_value("116", Some("約旦"), Some("Jordan")),
-            "jordan"
+            "JO"
         );
         assert_eq!(
             canonical_country_value("18", Some("Viet nam"), Some("18")),
-            "vietnam"
+            "VN"
         );
         assert_eq!(
             canonical_country_value("12", Some("Ukraine"), Some("380")),
-            "ukraine"
+            "UA"
         );
         assert_eq!(
             canonical_country_value("103", Some("China"), Some("86")),
-            "china"
+            "CN"
         );
     }
 
@@ -816,7 +890,7 @@ mod tests {
         };
 
         let normalized = normalize_loaded_provider_options(&manifest, options);
-        assert_eq!(normalized.countries[0].value, "ukraine");
+        assert_eq!(normalized.countries[0].value, "UA");
         assert_eq!(normalized.countries[0].label, "Ukraine");
         assert_eq!(
             normalized.countries[0].provider_value.as_deref(),
@@ -858,7 +932,7 @@ mod tests {
                 provider_icon_url: None,
             }],
             countries: vec![OptionItem {
-                value: "usa".to_string(),
+                value: "US".to_string(),
                 label: "United States".to_string(),
                 hint: "50".to_string(),
                 provider_value: Some("50".to_string()),
@@ -882,7 +956,7 @@ mod tests {
 
         let normalized = normalize_ticket_record(&manifest, Some(&options), ticket);
         assert_eq!(normalized.service, "openai");
-        assert_eq!(normalized.country, "usa");
+        assert_eq!(normalized.country, "US");
     }
 
     #[test]
@@ -903,7 +977,7 @@ mod tests {
                 provider_icon_url: None,
             }],
             operators_by_country: BTreeMap::from([(
-                "usa".to_string(),
+                "us".to_string(),
                 ProviderCountryOperatorOptions {
                     raw_operators: vec![OptionItem {
                         value: "verizon".to_string(),
@@ -929,11 +1003,11 @@ mod tests {
         };
 
         assert_eq!(
-            resolve_provider_operator_value(Some(&options), "verizon", Some("usa")),
+            resolve_provider_operator_value(Some(&options), "verizon", Some("US")),
             "us-verizon"
         );
         assert_eq!(
-            resolve_provider_operator_value(Some(&options), "verizon", Some("canada")),
+            resolve_provider_operator_value(Some(&options), "verizon", Some("CA")),
             "global-verizon"
         );
     }

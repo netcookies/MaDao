@@ -2,6 +2,7 @@ import {
   ANY_PROVIDER_VALUE,
   type ActivationFormState,
   type LanguageCode,
+  type OpenAiSmsRegionsCache,
   type OptionCatalog,
   type OptionItem,
   type ProviderDynamicOptions,
@@ -11,7 +12,12 @@ import {
   type SelectorState,
 } from '../app/types';
 import { i18n } from '../app/i18n';
-import { filterCatalogItems, operatorCountryCacheKey } from '../app/utils';
+import {
+  filterCatalogItems,
+  filterCountriesByOpenAiSmsAvailability,
+  filterPriceItemsByOpenAiSmsAvailability,
+  operatorCountryCacheKey,
+} from '../app/utils';
 import { formatCountryLabel, formatProviderLabel, formatServiceLabel } from '../lib/formatters';
 import { formatOperatorLabel } from '../app/utils';
 import { fetchProviderOperators, fetchProviderPrices } from '../services/runtimeApi';
@@ -37,6 +43,8 @@ type SelectorRuntimeState = {
   visibleProviders: ProviderManifest[];
   providerOptions: Record<string, ProviderDynamicOptions>;
   optionCatalog: OptionCatalog;
+  openAiSmsRegions: OpenAiSmsRegionsCache;
+  onlyShowOpenAiSmsCountries: boolean;
   setProviderOptions: (value: Record<string, ProviderDynamicOptions> | ((prev: Record<string, ProviderDynamicOptions>) => Record<string, ProviderDynamicOptions>)) => void;
   updateManifestField: (
     providerId: string,
@@ -92,6 +100,15 @@ export function useSelectorFlow(
       ...option,
       label: formatOperatorLabel(option.value, language),
     };
+  }
+
+  function countryCatalogItemsForService(providerId: string, service?: string) {
+    return filterCountriesByOpenAiSmsAvailability(
+      filterCatalogItems(runtime.optionCatalog.countries, providerId),
+      runtime.openAiSmsRegions,
+      runtime.onlyShowOpenAiSmsCountries,
+      service,
+    );
   }
 
   function normalizeFetchedOperators(items: OptionItem[]) {
@@ -171,7 +188,12 @@ export function useSelectorFlow(
       const response = await fetchProviderPrices(providerId, service, {
         country: country?.trim() ? country : undefined,
       });
-      const operators = response.items
+      const operators = filterPriceItemsByOpenAiSmsAvailability(
+        response.items,
+        runtime.openAiSmsRegions,
+        runtime.onlyShowOpenAiSmsCountries,
+        service,
+      )
         .filter((item) => {
           const value = item.operator.trim().toLowerCase();
           return value !== '' && value !== 'any' && value !== 'default';
@@ -243,6 +265,7 @@ export function useSelectorFlow(
       title = translate('Select Store Service');
       resourceKind = 'service';
     } else if (kind === 'store-country') {
+      const storeService = ui.storeQuery.service;
       options = [
         selectorOptionFromOptionItem({
           option: allCountriesOption,
@@ -253,7 +276,7 @@ export function useSelectorFlow(
           isSynthetic: true,
           syntheticKind: 'all_countries',
         }),
-        ...filterCatalogItems(runtime.optionCatalog.countries, ui.selectedProvider).map((item) => selectorOptionFromCatalogItem({
+        ...countryCatalogItemsForService(ui.selectedProvider, storeService).map((item) => selectorOptionFromCatalogItem({
           item,
           language,
           resourceKind: 'country',
@@ -366,6 +389,7 @@ export function useSelectorFlow(
       title = translate('Select Activation Service');
       resourceKind = 'service';
     } else if (kind === 'activation-country') {
+      const activationService = ui.activationForm.service;
       options = [
         selectorOptionFromOptionItem({
           option: autoCountryOption,
@@ -376,7 +400,7 @@ export function useSelectorFlow(
           isSynthetic: true,
           syntheticKind: 'any_country',
         }),
-        ...filterCatalogItems(runtime.optionCatalog.countries, ui.activationForm.provider).map((item) => selectorOptionFromCatalogItem({
+        ...countryCatalogItemsForService(ui.activationForm.provider, activationService).map((item) => selectorOptionFromCatalogItem({
           item,
           language,
           resourceKind: 'country',
