@@ -1,27 +1,26 @@
 use crate::error::SmsError;
 use crate::models::{
     AcquireCodeRequest, AcquireCodeResponse, AcquirePath, ActivityEntry, ActivityFeed,
-    ActivityKind, ActivityLevel, LogEntry, NotificationFeed,
-    OpenAiSmsRegionsCache, OptionCacheOverview, OptionCacheState, OptionItem, OptionListResponse,
-    PollCodeRequest, PollCodeResponse, ProviderBalance, ProviderBalanceCacheEntry,
-    ProviderCapabilityMatrix, ProviderDynamicOptions, ProviderManifestList,
-    ProviderManifestSaveResponse, ProviderOperatorsQuery, ProviderOptionCacheEntry,
-    ProviderPriceQuery, ProviderPriceResponse, ProviderRawOptionAuditEntry, ProviderReorderRequest,
-    ProviderServicesQuery, ProviderSummary, ReleaseCodeRequest, ReleaseCodeResponse,
-    ReuseCapability, ReusePoolEntry, ReusePoolSummary, RoutingExecutionMode,
-    RoutingFailoverRequest, RoutingPlan, RoutingPlanItem, RoutingPlanList, RoutingPlanStore,
-    RuntimeAccessInfo, RuntimeSettings, RuntimeSettingsUpdate, RuntimeSnapshot, RuntimeStateStore,
-    TicketCallbackListResponse, TicketCallbackRegistrationRequest, TicketCallbackSubscription,
-    TicketCodeCallbackPayload, TicketListResponse, TicketRecord, TicketStatus,
+    ActivityKind, ActivityLevel, LogEntry, NotificationFeed, OpenAiSmsRegionsCache,
+    OptionCacheOverview, OptionCacheState, OptionItem, OptionListResponse, PollCodeRequest,
+    PollCodeResponse, ProviderBalance, ProviderBalanceCacheEntry, ProviderCapabilityMatrix,
+    ProviderDynamicOptions, ProviderManifestList, ProviderManifestSaveResponse,
+    ProviderOperatorsQuery, ProviderOptionCacheEntry, ProviderPriceQuery, ProviderPriceResponse,
+    ProviderRawOptionAuditEntry, ProviderReorderRequest, ProviderServicesQuery, ProviderSummary,
+    ReleaseCodeRequest, ReleaseCodeResponse, ReuseCapability, ReusePoolEntry, ReusePoolSummary,
+    RoutingExecutionMode, RoutingFailoverRequest, RoutingPlan, RoutingPlanItem, RoutingPlanList,
+    RoutingPlanStore, RuntimeAccessInfo, RuntimeSettings, RuntimeSettingsUpdate, RuntimeSnapshot,
+    RuntimeStateStore, TicketCallbackListResponse, TicketCallbackRegistrationRequest,
+    TicketCallbackSubscription, TicketCodeCallbackPayload, TicketListResponse, TicketRecord,
+    TicketStatus,
 };
 use crate::options::{
     OptionKind, ProviderOptionCacheStore, ProviderRawOptionAuditStore, build_cache_overview,
     cache_state, canonical_country_key, canonical_service_key, load_option_cache_store,
     load_raw_option_audit_store, normalize_loaded_provider_options, normalize_operator_options,
     normalize_price_items, normalize_provider_options, normalize_ticket_record,
-    operator_country_cache_key,
-    resolve_provider_operator_value, resolve_provider_value, save_option_cache_store,
-    save_raw_option_audit_store, with_cache_state,
+    operator_country_cache_key, resolve_provider_operator_value, resolve_provider_value,
+    save_option_cache_store, save_raw_option_audit_store, with_cache_state,
 };
 use crate::registry::ProviderRegistry;
 use crate::runtime_store::{ReleaseOwnerLease, RuntimeStore};
@@ -137,16 +136,84 @@ struct OpenAiSmsRegionsPayload {
     whatsapp: Vec<String>,
 }
 
+#[derive(Default)]
+struct RuntimePersistBatch {
+    upsert_ticket: Option<TicketRecord>,
+    delete_ticket_ids: Vec<String>,
+    log_entries: Vec<LogEntry>,
+    activity_entries: Vec<ActivityEntry>,
+    reuse_bucket: Option<(String, Vec<ReusePoolEntry>)>,
+    provider_balance: Option<ProviderBalanceCacheEntry>,
+    openai_regions: Option<OpenAiSmsRegionsCache>,
+    clear_logs: bool,
+}
+
+impl RuntimePersistBatch {
+    fn is_empty(&self) -> bool {
+        self.upsert_ticket.is_none()
+            && self.delete_ticket_ids.is_empty()
+            && self.log_entries.is_empty()
+            && self.activity_entries.is_empty()
+            && self.reuse_bucket.is_none()
+            && self.provider_balance.is_none()
+            && self.openai_regions.is_none()
+            && !self.clear_logs
+    }
+}
+
 impl SmsService {
-    fn push_ticket_activity(
+    fn log_entry(
+        &self,
+        scope: impl Into<String>,
+        level: impl Into<String>,
+        message: impl Into<String>,
+    ) -> LogEntry {
+        LogEntry {
+            timestamp: Utc::now(),
+            scope: scope.into(),
+            level: level.into(),
+            message: message.into(),
+        }
+    }
+
+    fn push_log_entry_in_memory(&self, entry: LogEntry) {
+        let mut logs = self.logs.write();
+        logs.push_back(entry);
+        while logs.len() > self.log_buffer {
+            logs.pop_front();
+        }
+    }
+
+    fn push_activity_entry_in_memory(&self, entry: ActivityEntry) {
+        let mut activity = self.activity.write();
+        activity.push_back(entry);
+        while activity.len() > self.activity_buffer {
+            activity.pop_front();
+        }
+    }
+
+    fn update_ticket_in_memory(
+        &self,
+        ticket_id: &str,
+        updater: impl FnOnce(&mut TicketRecord),
+    ) -> Result<TicketRecord, SmsError> {
+        let mut tickets = self.tickets.write();
+        let ticket = tickets
+            .get_mut(ticket_id)
+            .ok_or_else(|| SmsError::InvalidRequest(format!("unknown ticket {ticket_id}")))?;
+        updater(ticket);
+        Ok(ticket.clone())
+    }
+
+    fn ticket_activity_entry(
         &self,
         kind: ActivityKind,
         level: ActivityLevel,
         title: String,
         detail: Option<String>,
         ticket: &TicketRecord,
-    ) {
-        self.push_activity(ActivityEntry {
+    ) -> ActivityEntry {
+        ActivityEntry {
             id: Uuid::now_v7().to_string(),
             timestamp: Utc::now(),
             kind,
@@ -161,7 +228,49 @@ impl SmsService {
             routing_item_id: ticket.routing_item_id.clone(),
             routing_round: ticket.routing_current_round,
             ticket_id: Some(ticket.id.clone()),
-        });
+        }
+    }
+
+    fn routing_activity_entry(
+        &self,
+        level: ActivityLevel,
+        title: String,
+        detail: Option<String>,
+        provider: Option<String>,
+        service: Option<String>,
+        country: Option<String>,
+        plan: &RoutingPlan,
+        item: &RoutingPlanItem,
+        round: u32,
+        ticket_id: Option<String>,
+    ) -> ActivityEntry {
+        ActivityEntry {
+            id: Uuid::now_v7().to_string(),
+            timestamp: Utc::now(),
+            kind: ActivityKind::RoutingEvent,
+            level,
+            title,
+            detail,
+            provider,
+            service,
+            country,
+            routing_plan_id: Some(plan.id.clone()),
+            routing_plan_name: Some(plan.name.clone()),
+            routing_item_id: Some(item.id.clone()),
+            routing_round: Some(round),
+            ticket_id,
+        }
+    }
+
+    fn push_ticket_activity(
+        &self,
+        kind: ActivityKind,
+        level: ActivityLevel,
+        title: String,
+        detail: Option<String>,
+        ticket: &TicketRecord,
+    ) {
+        self.push_activity(self.ticket_activity_entry(kind, level, title, detail, ticket));
     }
 
     fn push_routing_activity(
@@ -177,22 +286,9 @@ impl SmsService {
         round: u32,
         ticket_id: Option<String>,
     ) {
-        self.push_activity(ActivityEntry {
-            id: Uuid::now_v7().to_string(),
-            timestamp: Utc::now(),
-            kind: ActivityKind::RoutingEvent,
-            level,
-            title,
-            detail,
-            provider,
-            service,
-            country,
-            routing_plan_id: Some(plan.id.clone()),
-            routing_plan_name: Some(plan.name.clone()),
-            routing_item_id: Some(item.id.clone()),
-            routing_round: Some(round),
-            ticket_id,
-        });
+        self.push_activity(self.routing_activity_entry(
+            level, title, detail, provider, service, country, plan, item, round, ticket_id,
+        ));
     }
 
     pub fn new(registry: ProviderRegistry, log_buffer: usize) -> Self {
@@ -426,6 +522,70 @@ impl SmsService {
         let _ = self.persist_runtime_state();
     }
 
+    fn persist_runtime_batch(&self, batch: RuntimePersistBatch) {
+        if batch.is_empty() {
+            return;
+        }
+        let Some(store) = &self.runtime_store else {
+            self.persist_runtime_state_quietly();
+            return;
+        };
+        let _ = store.transact(|tx| {
+            if batch.clear_logs {
+                tx.clear_logs()?;
+            }
+            if let Some(ticket) = batch.upsert_ticket.as_ref() {
+                tx.upsert_ticket(ticket)?;
+            }
+            if !batch.delete_ticket_ids.is_empty() {
+                tx.delete_tickets(&batch.delete_ticket_ids)?;
+            }
+            for entry in &batch.log_entries {
+                tx.append_log(entry)?;
+            }
+            if !batch.log_entries.is_empty() {
+                tx.trim_logs(self.log_buffer)?;
+            }
+            for entry in &batch.activity_entries {
+                tx.append_activity(entry)?;
+            }
+            if !batch.activity_entries.is_empty() {
+                tx.trim_activity(self.activity_buffer)?;
+            }
+            if let Some((provider_bucket, entries)) = batch.reuse_bucket.as_ref() {
+                tx.replace_reuse_bucket(provider_bucket, entries)?;
+            }
+            if let Some(balance) = batch.provider_balance.as_ref() {
+                tx.upsert_provider_balance(balance)?;
+            }
+            if let Some(cache) = batch.openai_regions.as_ref() {
+                tx.save_openai_regions(cache)?;
+            }
+            Ok(())
+        });
+    }
+
+    fn persist_reuse_bucket_quietly(&self, provider_bucket: &str) {
+        let entries = self
+            .reuse_pool
+            .read()
+            .get(provider_bucket)
+            .cloned()
+            .unwrap_or_default();
+        self.persist_runtime_batch(RuntimePersistBatch {
+            reuse_bucket: Some((provider_bucket.to_string(), entries)),
+            ..RuntimePersistBatch::default()
+        });
+    }
+
+    fn persist_tickets_trimmed_quietly(&self, ticket: &TicketRecord, deleted_ids: Vec<String>) {
+        self.persist_runtime_batch(RuntimePersistBatch {
+            upsert_ticket: Some(ticket.clone()),
+            delete_ticket_ids: deleted_ids,
+            ..RuntimePersistBatch::default()
+        });
+    }
+
     fn should_refresh_openai_sms_regions(&self) -> bool {
         let cache = self.openai_sms_regions_cache.read();
         match cache.fetched_at {
@@ -501,7 +661,10 @@ impl SmsService {
             fetched_at: Some(Utc::now()),
         };
         *self.openai_sms_regions_cache.write() = next.clone();
-        self.persist_runtime_state_quietly();
+        self.persist_runtime_batch(RuntimePersistBatch {
+            openai_regions: Some(next.clone()),
+            ..RuntimePersistBatch::default()
+        });
         self.log("config", "info", "openai sms region cache refreshed");
         Ok(next)
     }
@@ -515,18 +678,29 @@ impl SmsService {
         let now = Utc::now();
         let mut pool = self.reuse_pool.write();
         let entries = pool.get_mut(provider)?;
+        let before_len = entries.len();
         entries.retain(|e| e.expires_at > now && e.reuse_count < e.max_reuse);
-        entries
+        let candidate = entries
             .iter()
             .find(|e| e.service == service && e.country == country)
-            .cloned()
+            .cloned();
+        let should_persist = entries.len() != before_len;
+        let snapshot = should_persist.then(|| entries.clone());
+        drop(pool);
+        if let Some(snapshot) = snapshot {
+            self.persist_runtime_batch(RuntimePersistBatch {
+                reuse_bucket: Some((provider.to_string(), snapshot)),
+                ..RuntimePersistBatch::default()
+            });
+        }
+        candidate
     }
 
-    fn record_exact_reuse_candidate(
+    fn record_exact_reuse_candidate_in_memory(
         &self,
         ticket: &TicketRecord,
         reused_entry: Option<ReusePoolEntry>,
-    ) {
+    ) -> Option<(String, Vec<ReusePoolEntry>)> {
         let reuse_enabled = self
             .registry
             .read()
@@ -534,9 +708,9 @@ impl SmsService {
             .map(|manifest| manifest.defaults.reuse_phone)
             .unwrap_or(true);
         if !reuse_enabled {
-            return;
+            return None;
         }
-        self.record_reuse_candidate_with_key(
+        self.record_reuse_candidate_with_key_in_memory(
             ticket,
             match ticket.provider.as_str() {
                 "herosms" => ticket.upstream_id.clone(),
@@ -544,17 +718,17 @@ impl SmsService {
                 _ => None,
             },
             reused_entry,
-        );
+        )
     }
 
-    fn record_reuse_candidate_with_key(
+    fn record_reuse_candidate_with_key_in_memory(
         &self,
         ticket: &TicketRecord,
         reuse_key: Option<String>,
         reused_entry: Option<ReusePoolEntry>,
-    ) {
+    ) -> Option<(String, Vec<ReusePoolEntry>)> {
         let Some(reuse_key) = reuse_key.filter(|value| !value.trim().is_empty()) else {
-            return;
+            return None;
         };
         let now = Utc::now();
         let ttl_hours = self
@@ -583,15 +757,13 @@ impl SmsService {
             last_used_at: now,
             expires_at: now + chrono::Duration::hours(ttl_hours),
         };
-        {
+        let entries = {
             let mut pool = self.reuse_pool.write();
-            pool.entry(ticket.provider.clone()).or_default().push(entry);
-        }
-        self.log(
-            "reuse_pool",
-            "info",
-            format!("reuse_pool: recorded candidate provider={}", ticket.provider),
-        );
+            let bucket = pool.entry(ticket.provider.clone()).or_default();
+            bucket.push(entry);
+            bucket.clone()
+        };
+        Some((ticket.provider.clone(), entries))
     }
 
     fn prepare_reuse_request(&self, request: &mut AcquireCodeRequest) -> Option<ReusePoolEntry> {
@@ -718,7 +890,7 @@ impl SmsService {
                     ticket.reuse_count += 1;
                     ticket.clone()
                 };
-                self.persist_runtime_state_quietly();
+                self.persist_tickets_trimmed_quietly(&updated, Vec::new());
                 Ok(Some(AcquireCodeResponse {
                     ticket_id: updated.id.clone(),
                     provider: updated.provider.clone(),
@@ -745,7 +917,9 @@ impl SmsService {
                         ticket.updated_at = now;
                     }
                 }
-                self.persist_runtime_state_quietly();
+                if let Ok(updated) = self.ticket(&candidate.id) {
+                    self.persist_tickets_trimmed_quietly(&updated, Vec::new());
+                }
                 self.log(
                     "reuse_pool",
                     "warn",
@@ -838,7 +1012,8 @@ impl SmsService {
         Ok(ticket)
     }
 
-    fn trim_tickets(&self, tickets: &mut BTreeMap<String, TicketRecord>) {
+    fn trim_tickets(&self, tickets: &mut BTreeMap<String, TicketRecord>) -> Vec<String> {
+        let mut deleted_ids = Vec::new();
         while tickets.len() > self.ticket_buffer {
             let Some(oldest_id) = tickets
                 .iter()
@@ -855,14 +1030,20 @@ impl SmsService {
             };
             tickets.remove(&oldest_id);
             self.callback_subscriptions.write().remove(&oldest_id);
+            deleted_ids.push(oldest_id);
         }
+        deleted_ids
     }
 
     fn upsert_ticket(&self, ticket: TicketRecord) {
         let mut tickets = self.tickets.write();
-        tickets.insert(ticket.id.clone(), ticket);
-        self.trim_tickets(&mut tickets);
+        tickets.insert(ticket.id.clone(), ticket.clone());
+        let deleted_ids = self.trim_tickets(&mut tickets);
         drop(tickets);
+        if self.runtime_store.is_some() {
+            self.persist_tickets_trimmed_quietly(&ticket, deleted_ids);
+            return;
+        }
         self.persist_runtime_state_quietly();
     }
 
@@ -871,32 +1052,21 @@ impl SmsService {
         ticket_id: &str,
         updater: impl FnOnce(&mut TicketRecord),
     ) -> Result<(), SmsError> {
-        let mut tickets = self.tickets.write();
-        let ticket = tickets
-            .get_mut(ticket_id)
-            .ok_or_else(|| SmsError::InvalidRequest(format!("unknown ticket {ticket_id}")))?;
-        updater(ticket);
-        drop(tickets);
+        let updated = self.update_ticket_in_memory(ticket_id, updater)?;
+        if self.runtime_store.is_some() {
+            self.persist_tickets_trimmed_quietly(&updated, Vec::new());
+            return Ok(());
+        }
         self.persist_runtime_state_quietly();
         Ok(())
     }
 
     fn push_activity(&self, entry: ActivityEntry) {
-        let mut activity = self.activity.write();
-        activity.push_back(entry);
-        while activity.len() > self.activity_buffer {
-            activity.pop_front();
-        }
-        let activity_items = activity.iter().cloned().collect::<Vec<_>>();
-        drop(activity);
-        self.persist_runtime_activity_quietly(activity_items);
-    }
-
-    fn persist_runtime_activity_quietly(&self, activity: Vec<ActivityEntry>) {
-        let Some(store) = &self.runtime_store else {
-            return;
-        };
-        let _ = store.persist_activity(&activity);
+        self.push_activity_entry_in_memory(entry.clone());
+        self.persist_runtime_batch(RuntimePersistBatch {
+            activity_entries: vec![entry],
+            ..RuntimePersistBatch::default()
+        });
     }
 
     fn should_include_in_notification_feed(entry: &LogEntry) -> bool {
@@ -989,6 +1159,7 @@ impl SmsService {
             .await?;
         if let Some(candidate) = exact_reuse_candidate.as_ref() {
             self.consume_exact_reuse_candidate(&ticket.provider, candidate);
+            self.persist_reuse_bucket_quietly(&ticket.provider);
             ticket.reuse_count = candidate.reuse_count + 1;
         }
         let response = AcquireCodeResponse {
@@ -1016,7 +1187,10 @@ impl SmsService {
             ActivityKind::TicketEvent,
             ActivityLevel::Info,
             format!("工单 {} 获取成功", ticket.id),
-            Some(format!("provider={} service={} country={}", ticket.provider, ticket.service, ticket.country)),
+            Some(format!(
+                "provider={} service={} country={}",
+                ticket.provider, ticket.service, ticket.country
+            )),
             &ticket,
         );
         self.upsert_ticket(ticket);
@@ -1077,7 +1251,10 @@ impl SmsService {
                         kind: ActivityKind::RoutingEvent,
                         level: ActivityLevel::Warn,
                         title: format!("自动服务商 {} 被跳过", provider_id),
-                        detail: Some(format!("service={}", request.service.as_deref().unwrap_or_default())),
+                        detail: Some(format!(
+                            "service={}",
+                            request.service.as_deref().unwrap_or_default()
+                        )),
                         provider: Some(provider_id.clone()),
                         service: request.service.clone(),
                         country: request.country.clone(),
@@ -1126,10 +1303,8 @@ impl SmsService {
                 match response {
                     Ok(ticket) => return Ok(ticket),
                     Err(error) => {
-                        let title = format!(
-                            "路由候选 {} 在第 {} 轮被跳过",
-                            entry.item.id, entry.round
-                        );
+                        let title =
+                            format!("路由候选 {} 在第 {} 轮被跳过", entry.item.id, entry.round);
                         let item_provider = if entry.item.provider.trim().is_empty() {
                             ROUTING_ANY_PROVIDER.to_string()
                         } else {
@@ -1140,7 +1315,8 @@ impl SmsService {
                         } else {
                             entry.item.country.clone()
                         };
-                        let detail = Some(format!("{} / {}：候选被跳过", item_provider, item_country));
+                        let detail =
+                            Some(format!("{} / {}：候选被跳过", item_provider, item_country));
                         self.log(
                             "router",
                             "warn",
@@ -1232,7 +1408,8 @@ impl SmsService {
                 Ok(ticket) => ticket,
                 Err(error) => {
                     self.maybe_disable_provider_for_low_balance(&provider_id, &error);
-                    let detail = format!("provider={} item={} round={}", provider_id, item.id, round);
+                    let detail =
+                        format!("provider={} item={} round={}", provider_id, item.id, round);
                     self.log(
                         "router",
                         "warn",
@@ -1421,14 +1598,16 @@ impl SmsService {
                         parse_min_activation_time_seconds(&error.to_string())
                 {
                     let now = Utc::now();
-                    let auto_release_at = current
-                        .auto_release_at
-                        .unwrap_or(current.created_at + Duration::seconds(min_activation_time_sec as i64));
-                    let retry_window_sec = min_activation_time_sec.max(AUTO_RELEASE_RETRY_INTERVAL_SEC as u64);
+                    let auto_release_at = current.auto_release_at.unwrap_or(
+                        current.created_at + Duration::seconds(min_activation_time_sec as i64),
+                    );
+                    let retry_window_sec =
+                        min_activation_time_sec.max(AUTO_RELEASE_RETRY_INTERVAL_SEC as u64);
                     let retry_deadline_at = current
                         .release_retry_deadline_at
                         .unwrap_or(auto_release_at + Duration::seconds(retry_window_sec as i64));
-                    let retrying = current.status == TicketStatus::CancelPending && now >= auto_release_at;
+                    let retrying =
+                        current.status == TicketStatus::CancelPending && now >= auto_release_at;
                     let next_release_attempt_at = if retrying {
                         now + Duration::seconds(AUTO_RELEASE_RETRY_INTERVAL_SEC)
                     } else {
@@ -1450,7 +1629,7 @@ impl SmsService {
                             auto_release_at.to_rfc3339()
                         )
                     };
-                    self.update_ticket(&current.id, |ticket| {
+                    let updated = self.update_ticket_in_memory(&current.id, |ticket| {
                         ticket.updated_at = now;
                         ticket.status = TicketStatus::CancelPending;
                         ticket.message = Some(message.clone());
@@ -1462,7 +1641,7 @@ impl SmsService {
                         ticket.same_activation_retry_supported = false;
                         ticket.same_activation_retry_expires_at = Some(ticket.updated_at);
                     })?;
-                    self.log(
+                    let log_entry = self.log_entry(
                         "system",
                         if retrying { "warn" } else { "info" },
                         format!(
@@ -1471,11 +1650,7 @@ impl SmsService {
                             next_release_attempt_at.to_rfc3339()
                         ),
                     );
-                    let mut scheduled_ticket = current.clone();
-                    scheduled_ticket.status = TicketStatus::CancelPending;
-                    scheduled_ticket.message = Some(message.clone());
-                    scheduled_ticket.auto_release_at = Some(auto_release_at);
-                    self.push_ticket_activity(
+                    let activity_entry = self.ticket_activity_entry(
                         ActivityKind::ReleaseEvent,
                         if retrying {
                             ActivityLevel::Warn
@@ -1484,8 +1659,17 @@ impl SmsService {
                         },
                         "自动取消已安排".to_string(),
                         Some("等待冷却结束后自动执行取消".to_string()),
-                        &scheduled_ticket,
+                        &updated,
                     );
+                    self.push_log_entry_in_memory(log_entry.clone());
+                    self.push_activity_entry_in_memory(activity_entry.clone());
+                    self.persist_runtime_batch(RuntimePersistBatch {
+                        upsert_ticket: Some(updated),
+                        delete_ticket_ids: Vec::new(),
+                        log_entries: vec![log_entry],
+                        activity_entries: vec![activity_entry],
+                        ..RuntimePersistBatch::default()
+                    });
                     return Ok(ReleaseCodeResponse {
                         ticket_id: current.id,
                         provider: current.provider,
@@ -1504,7 +1688,7 @@ impl SmsService {
             crate::models::ReleaseAction::Retry => TicketStatus::WaitingCode,
         };
         let invalidate_same_activation_retry = is_cancel_like;
-        self.update_ticket(&current.id, |ticket| {
+        let updated = self.update_ticket_in_memory(&current.id, |ticket| {
             ticket.updated_at = Utc::now();
             ticket.status = next_status.clone();
             ticket.message = Some(message.clone());
@@ -1518,7 +1702,7 @@ impl SmsService {
                 ticket.same_activation_retry_expires_at = Some(ticket.updated_at);
             }
         })?;
-        if next_status == TicketStatus::Finished {
+        let reuse_bucket = if next_status == TicketStatus::Finished {
             let reused_entry = if matches!(current.acquire_path, AcquirePath::ExactReuse)
                 && current.reuse_count > 0
             {
@@ -1526,24 +1710,44 @@ impl SmsService {
             } else {
                 None
             };
-            self.record_exact_reuse_candidate(&current, reused_entry);
-            self.persist_runtime_state_quietly();
-        }
-        let mut released_ticket = current.clone();
-        released_ticket.status = next_status.clone();
-        released_ticket.message = Some(message.clone());
+            self.record_exact_reuse_candidate_in_memory(&current, reused_entry)
+        } else {
+            None
+        };
         let activity_level = match next_status {
             TicketStatus::Finished | TicketStatus::Cancelled => ActivityLevel::Info,
             TicketStatus::WaitingCode => ActivityLevel::Warn,
             _ => ActivityLevel::Warn,
         };
-        self.push_ticket_activity(
+        let activity_entry = self.ticket_activity_entry(
             ActivityKind::ReleaseEvent,
             activity_level,
             format!("工单 {} 已执行 {:?}", current.id, request.action),
             Some(format!("status={:?}", next_status)),
-            &released_ticket,
+            &updated,
         );
+        self.push_activity_entry_in_memory(activity_entry.clone());
+        let reuse_log_entry = reuse_bucket.as_ref().map(|_| {
+            self.log_entry(
+                "reuse_pool",
+                "info",
+                format!(
+                    "reuse_pool: recorded candidate provider={}",
+                    current.provider
+                ),
+            )
+        });
+        if let Some(entry) = reuse_log_entry.as_ref() {
+            self.push_log_entry_in_memory(entry.clone());
+        }
+        self.persist_runtime_batch(RuntimePersistBatch {
+            upsert_ticket: Some(updated),
+            delete_ticket_ids: Vec::new(),
+            activity_entries: vec![activity_entry],
+            log_entries: reuse_log_entry.into_iter().collect(),
+            reuse_bucket,
+            ..RuntimePersistBatch::default()
+        });
         Ok(ReleaseCodeResponse {
             ticket_id: current.id,
             provider: current.provider,
@@ -1716,16 +1920,19 @@ impl SmsService {
         };
         match provider.get_balance().await {
             Ok(balance) => {
-                self.provider_balance_cache.write().insert(
-                    provider_id.to_string(),
-                    ProviderBalanceCacheEntry {
-                        provider: provider_id.to_string(),
-                        amount: balance.amount,
-                        currency: balance.currency.clone(),
-                        fetched_at: Utc::now(),
-                    },
-                );
-                self.persist_runtime_state_quietly();
+                let cache_entry = ProviderBalanceCacheEntry {
+                    provider: provider_id.to_string(),
+                    amount: balance.amount,
+                    currency: balance.currency.clone(),
+                    fetched_at: Utc::now(),
+                };
+                self.provider_balance_cache
+                    .write()
+                    .insert(provider_id.to_string(), cache_entry.clone());
+                self.persist_runtime_batch(RuntimePersistBatch {
+                    provider_balance: Some(cache_entry),
+                    ..RuntimePersistBatch::default()
+                });
                 self.log_upstream_response(
                     provider_id,
                     "get_balance",
@@ -2185,7 +2392,7 @@ impl SmsService {
             let retry_deadline_at = claim.retry_deadline_at;
             let retry_count = claim.retry_count;
             if retry_deadline_at.is_some_and(|deadline| now > deadline) {
-                let _ = self.update_ticket(&ticket_id, |ticket| {
+                let updated = self.update_ticket_in_memory(&ticket_id, |ticket| {
                     ticket.updated_at = Utc::now();
                     ticket.status = TicketStatus::WaitingCode;
                     ticket.message = Some("auto cancel retry window expired".to_string());
@@ -2195,19 +2402,28 @@ impl SmsService {
                     ticket.release_retry_deadline_at = None;
                     ticket.release_retry_count = retry_count;
                 });
-                self.log(
-                    "system",
-                    "error",
-                    format!("ticket {} auto cancel expired", ticket_id),
-                );
-                if let Ok(ticket) = self.ticket(&ticket_id) {
-                    self.push_ticket_activity(
+                if let Ok(ticket) = updated {
+                    let log_entry = self.log_entry(
+                        "system",
+                        "error",
+                        format!("ticket {} auto cancel expired", ticket_id),
+                    );
+                    let activity_entry = self.ticket_activity_entry(
                         ActivityKind::ReleaseEvent,
                         ActivityLevel::Error,
                         "自动取消重试窗口已过期".to_string(),
                         Some("服务商侧取消未完成，工单恢复为等待短信状态".to_string()),
                         &ticket,
                     );
+                    self.push_log_entry_in_memory(log_entry.clone());
+                    self.push_activity_entry_in_memory(activity_entry.clone());
+                    self.persist_runtime_batch(RuntimePersistBatch {
+                        upsert_ticket: Some(ticket),
+                        delete_ticket_ids: Vec::new(),
+                        log_entries: vec![log_entry],
+                        activity_entries: vec![activity_entry],
+                        ..RuntimePersistBatch::default()
+                    });
                 }
                 continue;
             }
@@ -2219,7 +2435,7 @@ impl SmsService {
                         .max(0) as u64,
                 );
                 if retry_count >= retry_limit {
-                    let _ = self.update_ticket(&ticket_id, |ticket| {
+                    let updated = self.update_ticket_in_memory(&ticket_id, |ticket| {
                         ticket.updated_at = Utc::now();
                         ticket.status = TicketStatus::WaitingCode;
                         ticket.message = Some("auto cancel retry limit reached".to_string());
@@ -2228,19 +2444,28 @@ impl SmsService {
                         ticket.next_release_attempt_at = None;
                         ticket.release_retry_deadline_at = None;
                     });
-                    self.log(
-                        "system",
-                        "error",
-                        format!("ticket {} auto cancel retry limit reached", ticket_id),
-                    );
-                    if let Ok(ticket) = self.ticket(&ticket_id) {
-                        self.push_ticket_activity(
+                    if let Ok(ticket) = updated {
+                        let log_entry = self.log_entry(
+                            "system",
+                            "error",
+                            format!("ticket {} auto cancel retry limit reached", ticket_id),
+                        );
+                        let activity_entry = self.ticket_activity_entry(
                             ActivityKind::ReleaseEvent,
                             ActivityLevel::Error,
                             "自动取消已达到重试上限".to_string(),
                             Some("服务商侧取消未完成，工单恢复为等待短信状态".to_string()),
                             &ticket,
                         );
+                        self.push_log_entry_in_memory(log_entry.clone());
+                        self.push_activity_entry_in_memory(activity_entry.clone());
+                        self.persist_runtime_batch(RuntimePersistBatch {
+                            upsert_ticket: Some(ticket),
+                            delete_ticket_ids: Vec::new(),
+                            log_entries: vec![log_entry],
+                            activity_entries: vec![activity_entry],
+                            ..RuntimePersistBatch::default()
+                        });
                     }
                     continue;
                 }
@@ -2270,7 +2495,7 @@ impl SmsService {
                 }
                 Err(error) => {
                     let message = error.to_string();
-                    let _ = self.update_ticket(&ticket_id, |ticket| {
+                    let updated = self.update_ticket_in_memory(&ticket_id, |ticket| {
                         ticket.updated_at = Utc::now();
                         ticket.status = TicketStatus::CancelPending;
                         ticket.message = Some(format!("auto cancel retry failed: {}", message));
@@ -2278,19 +2503,28 @@ impl SmsService {
                             Some(Utc::now() + Duration::seconds(AUTO_RELEASE_RETRY_INTERVAL_SEC));
                         ticket.release_retry_count = retry_count + 1;
                     });
-                    self.log(
-                        "system",
-                        "warn",
-                        format!("ticket {} auto cancel retry failed: {}", ticket_id, error),
-                    );
-                    if let Ok(ticket) = self.ticket(&ticket_id) {
-                        self.push_ticket_activity(
+                    if let Ok(ticket) = updated {
+                        let log_entry = self.log_entry(
+                            "system",
+                            "warn",
+                            format!("ticket {} auto cancel retry failed: {}", ticket_id, error),
+                        );
+                        let activity_entry = self.ticket_activity_entry(
                             ActivityKind::ReleaseEvent,
                             ActivityLevel::Warn,
                             "自动取消重试失败".to_string(),
                             None,
                             &ticket,
                         );
+                        self.push_log_entry_in_memory(log_entry.clone());
+                        self.push_activity_entry_in_memory(activity_entry.clone());
+                        self.persist_runtime_batch(RuntimePersistBatch {
+                            upsert_ticket: Some(ticket),
+                            delete_ticket_ids: Vec::new(),
+                            log_entries: vec![log_entry],
+                            activity_entries: vec![activity_entry],
+                            ..RuntimePersistBatch::default()
+                        });
                     }
                 }
             }
@@ -2334,14 +2568,15 @@ impl SmsService {
         let Some(store) = &self.runtime_store else {
             return true;
         };
-        store.acquire_release_owner(
-            &ReleaseOwnerLease {
-                owner_id: owner_id.to_string(),
-                expires_at: now + Duration::seconds(AUTO_RELEASE_OWNER_LEASE_SEC),
-            },
-            now,
-        )
-        .unwrap_or(false)
+        store
+            .acquire_release_owner(
+                &ReleaseOwnerLease {
+                    owner_id: owner_id.to_string(),
+                    expires_at: now + Duration::seconds(AUTO_RELEASE_OWNER_LEASE_SEC),
+                },
+                now,
+            )
+            .unwrap_or(false)
     }
 
     fn release_release_owner(&self, owner_id: &str) {
@@ -2763,7 +2998,10 @@ impl SmsService {
 
     pub fn clear_logs(&self) {
         self.logs.write().clear();
-        self.persist_runtime_state_quietly();
+        self.persist_runtime_batch(RuntimePersistBatch {
+            clear_logs: true,
+            ..RuntimePersistBatch::default()
+        });
     }
 
     pub fn runtime_settings(&self) -> RuntimeSettings {
@@ -2958,7 +3196,10 @@ impl SmsService {
                 .map(|entries| entries.len() as u32)
                 .unwrap_or(0)
         };
-        self.persist_runtime_state_quietly();
+        self.persist_runtime_batch(RuntimePersistBatch {
+            reuse_bucket: Some((provider_id.to_string(), Vec::new())),
+            ..RuntimePersistBatch::default()
+        });
         self.log(
             "reuse_pool",
             "info",
@@ -3382,11 +3623,8 @@ impl SmsService {
             ));
         }
         if let Some(operator) = translated.metadata.get("operator").cloned() {
-            let resolved = resolve_provider_operator_value(
-                options,
-                &operator,
-                translated.country.as_deref(),
-            );
+            let resolved =
+                resolve_provider_operator_value(options, &operator, translated.country.as_deref());
             translated.metadata.insert("operator".to_string(), resolved);
         }
         translated
@@ -3414,6 +3652,10 @@ impl SmsService {
             logs.pop_front();
         }
         drop(logs);
+        if let Some(store) = &self.runtime_store {
+            let _ = store.append_log_limited(&entry, self.log_buffer);
+            return;
+        }
         self.persist_runtime_state_quietly();
     }
 }
@@ -3544,7 +3786,11 @@ fn normalize_reuse_pool_entry(mut entry: ReusePoolEntry) -> (ReusePoolEntry, boo
 fn normalize_runtime_state(
     tickets: Vec<TicketRecord>,
     reuse_pool: HashMap<String, Vec<ReusePoolEntry>>,
-) -> (BTreeMap<String, TicketRecord>, HashMap<String, Vec<ReusePoolEntry>>, bool) {
+) -> (
+    BTreeMap<String, TicketRecord>,
+    HashMap<String, Vec<ReusePoolEntry>>,
+    bool,
+) {
     let mut changed = false;
     let runtime_tickets = normalize_runtime_tickets(tickets, &mut changed);
     let mut normalized_reuse_pool = HashMap::new();
@@ -4215,9 +4461,7 @@ mod tests {
         let logs = service.runtime_snapshot().logs;
         assert!(logs.iter().any(|entry| {
             entry.scope == "upstream:mock"
-                && entry
-                    .message
-                    .contains("acquire service=openai country=CA")
+                && entry.message.contains("acquire service=openai country=CA")
         }));
     }
 
@@ -4330,11 +4574,14 @@ mod tests {
         });
 
         let base_url = format!("http://{addr}/stubs/handler_api.php");
-        let service = make_service_with_provider_overrides(&[("smsbower", &move |manifest: &mut ProviderManifest| {
-            if let Some(config) = manifest.handler_api.as_mut() {
-                config.base_url = base_url.clone();
-            }
-        })]);
+        let service = make_service_with_provider_overrides(&[(
+            "smsbower",
+            &move |manifest: &mut ProviderManifest| {
+                if let Some(config) = manifest.handler_api.as_mut() {
+                    config.base_url = base_url.clone();
+                }
+            },
+        )]);
         {
             let mut cache = service.provider_option_cache.write();
             cache.entries.insert(
@@ -4623,6 +4870,87 @@ mod tests {
                 .any(|entry| entry.message == "persisted-log")
         );
         assert!(snapshot.tickets.iter().any(|entry| entry.id == ticket.id));
+    }
+
+    #[test]
+    fn runtime_state_persisted_logs_respect_buffer_limit_after_reload() {
+        let base = std::env::temp_dir().join(format!("madao-runtime-logs-{}", Uuid::now_v7()));
+        fs::create_dir_all(&base).unwrap();
+        let service = make_persistent_service(&base);
+
+        for index in 0..40 {
+            service.log("system", "info", format!("entry-{index}"));
+        }
+
+        let reloaded = make_persistent_service(&base);
+        let logs = reloaded.runtime_snapshot().logs;
+
+        assert_eq!(logs.len(), 32);
+        assert_eq!(
+            logs.first().map(|entry| entry.message.as_str()),
+            Some("entry-8")
+        );
+        assert_eq!(
+            logs.last().map(|entry| entry.message.as_str()),
+            Some("entry-39")
+        );
+    }
+
+    #[test]
+    fn runtime_state_persisted_ticket_limit_survives_reload() {
+        let base = std::env::temp_dir().join(format!("madao-runtime-tickets-{}", Uuid::now_v7()));
+        fs::create_dir_all(&base).unwrap();
+        let service = make_persistent_service(&base);
+
+        for index in 0..520_u32 {
+            service.upsert_ticket(TicketRecord {
+                id: format!("persisted-ticket-{index:04}"),
+                provider: "mock".to_string(),
+                service: "openai".to_string(),
+                country: "usa".to_string(),
+                phone_number: format!("+100100{index:04}"),
+                upstream_id: None,
+                price: None,
+                status: TicketStatus::Pending,
+                created_at: Utc::now(),
+                updated_at: Utc::now() + chrono::Duration::seconds(index as i64),
+                acquire_path: AcquirePath::FreshAcquire,
+                code: None,
+                message: None,
+                same_activation_retry_supported: false,
+                same_activation_retry_expires_at: None,
+                pending_release_action: None,
+                auto_release_at: None,
+                next_release_attempt_at: None,
+                release_retry_deadline_at: None,
+                release_retry_count: 0,
+                routing_plan_id: None,
+                routing_plan_name: None,
+                routing_item_id: None,
+                routing_item_index: None,
+                routing_execution_mode: None,
+                routing_execution_rounds: None,
+                routing_current_round: None,
+                routing_candidate_item_ids: Vec::new(),
+                routing_attempt_count: 0,
+                reuse_count: 0,
+            });
+        }
+
+        let reloaded = make_persistent_service(&base);
+        let tickets = reloaded.list_tickets().items;
+
+        assert_eq!(tickets.len(), DEFAULT_TICKET_BUFFER);
+        assert!(
+            !tickets
+                .iter()
+                .any(|ticket| ticket.id == "persisted-ticket-0000")
+        );
+        assert!(
+            tickets
+                .iter()
+                .any(|ticket| ticket.id == "persisted-ticket-0519")
+        );
     }
 
     #[tokio::test]
@@ -4959,7 +5287,10 @@ mod tests {
 
         let feed = service.activity_feed();
         assert_eq!(feed.items.len(), SNAPSHOT_ACTIVITY_LIMIT);
-        assert_eq!(feed.items.first().map(|entry| entry.id.as_str()), Some("activity-79"));
+        assert_eq!(
+            feed.items.first().map(|entry| entry.id.as_str()),
+            Some("activity-79")
+        );
     }
 
     #[tokio::test]
@@ -5058,16 +5389,21 @@ mod tests {
         }
 
         let state = ReleaseState::default();
-        let router = Router::new().route("/", get(handler)).with_state(state.clone());
+        let router = Router::new()
+            .route("/", get(handler))
+            .with_state(state.clone());
         let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
         let addr: SocketAddr = listener.local_addr().unwrap();
         let server = tokio::spawn(async move {
             let _ = axum::serve(listener, router).await;
         });
 
-        let service = make_service_with_provider_overrides(&[("herosms", &|manifest: &mut ProviderManifest| {
-            manifest.handler_api.as_mut().unwrap().base_url = format!("http://{addr}/");
-        })]);
+        let service = make_service_with_provider_overrides(&[(
+            "herosms",
+            &|manifest: &mut ProviderManifest| {
+                manifest.handler_api.as_mut().unwrap().base_url = format!("http://{addr}/");
+            },
+        )]);
 
         let acquire = service
             .acquire_code(AcquireCodeRequest {
@@ -5108,8 +5444,7 @@ mod tests {
         assert!(!ticket.same_activation_retry_supported);
         let activity = service.activity_feed();
         assert!(activity.items.iter().any(|entry| {
-            entry.kind == ActivityKind::ReleaseEvent
-                && entry.title.contains("自动取消已安排")
+            entry.kind == ActivityKind::ReleaseEvent && entry.title.contains("自动取消已安排")
         }));
 
         server.abort();
@@ -5142,16 +5477,21 @@ mod tests {
         }
 
         let state = ReleaseState::default();
-        let router = Router::new().route("/", get(handler)).with_state(state.clone());
+        let router = Router::new()
+            .route("/", get(handler))
+            .with_state(state.clone());
         let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
         let addr: SocketAddr = listener.local_addr().unwrap();
         let server = tokio::spawn(async move {
             let _ = axum::serve(listener, router).await;
         });
 
-        let service = make_service_with_provider_overrides(&[("herosms", &|manifest: &mut ProviderManifest| {
-            manifest.handler_api.as_mut().unwrap().base_url = format!("http://{addr}/");
-        })]);
+        let service = make_service_with_provider_overrides(&[(
+            "herosms",
+            &|manifest: &mut ProviderManifest| {
+                manifest.handler_api.as_mut().unwrap().base_url = format!("http://{addr}/");
+            },
+        )]);
 
         let acquire = service
             .acquire_code(AcquireCodeRequest {
@@ -5188,7 +5528,10 @@ mod tests {
         assert_eq!(ticket.release_retry_deadline_at, None);
         assert_eq!(ticket.release_retry_count, 0);
         let logs = service.runtime_snapshot().logs;
-        assert!(logs.iter().any(|entry| entry.message.contains("auto cancel completed")));
+        assert!(
+            logs.iter()
+                .any(|entry| entry.message.contains("auto cancel completed"))
+        );
 
         server.abort();
     }
@@ -5216,16 +5559,21 @@ mod tests {
         }
 
         let state = ReleaseState::default();
-        let router = Router::new().route("/", get(handler)).with_state(state.clone());
+        let router = Router::new()
+            .route("/", get(handler))
+            .with_state(state.clone());
         let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
         let addr: SocketAddr = listener.local_addr().unwrap();
         let server = tokio::spawn(async move {
             let _ = axum::serve(listener, router).await;
         });
 
-        let service = make_service_with_provider_overrides(&[("herosms", &|manifest: &mut ProviderManifest| {
-            manifest.handler_api.as_mut().unwrap().base_url = format!("http://{addr}/");
-        })]);
+        let service = make_service_with_provider_overrides(&[(
+            "herosms",
+            &|manifest: &mut ProviderManifest| {
+                manifest.handler_api.as_mut().unwrap().base_url = format!("http://{addr}/");
+            },
+        )]);
 
         let acquire = service
             .acquire_code(AcquireCodeRequest {
@@ -5259,7 +5607,10 @@ mod tests {
         assert_eq!(ticket.release_retry_count, 1);
         assert!(ticket.next_release_attempt_at.is_some());
         let logs = service.runtime_snapshot().logs;
-        assert!(logs.iter().any(|entry| entry.message.contains("auto cancel retry scheduled")));
+        assert!(
+            logs.iter()
+                .any(|entry| entry.message.contains("auto cancel retry scheduled"))
+        );
 
         server.abort();
     }
@@ -5315,8 +5666,7 @@ mod tests {
         );
         let activity = service.activity_feed();
         assert!(activity.items.iter().any(|entry| {
-            entry.level == ActivityLevel::Error
-                && entry.title.contains("自动取消重试窗口已过期")
+            entry.level == ActivityLevel::Error && entry.title.contains("自动取消重试窗口已过期")
         }));
     }
 
@@ -5373,8 +5723,7 @@ mod tests {
         );
         let activity = service.activity_feed();
         assert!(activity.items.iter().any(|entry| {
-            entry.level == ActivityLevel::Error
-                && entry.title.contains("自动取消重试窗口已过期")
+            entry.level == ActivityLevel::Error && entry.title.contains("自动取消重试窗口已过期")
         }));
     }
 
