@@ -1,5 +1,6 @@
 use anyhow::Context;
 use directories::ProjectDirs;
+use fs2::FileExt;
 use sms_core::config::ServerConfig;
 use sms_core::models::RuntimeSettings;
 use sms_core::registry::ProviderRegistry;
@@ -7,6 +8,7 @@ use sms_core::service::SmsService;
 use sms_server::{spawn_http_server, spawn_socket_server};
 use std::env;
 use std::fs;
+use std::fs::File;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
@@ -16,6 +18,7 @@ const DEFAULT_DOCKER_CONFIG_DIR: &str = "/var/lib/madao";
 const DEFAULT_DOCKER_HTTP_BIND: &str = "0.0.0.0:7822";
 const DEFAULT_DOCKER_SOCKET_PATH: &str = "/tmp/madao-sms.sock";
 const RUNTIME_MODE_DOCKER: &str = "docker";
+const RUNTIME_OWNER_LOCK_FILE_NAME: &str = "desktop-runtime-owner.lock";
 
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
@@ -26,6 +29,7 @@ async fn main() -> anyhow::Result<()> {
     let config_dir = config_path
         .parent()
         .context("resolve config directory failed")?;
+    let _runtime_owner_lock = acquire_runtime_owner_lock(config_dir)?;
     if let Ok(settings) = load_runtime_settings_file(&config_dir.join("runtime-settings.json")) {
         config = config.with_http_port(settings.http_port);
     }
@@ -79,6 +83,23 @@ async fn main() -> anyhow::Result<()> {
 
     log_socket_transport(&config.socket_path);
 
+    let background_service = Arc::clone(&service);
+    tokio::spawn(async move {
+        loop {
+            let _ = background_service.maybe_poll_provider_options().await;
+            background_service.refresh_all_provider_balances().await;
+            background_service.maybe_dispatch_ticket_callbacks().await;
+            tokio::time::sleep(std::time::Duration::from_secs(60)).await;
+        }
+    });
+    let release_service = Arc::clone(&service);
+    tokio::spawn(async move {
+        loop {
+            release_service.maybe_process_pending_releases().await;
+            tokio::time::sleep(std::time::Duration::from_secs(5)).await;
+        }
+    });
+
     tokio::signal::ctrl_c()
         .await
         .context("wait for shutdown signal failed")
@@ -95,6 +116,20 @@ fn log_socket_transport(socket_path: &Path) {
         "unix socket transport is disabled on this platform: {}",
         socket_path.display()
     );
+}
+
+fn acquire_runtime_owner_lock(config_dir: &Path) -> anyhow::Result<File> {
+    let lock_path = config_dir.join(RUNTIME_OWNER_LOCK_FILE_NAME);
+    let file = File::options()
+        .create(true)
+        .read(true)
+        .write(true)
+        .truncate(false)
+        .open(&lock_path)
+        .with_context(|| format!("open runtime owner lock failed: {}", lock_path.display()))?;
+    file.try_lock_exclusive()
+        .with_context(|| format!("another local runtime already owns {}", lock_path.display()))?;
+    Ok(file)
 }
 
 fn prepare_config_path(explicit_path: Option<&Path>) -> anyhow::Result<PathBuf> {

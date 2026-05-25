@@ -4,12 +4,14 @@ import { useTranslation } from 'react-i18next';
 import { AppButton, PageHeader, SegmentedControl } from '../ui-bridge';
 import type { LanguageCode, MessageFilter, ProviderManifest, TicketDecoration, TicketRecord } from '../types';
 import {
+  getAutoReleaseRemainingMs,
   formatDurationMmSs,
   formatProviderLabel,
   formatServiceLabel,
   getElapsedDurationMs,
   getCancelRemainingMs,
   getTicketPhase,
+  normalizeTicketStatus,
 } from '../../lib/formatters';
 import { ResourceBadge } from '../../components/primitives';
 import { formatProviderErrorMessage } from '../providerErrors';
@@ -37,7 +39,7 @@ export function MessagesScreen(props: MessagesScreenProps) {
     return i18n.exists(message) ? t(message) : message;
   }
 
-function formatTicketError(message: string | null | undefined) {
+  function formatTicketError(message: string | null | undefined) {
     if (!message) return null;
     return formatProviderErrorMessage(message, language);
   }
@@ -58,12 +60,14 @@ function formatTicketError(message: string | null | undefined) {
     .slice(0, 8);
 
   useEffect(() => {
-    const needsLiveTimer = props.tickets.some((ticket) => {
+      const needsLiveTimer = props.tickets.some((ticket) => {
       const cooldownSec = props.providers?.[ticket.provider]?.behavior?.cancel_cooldown_sec;
-      return getTicketPhase(ticket.status) === 'waiting'
+      const phase = getTicketPhase(ticket.status);
+      return (phase === 'waiting' || phase === 'cancel-pending')
         && (
           getCancelRemainingMs(ticket.created_at, cooldownSec, now) > 0
           || getElapsedDurationMs(ticket.created_at, now) >= 0
+          || getAutoReleaseRemainingMs(ticket.auto_release_at, now) > 0
         );
     });
     if (!needsLiveTimer) return undefined;
@@ -87,9 +91,13 @@ function formatTicketError(message: string | null | undefined) {
           const phase = getTicketPhase(ticket.status);
           const isReceived = phase === 'received';
           const isWaiting = phase === 'waiting';
+          const isCancelPendingPhase = phase === 'cancel-pending';
+          const isActivePhase = isWaiting || isCancelPendingPhase;
           const usesRoutingPlan = Boolean(ticket.routing_plan_id);
           const providerManifest = props.providers?.[ticket.provider];
           const cancelCooldownSec = providerManifest?.behavior?.cancel_cooldown_sec;
+          const autoReleaseRemainingMs = getAutoReleaseRemainingMs(ticket.auto_release_at, now);
+          const isCancelPending = normalizeTicketStatus(ticket.status) === 'cancel_pending';
           const cancelRemainingMs = isWaiting
             ? getCancelRemainingMs(ticket.created_at, cancelCooldownSec, now)
             : 0;
@@ -116,7 +124,7 @@ function formatTicketError(message: string | null | undefined) {
                 </div>
                 <div className="flex flex-wrap items-center justify-start gap-3 min-[760px]:justify-end">
                   <span className="inline-flex items-center rounded-md bg-ds-surface-subtle px-2.5 py-1 text-[12px] font-medium tracking-[0.04em] text-ds-text-secondary">
-                    {isWaiting
+                    {isActivePhase
                       ? t('Waiting {{duration}}', { duration: formatDurationMmSs(elapsedDurationMs) })
                       : t('Elapsed {{duration}}', { duration: formatDurationMmSs(elapsedDurationMs) })}
                   </span>
@@ -144,7 +152,7 @@ function formatTicketError(message: string | null | undefined) {
                       ${ticket.price.toFixed(2)}
                     </span>
                   )}
-                  {!isReceived && !isWaiting && (
+                  {!isReceived && !isActivePhase && (
                     <span className="text-[15px] font-semibold tracking-[0] text-ds-state-danger">{t('Refunded')}</span>
                   )}
                 </div>
@@ -161,19 +169,38 @@ function formatTicketError(message: string | null | undefined) {
                   <span className="text-[14px] font-medium tracking-[0] text-ds-state-success">{t('SMS received successfully')}</span>
                 </div>
               )}
-              {isWaiting && (
+              {isActivePhase && (
                 <div className="flex w-full flex-col items-center justify-center gap-3 rounded-[12px] border-2 border-dashed border-ds-state-warning bg-ds-state-warning/10 px-5 py-8">
                   <Loader2 size={32} className="animate-[d-spin_0.9s_linear_infinite] text-ds-state-warning" />
-                  <span className="text-[15px] font-semibold tracking-[0] text-ds-state-warning">{t('Waiting for SMS...')}</span>
+                  <span className="text-[15px] font-semibold tracking-[0] text-ds-state-warning">
+                    {isCancelPendingPhase ? t('Auto canceling...') : t('Waiting for SMS...')}
+                  </span>
                   <span className="text-center text-[13px] tracking-[0.08em] text-ds-text-secondary">
                     {formatTicketMessage(ticket.message, t('Check provider dashboard'))}
                   </span>
-                  {cancelLocked && (
-                    <span className="text-center text-[12px] font-medium tracking-[0.04em] text-ds-state-warning">
-                      {t('Cancel unlocks in {{duration}}', { duration: formatDurationMmSs(cancelRemainingMs) })}
+                  {isCancelPending && autoReleaseRemainingMs > 0 && (
+                    <span className="rounded-[999px] bg-ds-surface px-3 py-1 text-[12px] font-medium text-ds-text-secondary">
+                      {t('Auto cancel in {{duration}}', { duration: formatDurationMmSs(autoReleaseRemainingMs) })}
                     </span>
                   )}
-                  {!cancelLocked && ticketError && ticketError !== ticket.message && (
+                  {isCancelPending && autoReleaseRemainingMs <= 0 && (
+                    <span className="rounded-[999px] bg-ds-surface px-3 py-1 text-[12px] font-medium text-ds-text-secondary">
+                      {t('Auto cancel retrying...')}
+                    </span>
+                  )}
+                  {cancelLocked && (
+                    <div className="flex flex-col items-center gap-1">
+                      <span className="text-center text-[12px] font-medium tracking-[0.04em] text-ds-state-warning">
+                        {t('Cancel unlocks in {{duration}}', { duration: formatDurationMmSs(cancelRemainingMs) })}
+                      </span>
+                      {!isCancelPending && (
+                        <span className="rounded-[999px] bg-ds-surface px-3 py-1 text-[12px] font-medium text-ds-text-secondary">
+                          {t('Cancel cooling down')}
+                        </span>
+                      )}
+                    </div>
+                  )}
+                  {!isCancelPendingPhase && !cancelLocked && ticketError && ticketError !== ticket.message && (
                     <span className="inline-flex items-center gap-2 rounded-[999px] bg-ds-surface px-3 py-1 text-[12px] font-medium text-ds-text-secondary">
                       <AlertCircle size={14} className="text-ds-state-warning" />
                       {ticketError}
@@ -181,11 +208,17 @@ function formatTicketError(message: string | null | undefined) {
                   )}
                 </div>
               )}
-              {!isReceived && !isWaiting && (
+              {!isReceived && !isActivePhase && (
                 <div className="flex w-full flex-col gap-2 rounded-[12px] bg-ds-surface-subtle px-6 py-4 opacity-80">
-                  <strong className="text-[15px] font-semibold tracking-[0] text-ds-text-primary">{t('Activation canceled or expired')}</strong>
+                  <strong className="text-[15px] font-semibold tracking-[0] text-ds-text-primary">
+                    {ticket.message?.includes('auto cancel retry')
+                      ? t('Activation still pending provider action')
+                      : t('Activation canceled or expired')}
+                  </strong>
                   <p className="m-0 text-[14px] text-ds-text-secondary">
-                    {formatTicketMessage(ticket.message, t('You were not charged for this request.'))}
+                    {ticket.message?.includes('auto cancel retry')
+                      ? formatTicketMessage(ticket.message, t('Provider cancel did not complete yet. Review the provider dashboard before retrying.'))
+                      : formatTicketMessage(ticket.message, t('You were not charged for this request.'))}
                   </p>
                 </div>
               )}
@@ -219,15 +252,17 @@ function formatTicketError(message: string | null | undefined) {
                       {t('Finish Activation')}
                     </AppButton>
                   )}
-                  {isWaiting && (
+                  {isActivePhase && (
                     <>
                       <AppButton
                         variant="danger-outline"
                         size="utility"
                         onClick={() => props.onRelease(ticket, 'cancel')}
-                        disabled={props.busyAction === `cancel-${ticket.id}` || cancelLocked}
+                        disabled={props.busyAction === `cancel-${ticket.id}` || cancelLocked || isCancelPending}
                       >
-                        {cancelLocked
+                        {isCancelPending
+                          ? t('Auto cancel scheduled')
+                          : cancelLocked
                           ? t('Cancel in {{duration}}', { duration: formatDurationMmSs(cancelRemainingMs) })
                           : t('Cancel & Refund')}
                       </AppButton>
@@ -236,7 +271,7 @@ function formatTicketError(message: string | null | undefined) {
                       </AppButton>
                     </>
                   )}
-                  {!isReceived && !isWaiting && (
+                  {!isReceived && !isActivePhase && (
                     <AppButton variant="outline" size="utility" onClick={() => props.onRelease(ticket, 'retry')} disabled={props.busyAction === `retry-${ticket.id}`}>
                       {usesRoutingPlan
                         ? t('Try Next Route')

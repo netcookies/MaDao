@@ -73,6 +73,11 @@ export type TicketRecord = {
   price?: number | null;
   code?: string | null;
   message?: string | null;
+  pending_release_action?: 'finish' | 'cancel' | 'retry' | 'ban' | null;
+  auto_release_at?: string | null;
+  next_release_attempt_at?: string | null;
+  release_retry_deadline_at?: string | null;
+  release_retry_count?: number | null;
   routing_plan_id?: string | null;
   routing_plan_name?: string | null;
   routing_item_id?: string | null;
@@ -83,6 +88,13 @@ export type TicketRecord = {
   reuse_count?: number | null;
 };
 
+export type ReleaseCodeResponse = {
+  ticket_id: string;
+  provider: string;
+  status: string;
+  message?: string | null;
+};
+
 export type LogEntry = {
   timestamp: string;
   scope: string;
@@ -90,11 +102,29 @@ export type LogEntry = {
   message: string;
 };
 
+export type ActivityEntry = {
+  id: string;
+  timestamp: string;
+  kind: 'ticket_event' | 'routing_event' | 'release_event';
+  level: 'info' | 'warn' | 'error';
+  title: string;
+  detail?: string | null;
+  provider?: string | null;
+  service?: string | null;
+  country?: string | null;
+  routing_plan_id?: string | null;
+  routing_plan_name?: string | null;
+  routing_item_id?: string | null;
+  routing_round?: number | null;
+  ticket_id?: string | null;
+};
+
 export type Snapshot = {
   providers: ProviderSummary[];
   tickets: TicketRecord[];
   logs: LogEntry[];
   reuse_pool: ReusePoolSummary[];
+  activity?: ActivityEntry[];
 };
 
 export type TicketDecoration = {

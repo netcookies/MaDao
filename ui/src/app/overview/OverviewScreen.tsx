@@ -1,9 +1,9 @@
 import type { ReactNode } from 'react';
-import { Check, Send, Server } from 'lucide-react';
+import { AlertTriangle, Check, Clock3, Send, Server } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import { AppButton, PageHeader, StatusBadge } from '../ui-bridge';
-import type { LanguageCode, ProviderManifest, Snapshot, TicketDecoration, TicketRecord } from '../types';
-import { formatProviderLabel, formatServiceLabel } from '../../lib/formatters';
+import type { ActivityEntry, LanguageCode, ProviderManifest } from '../types';
+import { formatCountryLabel, formatProviderLabel, formatRelativeTime, formatServiceLabel } from '../../lib/formatters';
 import { ResourceBadge } from '../../components/primitives';
 
 export type OverviewStats = {
@@ -14,10 +14,8 @@ export type OverviewStats = {
 
 export type OverviewScreenProps = {
   stats: OverviewStats;
-  activity: TicketRecord[];
-  snapshot?: Snapshot | null;
+  activity: ActivityEntry[];
   providers?: Record<string, ProviderManifest>;
-  decorations?: Record<string, TicketDecoration>;
   onViewAll: () => void;
 };
 
@@ -45,47 +43,52 @@ export function OverviewScreen(props: OverviewScreenProps) {
           <AppButton variant="outline" size="utility" onClick={props.onViewAll}>{t('View All')}</AppButton>
         </div>
         <div className="overflow-hidden rounded-[8px] border border-[var(--ds-color-card-border)] bg-[var(--ds-color-card-surface)] shadow-[0_2px_2px_rgba(0,0,0,0.06)] backdrop-blur-ds">
-          <div className="grid grid-cols-[130px_136px_minmax(0,1fr)_124px] items-center gap-3 border-b border-[var(--ds-color-divider-soft)] bg-[var(--ds-color-table-header)] px-4 py-2.5 text-[12px] font-medium tracking-[0] text-ds-text-primary/60">
+          <div className="grid grid-cols-[150px_110px_minmax(0,1fr)_150px] items-center gap-3 border-b border-[var(--ds-color-divider-soft)] bg-[var(--ds-color-table-header)] px-4 py-2.5 text-[12px] font-medium tracking-[0] text-ds-text-primary/60">
             <span>{t('Provider')}</span>
-            <span>{t('Status')}</span>
-            <span>{t('Recipient')}</span>
-            <span>{t('Service')}</span>
+            <span>{t('Severity')}</span>
+            <span>{t('Event')}</span>
+            <span>{t('Context')}</span>
           </div>
           {props.activity.length > 0 ? (
             <div className="overflow-hidden rounded-b-[8px] bg-transparent">
               {props.activity.map((item) => {
-                const providerManifest = props.providers?.[item.provider];
+                const providerId = item.provider ?? '';
+                const providerManifest = providerId ? props.providers?.[providerId] : undefined;
                 const providerIconUrl = providerManifest?.ui?.icon_url;
                 const providerBadgeLabel = providerManifest?.ui?.badge_label;
                 return (
-                <div className="grid grid-cols-[130px_136px_minmax(0,1fr)_124px] items-center gap-3 border-b border-[var(--ds-color-divider-soft)] px-4 py-2 last:border-b-0" key={item.id}>
-                  <span className="inline-flex min-w-0 items-center gap-2 overflow-hidden text-ellipsis whitespace-nowrap text-[13px] font-medium text-ds-text-primary/80">
-                    <ResourceBadge kind="provider" value={item.provider} size="sm" iconUrl={providerIconUrl} fallbackLabel={providerBadgeLabel ?? undefined} />
-                    <span className="truncate">{formatProviderLabel(item.provider, language)}</span>
-                  </span>
-                  <span className="min-w-0"><OverviewStatusTag status={item.status} language={language} /></span>
-                  <span className="inline-flex min-w-0 items-center gap-2 overflow-hidden text-ellipsis whitespace-nowrap text-[13px] font-normal text-ds-text-primary/80">
-                    <ResourceBadge
-                      kind="country"
-                      value={item.country}
-                      size="sm"
-                      iconUrl={props.decorations?.[item.id]?.country_icon_url}
-                    />
-                    <span className="truncate">{item.phone_number}</span>
-                    {item.acquire_path && item.acquire_path !== 'fresh_acquire' && (
-                      <StatusBadge tone="green">{t('Free')}</StatusBadge>
-                    )}
-                  </span>
-                  <span className="inline-flex min-w-0 items-center gap-2 overflow-hidden text-ellipsis whitespace-nowrap text-[13px] font-normal text-ds-text-secondary/80">
-                    <ResourceBadge
-                      kind="service"
-                      value={item.service}
-                      size="sm"
-                      iconUrl={props.decorations?.[item.id]?.service_icon_url}
-                    />
-                    <span className="truncate">{formatServiceLabel(item.service, language)}</span>
-                  </span>
-                </div>
+                  <div className="grid grid-cols-[150px_110px_minmax(0,1fr)_150px] items-center gap-3 border-b border-[var(--ds-color-divider-soft)] px-4 py-2 last:border-b-0" key={item.id}>
+                    <span className="inline-flex min-w-0 items-center gap-2 overflow-hidden text-ellipsis whitespace-nowrap text-[13px] font-medium text-ds-text-primary/80">
+                      {providerId ? (
+                        <>
+                          <ResourceBadge kind="provider" value={providerId} size="sm" iconUrl={providerIconUrl} fallbackLabel={providerBadgeLabel ?? undefined} />
+                          <span className="truncate">{formatProviderLabel(providerId, language)}</span>
+                        </>
+                      ) : (
+                        <span className="truncate text-ds-text-secondary">{t('Routing')}</span>
+                      )}
+                    </span>
+                    <span className="min-w-0">
+                      <OverviewStatusTag level={item.level} />
+                    </span>
+                    <span className="min-w-0 text-[13px] text-ds-text-primary/80">
+                      <span className="block truncate">{item.title}</span>
+                      <span className="block truncate text-[12px] text-ds-text-secondary">
+                        {formatRelativeTime(item.timestamp, language)}
+                      </span>
+                    </span>
+                    <span className="inline-flex min-w-0 items-center gap-2 overflow-hidden text-ellipsis whitespace-nowrap text-[13px] font-normal text-ds-text-secondary/80">
+                      {item.service ? (
+                        <>
+                          <ResourceBadge kind="service" value={item.service} size="sm" />
+                          <span className="truncate">{formatServiceLabel(item.service, language)}</span>
+                          {item.country ? <StatusBadge tone={item.kind === 'routing_event' ? 'blue' : 'green'}>{formatCountryLabel(item.country, language)}</StatusBadge> : null}
+                        </>
+                      ) : (
+                        <span className="truncate">{item.routing_plan_name ?? item.routing_plan_id ?? item.ticket_id ?? t('Routing')}</span>
+                      )}
+                    </span>
+                  </div>
                 );
               })}
             </div>
@@ -119,29 +122,28 @@ function StatCard(props: { title: string; value: string; caption: string; positi
   );
 }
 
-function OverviewStatusTag(props: { status: string; language: 'en' | 'zh' }) {
+function OverviewStatusTag(props: { level: 'info' | 'warn' | 'error' }) {
   const { t } = useTranslation();
-  const normalized = props.status.toLowerCase();
-  if (normalized.includes('deliver') || normalized.includes('received') || normalized.includes('connected') || normalized.includes('operational')) {
+  if (props.level === 'error') {
     return (
-      <span className="inline-flex items-center gap-1 rounded-pill bg-ds-state-success/10 px-2 py-1 text-[12px] font-semibold text-ds-state-success">
-        <span className="h-1.5 w-1.5 rounded-pill bg-ds-state-success" />
-        {t('Delivered')}
+      <span className="inline-flex items-center gap-1 rounded-pill bg-ds-state-danger/10 px-2 py-1 text-[12px] font-semibold text-ds-state-danger">
+        <span className="h-1.5 w-1.5 rounded-pill bg-ds-state-danger" />
+        {t('Failed')}
       </span>
     );
   }
-  if (normalized.includes('pending') || normalized.includes('waiting') || normalized.includes('standby')) {
+  if (props.level === 'warn') {
     return (
       <span className="inline-flex items-center gap-1 rounded-pill bg-ds-state-warning/10 px-2 py-1 text-[12px] font-semibold text-ds-state-warning">
-        <span className="h-1.5 w-1.5 rounded-pill bg-ds-state-warning" />
-        {t('Pending')}
+        <AlertTriangle size={12} />
+        {t('Warning')}
       </span>
     );
   }
   return (
-    <span className="inline-flex items-center gap-1 rounded-pill bg-ds-state-danger/10 px-2 py-1 text-[12px] font-semibold text-ds-state-danger">
-      <span className="h-1.5 w-1.5 rounded-pill bg-ds-state-danger" />
-      {t('Failed')}
+    <span className="inline-flex items-center gap-1 rounded-pill bg-ds-accent-blue/10 px-2 py-1 text-[12px] font-semibold text-ds-accent-blue">
+      <Clock3 size={12} />
+      {t('Info')}
     </span>
   );
 }

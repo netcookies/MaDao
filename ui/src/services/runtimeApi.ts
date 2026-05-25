@@ -11,6 +11,7 @@ import type {
   ProviderManifestList,
   ProviderPriceResponse,
   ReusePoolClearResponse,
+  ReleaseCodeResponse,
   RoutingPlan,
   RoutingPlanList,
   RuntimeSettings,
@@ -331,14 +332,13 @@ export async function pollActivationTicket(ticketId: string): Promise<void> {
   if (!response.ok) throw new Error(await readErrorMessage(response));
 }
 
-export async function releaseActivationTicket(ticketId: string, action: 'finish' | 'cancel' | 'retry'): Promise<void> {
+export async function releaseActivationTicket(ticketId: string, action: 'finish' | 'cancel' | 'retry'): Promise<ReleaseCodeResponse> {
   if (USE_SOCKET_TRANSPORT) return releaseActivationTicketViaSocket(ticketId, action);
-  const response = await fetch(`${API_BASE}/api/release`, {
+  return readJson<ReleaseCodeResponse>(await fetch(`${API_BASE}/api/release`, {
     method: 'POST',
     headers: IS_DESKTOP_RUNTIME ? await buildDesktopHttpHeaders() : { 'Content-Type': 'application/json' },
     body: JSON.stringify({ ticket_id: ticketId, action }),
-  });
-  if (!response.ok) throw new Error(await readErrorMessage(response));
+  }));
 }
 
 export async function failoverRoutingTicket(ticketId: string, failedItemId?: string, reason?: string): Promise<ActivationAcquireResponse> {

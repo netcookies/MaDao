@@ -95,7 +95,7 @@ pub struct RoutingFailoverRequest {
     pub failed_item_id: Option<String>,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "snake_case")]
 pub enum ReleaseAction {
     Finish,
@@ -319,6 +319,27 @@ pub struct NotificationFeed {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ActivityFeed {
+    pub items: Vec<ActivityEntry>,
+}
+
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum ActivityLevel {
+    Info,
+    Warn,
+    Error,
+}
+
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum ActivityKind {
+    TicketEvent,
+    RoutingEvent,
+    ReleaseEvent,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct TicketListResponse {
     pub items: Vec<TicketRecord>,
 }
@@ -512,6 +533,8 @@ pub struct RuntimeSnapshot {
     pub logs: Vec<LogEntry>,
     #[serde(default)]
     pub reuse_pool: Vec<ReusePoolSummary>,
+    #[serde(default)]
+    pub activity: Vec<ActivityEntry>,
 }
 
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, Default)]
@@ -548,6 +571,16 @@ pub struct TicketRecord {
     pub same_activation_retry_supported: bool,
     #[serde(default)]
     pub same_activation_retry_expires_at: Option<DateTime<Utc>>,
+    #[serde(default)]
+    pub pending_release_action: Option<ReleaseAction>,
+    #[serde(default)]
+    pub auto_release_at: Option<DateTime<Utc>>,
+    #[serde(default)]
+    pub next_release_attempt_at: Option<DateTime<Utc>>,
+    #[serde(default)]
+    pub release_retry_deadline_at: Option<DateTime<Utc>>,
+    #[serde(default)]
+    pub release_retry_count: u32,
     #[serde(default)]
     pub routing_plan_id: Option<String>,
     #[serde(default)]
@@ -596,6 +629,11 @@ impl TicketRecord {
             message: None,
             same_activation_retry_supported: false,
             same_activation_retry_expires_at: None,
+            pending_release_action: None,
+            auto_release_at: None,
+            next_release_attempt_at: None,
+            release_retry_deadline_at: None,
+            release_retry_count: 0,
             routing_plan_id: None,
             routing_plan_name: None,
             routing_item_id: None,
@@ -615,6 +653,7 @@ impl TicketRecord {
 pub enum TicketStatus {
     Pending,
     WaitingCode,
+    CancelPending,
     CodeReceived,
     Finished,
     Cancelled,
@@ -627,6 +666,33 @@ pub struct LogEntry {
     pub scope: String,
     pub level: String,
     pub message: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ActivityEntry {
+    pub id: String,
+    pub timestamp: DateTime<Utc>,
+    pub kind: ActivityKind,
+    pub level: ActivityLevel,
+    pub title: String,
+    #[serde(default)]
+    pub detail: Option<String>,
+    #[serde(default)]
+    pub provider: Option<String>,
+    #[serde(default)]
+    pub service: Option<String>,
+    #[serde(default)]
+    pub country: Option<String>,
+    #[serde(default)]
+    pub routing_plan_id: Option<String>,
+    #[serde(default)]
+    pub routing_plan_name: Option<String>,
+    #[serde(default)]
+    pub routing_item_id: Option<String>,
+    #[serde(default)]
+    pub routing_round: Option<u32>,
+    #[serde(default)]
+    pub ticket_id: Option<String>,
 }
 
 pub type ReuseKey = (String, String, String);
@@ -667,6 +733,8 @@ pub struct RuntimeStateStore {
     pub tickets: Vec<TicketRecord>,
     #[serde(default)]
     pub logs: Vec<LogEntry>,
+    #[serde(default)]
+    pub activity: Vec<ActivityEntry>,
     #[serde(default)]
     pub provider_balance_cache: Vec<ProviderBalanceCacheEntry>,
     #[serde(default)]

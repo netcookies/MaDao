@@ -2,7 +2,7 @@ import countryMetadata from '../../../config/country-metadata.json';
 import type { LanguageCode } from '../app/types';
 import { i18n } from '../app/i18n';
 
-export type TicketPhase = 'received' | 'waiting' | 'failed';
+export type TicketPhase = 'received' | 'waiting' | 'cancel-pending' | 'failed';
 
 const SERVICE_LABELS_EN: Record<string, string> = {
   apple: 'Apple',
@@ -105,6 +105,7 @@ export function normalizeTicketStatus(status: string) {
 export function getTicketPhase(status: string): TicketPhase {
   const normalized = normalizeTicketStatus(status);
   if (normalized === 'code_received' || normalized === 'finished') return 'received';
+  if (normalized === 'cancel_pending') return 'cancel-pending';
   if (normalized === 'pending' || normalized === 'waiting_code') return 'waiting';
   return 'failed';
 }
@@ -140,6 +141,13 @@ export function getCancelRemainingMs(createdAt: string | undefined, cooldownSec:
   const createdAtMs = new Date(createdAt).getTime();
   if (Number.isNaN(createdAtMs)) return 0;
   return Math.max(0, createdAtMs + cooldownSec * 1000 - now);
+}
+
+export function getAutoReleaseRemainingMs(autoReleaseAt: string | undefined | null, now = Date.now()) {
+  if (!autoReleaseAt) return 0;
+  const autoReleaseAtMs = new Date(autoReleaseAt).getTime();
+  if (Number.isNaN(autoReleaseAtMs)) return 0;
+  return Math.max(0, autoReleaseAtMs - now);
 }
 
 export function formatDurationMmSs(durationMs: number) {

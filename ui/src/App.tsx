@@ -35,6 +35,7 @@ import { RoutingScreen } from './app/routing/RoutingScreen';
 import type { RoutingItemEditorState } from './app/routing/RoutingScreen';
 import {
   ANY_PROVIDER_VALUE,
+  type ActivityEntry,
   type ActivationFormState,
   type OptionCatalog,
   type OptionItem,
@@ -65,6 +66,7 @@ import { LogsScreen } from './app/logs/LogsScreen';
 import { SettingsScreen } from './app/settings/SettingsScreen';
 import {
   formatCountryLabel,
+  normalizeTicketStatus,
   formatProviderLabel,
   formatRelativeTime,
   formatScopeLabel,
@@ -98,6 +100,7 @@ import {
   checkForUpdates,
   clearNotifications,
   deleteRoutingPlan,
+  fetchNotifications,
   fetchRoutingPlans,
   fetchProviderOperators,
   fetchProviderPrices,
@@ -167,6 +170,7 @@ function getSnackbarTone(message: string): SnackbarTone {
 export function App() {
   const { t } = useTranslation();
   const [configDirectory, setConfigDirectory] = useState(IS_DESKTOP_RUNTIME ? 'Loading…' : 'Unavailable');
+  const [logsViewMode, setLogsViewMode] = useState<'logs' | 'activity'>('logs');
   const [snackbarOpen, setSnackbarOpen] = useState(false);
   const [statusSequence, setStatusSequence] = useState(0);
   const [updateCheckBusy, setUpdateCheckBusy] = useState(false);
@@ -586,6 +590,44 @@ export function App() {
   }, [autoRefresh]);
 
   useEffect(() => {
+    let disposed = false;
+
+    async function syncNotifications() {
+      try {
+        const feed = await fetchNotifications();
+        if (disposed) return;
+        setNotifications((current) => {
+          const localStatusEntries = current.filter((entry) => entry.scope === 'status');
+          const remoteEntries = feed.items.filter((entry) => !(
+            entry.scope === 'http' && entry.message.includes('/api/notifications')
+          )).slice().reverse();
+          const merged = [...remoteEntries, ...localStatusEntries];
+          const deduped = merged.filter((entry, index, items) => (
+            items.findIndex((candidate) => (
+              candidate.timestamp === entry.timestamp
+              && candidate.scope === entry.scope
+              && candidate.level === entry.level
+              && candidate.message === entry.message
+            )) === index
+          ));
+          return deduped.slice(-STATUS_NOTIFICATION_LIMIT);
+        });
+      } catch {
+        // 通知同步失败不打断主流程。
+      }
+    }
+
+    void syncNotifications();
+    const timer = window.setInterval(() => {
+      void syncNotifications();
+    }, 4000);
+    return () => {
+      disposed = true;
+      window.clearInterval(timer);
+    };
+  }, []);
+
+  useEffect(() => {
     if (activeScreen !== 'providers' || providerView !== 'list') return;
     void fetchVisibleBalances();
   }, [activeScreen, providerView, visibleProviderIds]);
@@ -612,6 +654,9 @@ export function App() {
         setActiveScreen(payload.screen);
         if (payload.screen === 'providers') {
           setProviderView('list');
+        }
+        if (payload.screen === 'logs') {
+          setLogsViewMode('logs');
         }
         setShowNotifications(false);
         return;
@@ -671,6 +716,12 @@ export function App() {
   const filteredMessages = useMemo(() => {
     const tickets = (snapshot?.tickets ?? []).filter((ticket) => ticket.provider !== 'mock');
     if (messageFilter === 'all') return tickets;
+    if (messageFilter === 'waiting') {
+      return tickets.filter((ticket) => {
+        const phase = getTicketPhase(ticket.status);
+        return phase === 'waiting' || phase === 'cancel-pending';
+      });
+    }
     return tickets.filter((ticket) => getTicketPhase(ticket.status) === messageFilter);
   }, [snapshot, messageFilter]);
 
@@ -684,10 +735,35 @@ export function App() {
     });
   }, [logsFilter, logsSearch, notifications, snapshot]);
 
+  const filteredActivity = useMemo(() => (
+    (snapshot?.activity ?? []).filter((entry) => {
+      if (logsFilter !== 'all' && entry.level !== logsFilter) return false;
+      if (!logsSearch.trim()) return true;
+      const term = logsSearch.trim().toLowerCase();
+      return [
+        entry.title,
+        entry.detail ?? '',
+        entry.provider ?? '',
+        entry.service ?? '',
+        entry.country ?? '',
+        entry.routing_plan_name ?? '',
+        entry.routing_plan_id ?? '',
+        entry.ticket_id ?? '',
+      ].some((value) => value.toLowerCase().includes(term));
+    })
+  ), [logsFilter, logsSearch, snapshot]);
+
   const waitingTicketIds = useMemo(() => (
     (snapshot?.tickets ?? [])
       .filter((ticket) => ticket.provider !== 'mock')
       .filter((ticket) => getTicketPhase(ticket.status) === 'waiting')
+      .map((ticket) => ticket.id)
+  ), [snapshot]);
+
+  const cancelPendingTicketIds = useMemo(() => (
+    (snapshot?.tickets ?? [])
+      .filter((ticket) => ticket.provider !== 'mock')
+      .filter((ticket) => getTicketPhase(ticket.status) === 'cancel-pending')
       .map((ticket) => ticket.id)
   ), [snapshot]);
 
@@ -700,6 +776,14 @@ export function App() {
     }, 8000);
     return () => window.clearInterval(timer);
   }, [pollTicket, waitingTicketIds]);
+
+  useEffect(() => {
+    if (autoRefresh || cancelPendingTicketIds.length === 0) return undefined;
+    const timer = window.setInterval(() => {
+      void loadSnapshot();
+    }, 8000);
+    return () => window.clearInterval(timer);
+  }, [autoRefresh, cancelPendingTicketIds, loadSnapshot]);
 
   useEffect(() => {
     if (!showNotifications) return undefined;
@@ -728,9 +812,12 @@ export function App() {
   async function handleClearLogs() {
     try {
       const feed = await clearNotifications();
-      setNotifications(feed.items.filter((entry) => !(
-        entry.scope === 'http' && entry.message.includes('POST /api/notifications -> 200')
-      )));
+      setNotifications((current) => [
+        ...feed.items.filter((entry) => !(
+          entry.scope === 'http' && entry.message.includes('/api/notifications')
+        )).slice().reverse(),
+        ...current.filter((entry) => entry.scope === 'status'),
+      ].slice(-STATUS_NOTIFICATION_LIMIT));
       setLogsSearch('');
       pushStatusMessage(translate('logs_cleared'));
     } catch (error) {
@@ -744,20 +831,13 @@ export function App() {
     return {
       totalMessages: tickets.length.toLocaleString(),
       activeProviders: providers.filter((provider) => provider.enabled).length.toString(),
-      successRate: `${tickets.length === 0 ? '100.0' : ((tickets.filter((ticket) => ticket.status === 'CodeReceived').length / tickets.length) * 100).toFixed(1)}%`,
+      successRate: `${tickets.length === 0 ? '100.0' : ((tickets.filter((ticket) => normalizeTicketStatus(ticket.status) === 'code_received').length / tickets.length) * 100).toFixed(1)}%`,
     };
   }, [snapshot]);
 
-  const recentActivity = useMemo(() => {
-    const tickets = (snapshot?.tickets ?? [])
-      .filter((ticket) => ticket.provider !== 'mock')
-      .sort((left, right) => {
-        const leftTime = new Date(left.updated_at ?? left.created_at ?? 0).getTime();
-        const rightTime = new Date(right.updated_at ?? right.created_at ?? 0).getTime();
-        return rightTime - leftTime;
-      });
-    return tickets.slice(0, 6);
-  }, [snapshot]);
+  const recentActivity = useMemo<ActivityEntry[]>(() => (
+    (snapshot?.activity ?? []).slice(0, 6)
+  ), [snapshot]);
 
   const ticketDecorations = useMemo<Record<string, TicketDecoration>>(() => {
     const next: Record<string, TicketDecoration> = {};
@@ -1722,6 +1802,7 @@ export function App() {
       onSelect={(id) => {
         setActiveScreen(id);
         if (id === 'providers') setProviderView('list');
+        if (id === 'logs') setLogsViewMode('logs');
       }}
       footer={IS_WEB_RUNTIME ? (
         <div className="mt-auto px-3 pb-4 pt-2">
@@ -1803,7 +1884,7 @@ export function App() {
           className="w-full min-[760px]:w-[200px]"
           value={logsSearch}
           onChange={(event) => setLogsSearch(event.target.value)}
-          placeholder={t('Search logs...')}
+          placeholder={t(logsViewMode === 'activity' ? 'Search activity...' : 'Search logs...')}
         />
       ) : null}
       {updateCheckResult?.has_update ? (
@@ -1848,6 +1929,7 @@ export function App() {
                   variant="ghost"
                   size="utility"
                   onClick={() => {
+                    setLogsViewMode('logs');
                     setActiveScreen('logs');
                     setShowNotifications(false);
                   }}
@@ -1968,10 +2050,13 @@ export function App() {
               <OverviewScreen
                 stats={overviewStats}
                 activity={recentActivity}
-                snapshot={snapshot}
                 providers={manifestsById}
-                decorations={ticketDecorations}
-                onViewAll={() => setActiveScreen('messages')}
+                onViewAll={() => {
+                  setLogsViewMode('activity');
+                  setLogsFilter('all');
+                  setLogsSearch('');
+                  setActiveScreen('logs');
+                }}
               />
             )}
 
@@ -2202,6 +2287,8 @@ export function App() {
               {activeScreen === 'logs' && (
                 <LogsScreen
                   logs={filteredLogs}
+                  activity={filteredActivity}
+                  activityMode={logsViewMode === 'activity'}
                   filter={logsFilter}
                   setFilter={setLogsFilter}
                   filters={logFilters}

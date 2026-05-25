@@ -1,6 +1,7 @@
 use crate::error::SmsError;
 use crate::models::{
-    AcquireCodeRequest, AcquireCodeResponse, AcquirePath, LogEntry, NotificationFeed,
+    AcquireCodeRequest, AcquireCodeResponse, AcquirePath, ActivityEntry, ActivityFeed,
+    ActivityKind, ActivityLevel, LogEntry, NotificationFeed,
     OpenAiSmsRegionsCache, OptionCacheOverview, OptionCacheState, OptionItem, OptionListResponse,
     PollCodeRequest, PollCodeResponse, ProviderBalance, ProviderBalanceCacheEntry,
     ProviderCapabilityMatrix, ProviderDynamicOptions, ProviderManifestList,
@@ -39,6 +40,10 @@ const ROUTING_PLANS_FILE_NAME: &str = "routing-plans.json";
 const RUNTIME_STATE_FILE_NAME: &str = "runtime-state.json";
 const ROUTING_ANY_PROVIDER: &str = "any";
 const DEFAULT_TICKET_BUFFER: usize = 500;
+const DEFAULT_ACTIVITY_BUFFER: usize = 200;
+const SNAPSHOT_ACTIVITY_LIMIT: usize = 50;
+const DEFAULT_NOTIFICATION_FEED_LIMIT: usize = 20;
+const AUTO_RELEASE_RETRY_INTERVAL_SEC: i64 = 5;
 const DEFAULT_REUSE_TTL_HOURS: i64 = 24;
 const OPENAI_AUTH_BOOTSTRAP_URL: &str = "https://auth.openai.com";
 const OPENAI_SMS_REGIONS_CACHE_TTL_HOURS: i64 = 24;
@@ -55,10 +60,30 @@ const LOW_BALANCE_PATTERNS: [&str; 8] = [
     "balance below",
 ];
 
+fn parse_min_activation_time_seconds(message: &str) -> Option<u64> {
+    let marker = "minActivationTime=";
+    let start = message.find(marker)? + marker.len();
+    let rest = &message[start..];
+    let digits = rest
+        .chars()
+        .take_while(|char| char.is_ascii_digit())
+        .collect::<String>();
+    if digits.is_empty() {
+        return None;
+    }
+    digits.parse::<u64>().ok()
+}
+
+fn auto_release_retry_limit(min_activation_time_sec: u64) -> u32 {
+    (((min_activation_time_sec as f64) / (AUTO_RELEASE_RETRY_INTERVAL_SEC as f64)).ceil() as u32)
+        .max(1)
+}
+
 pub struct SmsService {
     registry: Arc<RwLock<ProviderRegistry>>,
     tickets: RwLock<BTreeMap<String, TicketRecord>>,
     logs: RwLock<VecDeque<LogEntry>>,
+    activity: RwLock<VecDeque<ActivityEntry>>,
     runtime_settings: RwLock<RuntimeSettings>,
     runtime_settings_path: Option<PathBuf>,
     runtime_state_path: Option<PathBuf>,
@@ -75,6 +100,8 @@ pub struct SmsService {
     callback_client: Client,
     log_buffer: usize,
     ticket_buffer: usize,
+    activity_buffer: usize,
+    release_processor_running: parking_lot::Mutex<bool>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -110,6 +137,63 @@ struct OpenAiSmsRegionsPayload {
 }
 
 impl SmsService {
+    fn push_ticket_activity(
+        &self,
+        kind: ActivityKind,
+        level: ActivityLevel,
+        title: String,
+        detail: Option<String>,
+        ticket: &TicketRecord,
+    ) {
+        self.push_activity(ActivityEntry {
+            id: Uuid::now_v7().to_string(),
+            timestamp: Utc::now(),
+            kind,
+            level,
+            title,
+            detail,
+            provider: Some(ticket.provider.clone()),
+            service: Some(ticket.service.clone()),
+            country: Some(ticket.country.clone()),
+            routing_plan_id: ticket.routing_plan_id.clone(),
+            routing_plan_name: ticket.routing_plan_name.clone(),
+            routing_item_id: ticket.routing_item_id.clone(),
+            routing_round: ticket.routing_current_round,
+            ticket_id: Some(ticket.id.clone()),
+        });
+    }
+
+    fn push_routing_activity(
+        &self,
+        level: ActivityLevel,
+        title: String,
+        detail: Option<String>,
+        provider: Option<String>,
+        service: Option<String>,
+        country: Option<String>,
+        plan: &RoutingPlan,
+        item: &RoutingPlanItem,
+        round: u32,
+        ticket_id: Option<String>,
+    ) {
+        self.push_activity(ActivityEntry {
+            id: Uuid::now_v7().to_string(),
+            timestamp: Utc::now(),
+            kind: ActivityKind::RoutingEvent,
+            level,
+            title,
+            detail,
+            provider,
+            service,
+            country,
+            routing_plan_id: Some(plan.id.clone()),
+            routing_plan_name: Some(plan.name.clone()),
+            routing_item_id: Some(item.id.clone()),
+            routing_round: Some(round),
+            ticket_id,
+        });
+    }
+
     pub fn new(registry: ProviderRegistry, log_buffer: usize) -> Self {
         Self::with_persistence_paths(registry, log_buffer, None, None, None, None, None)
     }
@@ -226,6 +310,7 @@ impl SmsService {
         let RuntimeStateStore {
             tickets,
             logs,
+            activity,
             provider_balance_cache,
             reuse_pool,
             openai_sms_regions_cache,
@@ -233,6 +318,7 @@ impl SmsService {
         let (runtime_tickets, reuse_pool, runtime_state_recanonicalized) =
             normalize_runtime_state(tickets, reuse_pool);
         let runtime_logs = normalize_runtime_logs(logs, log_buffer);
+        let runtime_activity = normalize_runtime_activity(activity, DEFAULT_ACTIVITY_BUFFER);
         let runtime_balances = provider_balance_cache
             .into_iter()
             .map(|entry| (entry.provider.clone(), entry))
@@ -244,6 +330,7 @@ impl SmsService {
                     &RuntimeStateStore {
                         tickets: runtime_tickets.values().cloned().collect(),
                         logs: runtime_logs.iter().cloned().collect(),
+                        activity: runtime_activity.iter().cloned().collect(),
                         provider_balance_cache: runtime_balances.values().cloned().collect(),
                         reuse_pool: reuse_pool.clone(),
                         openai_sms_regions_cache: openai_sms_regions_cache.clone(),
@@ -256,6 +343,7 @@ impl SmsService {
             registry: Arc::new(RwLock::new(registry)),
             tickets: RwLock::new(runtime_tickets),
             logs: RwLock::new(runtime_logs),
+            activity: RwLock::new(runtime_activity),
             runtime_settings: RwLock::new(runtime_settings),
             runtime_settings_path,
             runtime_state_path,
@@ -275,6 +363,8 @@ impl SmsService {
                 .expect("callback client should build"),
             log_buffer,
             ticket_buffer: DEFAULT_TICKET_BUFFER,
+            activity_buffer: DEFAULT_ACTIVITY_BUFFER,
+            release_processor_running: parking_lot::Mutex::new(false),
         }
     }
 
@@ -313,6 +403,7 @@ impl SmsService {
         };
         let tickets = self.tickets.read().values().cloned().collect::<Vec<_>>();
         let logs = self.logs.read().iter().cloned().collect::<Vec<_>>();
+        let activity = self.activity.read().iter().cloned().collect::<Vec<_>>();
         let provider_balance_cache = self
             .provider_balance_cache
             .read()
@@ -326,6 +417,7 @@ impl SmsService {
             &RuntimeStateStore {
                 tickets,
                 logs,
+                activity,
                 provider_balance_cache,
                 reuse_pool,
                 openai_sms_regions_cache,
@@ -501,10 +593,7 @@ impl SmsService {
         self.log(
             "reuse_pool",
             "info",
-            format!(
-                "reuse_pool: recorded candidate provider={} phone={}",
-                ticket.provider, ticket.phone_number
-            ),
+            format!("reuse_pool: recorded candidate provider={}", ticket.provider),
         );
     }
 
@@ -795,6 +884,54 @@ impl SmsService {
         Ok(())
     }
 
+    fn push_activity(&self, entry: ActivityEntry) {
+        let mut activity = self.activity.write();
+        activity.push_back(entry);
+        while activity.len() > self.activity_buffer {
+            activity.pop_front();
+        }
+        let activity_items = activity.iter().cloned().collect::<Vec<_>>();
+        drop(activity);
+        self.persist_runtime_activity_quietly(activity_items);
+    }
+
+    fn persist_runtime_activity_quietly(&self, activity: Vec<ActivityEntry>) {
+        let Some(path) = &self.runtime_state_path else {
+            return;
+        };
+        let tickets = self.tickets.read().values().cloned().collect::<Vec<_>>();
+        let logs = self.logs.read().iter().cloned().collect::<Vec<_>>();
+        let provider_balance_cache = self
+            .provider_balance_cache
+            .read()
+            .values()
+            .cloned()
+            .collect::<Vec<_>>();
+        let reuse_pool = self.reuse_pool.read().clone();
+        let openai_sms_regions_cache = self.openai_sms_regions_cache.read().clone();
+        let _ = save_runtime_state(
+            path,
+            &RuntimeStateStore {
+                tickets,
+                logs,
+                activity,
+                provider_balance_cache,
+                reuse_pool,
+                openai_sms_regions_cache,
+            },
+        );
+    }
+
+    fn should_include_in_notification_feed(entry: &LogEntry) -> bool {
+        if entry.scope == "http" {
+            return false;
+        }
+        if entry.scope.starts_with("upstream:") {
+            return false;
+        }
+        true
+    }
+
     pub fn log_http_access(
         &self,
         method: impl Into<String>,
@@ -898,6 +1035,13 @@ impl SmsService {
             "info",
             format!("ticket {} acquired by {}", ticket.id, ticket.provider),
         );
+        self.push_ticket_activity(
+            ActivityKind::TicketEvent,
+            ActivityLevel::Info,
+            format!("工单 {} 获取成功", ticket.id),
+            Some(format!("provider={} service={} country={}", ticket.provider, ticket.service, ticket.country)),
+            &ticket,
+        );
         self.upsert_ticket(ticket);
         Ok(response)
     }
@@ -936,10 +1080,38 @@ impl SmsService {
         let mut last_error = SmsError::InvalidRequest("no auto providers tried".to_string());
         for provider_id in providers {
             let mut routed = request.clone();
-            routed.provider = provider_id;
+            routed.provider = provider_id.clone();
             match self.acquire_code_for_provider(routed).await {
                 Ok(response) => return Ok(response),
-                Err(error) => last_error = error,
+                Err(error) => {
+                    self.log(
+                        "router",
+                        "warn",
+                        format!(
+                            "auto provider {} skipped for service {}: {}",
+                            provider_id,
+                            request.service.as_deref().unwrap_or_default(),
+                            error
+                        ),
+                    );
+                    self.push_activity(ActivityEntry {
+                        id: Uuid::now_v7().to_string(),
+                        timestamp: Utc::now(),
+                        kind: ActivityKind::RoutingEvent,
+                        level: ActivityLevel::Warn,
+                        title: format!("自动服务商 {} 被跳过", provider_id),
+                        detail: Some(format!("service={}", request.service.as_deref().unwrap_or_default())),
+                        provider: Some(provider_id.clone()),
+                        service: request.service.clone(),
+                        country: request.country.clone(),
+                        routing_plan_id: None,
+                        routing_plan_name: None,
+                        routing_item_id: None,
+                        routing_round: None,
+                        ticket_id: None,
+                    });
+                    last_error = error;
+                }
             }
         }
         Err(last_error)
@@ -977,13 +1149,42 @@ impl SmsService {
                 match response {
                     Ok(ticket) => return Ok(ticket),
                     Err(error) => {
+                        let title = format!(
+                            "路由候选 {} 在第 {} 轮被跳过",
+                            entry.item.id, entry.round
+                        );
+                        let item_provider = if entry.item.provider.trim().is_empty() {
+                            ROUTING_ANY_PROVIDER.to_string()
+                        } else {
+                            entry.item.provider.clone()
+                        };
+                        let item_country = if entry.item.country.trim().is_empty() {
+                            "any".to_string()
+                        } else {
+                            entry.item.country.clone()
+                        };
+                        let detail = Some(format!("{} / {}：候选被跳过", item_provider, item_country));
                         self.log(
                             "router",
                             "warn",
                             format!(
-                                "routing plan {} skipped {} at round {}: {}",
+                                "routing plan {} skipped item {} at round {}: {}",
                                 plan.id, entry.item.id, entry.round, error
                             ),
+                        );
+                        self.push_routing_activity(
+                            ActivityLevel::Warn,
+                            title,
+                            detail,
+                            (!entry.item.provider.trim().is_empty())
+                                .then_some(entry.item.provider.clone()),
+                            Some(plan.service.clone()),
+                            (!entry.item.country.trim().is_empty())
+                                .then_some(entry.item.country.clone()),
+                            &plan,
+                            entry.item,
+                            entry.round,
+                            None,
                         );
                         last_error = error;
                     }
@@ -1054,6 +1255,27 @@ impl SmsService {
                 Ok(ticket) => ticket,
                 Err(error) => {
                     self.maybe_disable_provider_for_low_balance(&provider_id, &error);
+                    let detail = format!("provider={} item={} round={}", provider_id, item.id, round);
+                    self.log(
+                        "router",
+                        "warn",
+                        format!(
+                            "routing provider {} failed for item {} at round {}: {}",
+                            provider_id, item.id, round, error
+                        ),
+                    );
+                    self.push_routing_activity(
+                        ActivityLevel::Warn,
+                        format!("路由候选 {} 的服务商 {} 不可用", item.id, provider_id),
+                        Some(detail),
+                        Some(provider_id.clone()),
+                        Some(plan.service.clone()),
+                        routed.country.clone(),
+                        plan,
+                        item,
+                        round,
+                        None,
+                    );
                     last_error = Some(error);
                     continue;
                 }
@@ -1091,6 +1313,18 @@ impl SmsService {
                     "routing plan {} matched item {} -> {}",
                     plan.id, item.id, ticket.provider
                 ),
+            );
+            self.push_routing_activity(
+                ActivityLevel::Info,
+                format!("路由候选 {} 命中服务商 {}", item.id, ticket.provider),
+                Some(format!("plan={} round={}", plan.name, round)),
+                Some(ticket.provider.clone()),
+                Some(ticket.service.clone()),
+                Some(ticket.country.clone()),
+                plan,
+                item,
+                round,
+                Some(ticket.id.clone()),
             );
             self.upsert_ticket(ticket);
             return Ok(response);
@@ -1147,6 +1381,23 @@ impl SmsService {
                 ticket.message = response.message.clone();
             }
         })?;
+        let updated = self.ticket(&current.id)?;
+        if matches!(
+            updated.status,
+            TicketStatus::CodeReceived | TicketStatus::Cancelled | TicketStatus::Failed
+        ) {
+            self.push_ticket_activity(
+                ActivityKind::TicketEvent,
+                if updated.status == TicketStatus::CodeReceived {
+                    ActivityLevel::Info
+                } else {
+                    ActivityLevel::Warn
+                },
+                format!("工单 {} 状态更新", updated.id),
+                updated.message.clone(),
+                &updated,
+            );
+        }
         Ok(response)
     }
 
@@ -1171,6 +1422,10 @@ impl SmsService {
             "release",
             format!("ticket_id={}", current.id),
         );
+        let is_cancel_like = matches!(
+            request.action,
+            crate::models::ReleaseAction::Cancel | crate::models::ReleaseAction::Ban
+        );
         let message = match provider.release(&current, request.action.clone()).await {
             Ok(message) => {
                 self.log_upstream_response(&current.provider, "release", "200", message.clone());
@@ -1183,6 +1438,84 @@ impl SmsService {
                     "error",
                     error.to_string(),
                 );
+                if is_cancel_like
+                    && error.to_string().contains("EARLY_CANCEL_DENIED")
+                    && let Some(min_activation_time_sec) =
+                        parse_min_activation_time_seconds(&error.to_string())
+                {
+                    let now = Utc::now();
+                    let auto_release_at = current
+                        .auto_release_at
+                        .unwrap_or(current.created_at + Duration::seconds(min_activation_time_sec as i64));
+                    let retry_window_sec = min_activation_time_sec.max(AUTO_RELEASE_RETRY_INTERVAL_SEC as u64);
+                    let retry_deadline_at = current
+                        .release_retry_deadline_at
+                        .unwrap_or(auto_release_at + Duration::seconds(retry_window_sec as i64));
+                    let retrying = current.status == TicketStatus::CancelPending && now >= auto_release_at;
+                    let next_release_attempt_at = if retrying {
+                        now + Duration::seconds(AUTO_RELEASE_RETRY_INTERVAL_SEC)
+                    } else {
+                        auto_release_at
+                    };
+                    let next_retry_count = if retrying {
+                        current.release_retry_count.saturating_add(1)
+                    } else {
+                        current.release_retry_count
+                    };
+                    let message = if retrying {
+                        format!(
+                            "EARLY_CANCEL_DENIED: auto cancel retry scheduled at {}",
+                            next_release_attempt_at.to_rfc3339()
+                        )
+                    } else {
+                        format!(
+                            "EARLY_CANCEL_DENIED: auto cancel scheduled at {}",
+                            auto_release_at.to_rfc3339()
+                        )
+                    };
+                    self.update_ticket(&current.id, |ticket| {
+                        ticket.updated_at = now;
+                        ticket.status = TicketStatus::CancelPending;
+                        ticket.message = Some(message.clone());
+                        ticket.pending_release_action = Some(request.action.clone());
+                        ticket.auto_release_at = Some(auto_release_at);
+                        ticket.next_release_attempt_at = Some(next_release_attempt_at);
+                        ticket.release_retry_deadline_at = Some(retry_deadline_at);
+                        ticket.release_retry_count = next_retry_count;
+                        ticket.same_activation_retry_supported = false;
+                        ticket.same_activation_retry_expires_at = Some(ticket.updated_at);
+                    })?;
+                    self.log(
+                        "system",
+                        if retrying { "warn" } else { "info" },
+                        format!(
+                            "ticket {} scheduled auto cancel after cooldown until {}",
+                            current.id,
+                            next_release_attempt_at.to_rfc3339()
+                        ),
+                    );
+                    let mut scheduled_ticket = current.clone();
+                    scheduled_ticket.status = TicketStatus::CancelPending;
+                    scheduled_ticket.message = Some(message.clone());
+                    scheduled_ticket.auto_release_at = Some(auto_release_at);
+                    self.push_ticket_activity(
+                        ActivityKind::ReleaseEvent,
+                        if retrying {
+                            ActivityLevel::Warn
+                        } else {
+                            ActivityLevel::Info
+                        },
+                        "自动取消已安排".to_string(),
+                        Some("等待冷却结束后自动执行取消".to_string()),
+                        &scheduled_ticket,
+                    );
+                    return Ok(ReleaseCodeResponse {
+                        ticket_id: current.id,
+                        provider: current.provider,
+                        status: TicketStatus::CancelPending,
+                        message: Some(message),
+                    });
+                }
                 return Err(error);
             }
         };
@@ -1193,10 +1526,20 @@ impl SmsService {
             }
             crate::models::ReleaseAction::Retry => TicketStatus::WaitingCode,
         };
+        let invalidate_same_activation_retry = is_cancel_like;
         self.update_ticket(&current.id, |ticket| {
             ticket.updated_at = Utc::now();
             ticket.status = next_status.clone();
             ticket.message = Some(message.clone());
+            ticket.pending_release_action = None;
+            ticket.auto_release_at = None;
+            ticket.next_release_attempt_at = None;
+            ticket.release_retry_deadline_at = None;
+            ticket.release_retry_count = 0;
+            if invalidate_same_activation_retry {
+                ticket.same_activation_retry_supported = false;
+                ticket.same_activation_retry_expires_at = Some(ticket.updated_at);
+            }
         })?;
         if next_status == TicketStatus::Finished {
             let reused_entry = if matches!(current.acquire_path, AcquirePath::ExactReuse)
@@ -1209,6 +1552,21 @@ impl SmsService {
             self.record_exact_reuse_candidate(&current, reused_entry);
             self.persist_runtime_state_quietly();
         }
+        let mut released_ticket = current.clone();
+        released_ticket.status = next_status.clone();
+        released_ticket.message = Some(message.clone());
+        let activity_level = match next_status {
+            TicketStatus::Finished | TicketStatus::Cancelled => ActivityLevel::Info,
+            TicketStatus::WaitingCode => ActivityLevel::Warn,
+            _ => ActivityLevel::Warn,
+        };
+        self.push_ticket_activity(
+            ActivityKind::ReleaseEvent,
+            activity_level,
+            format!("工单 {} 已执行 {:?}", current.id, request.action),
+            Some(format!("status={:?}", next_status)),
+            &released_ticket,
+        );
         Ok(ReleaseCodeResponse {
             ticket_id: current.id,
             provider: current.provider,
@@ -1338,9 +1696,33 @@ impl SmsService {
                         "router",
                         "warn",
                         format!(
-                            "routing failover skipped {} for ticket {} at round {}: {}",
+                            "routing failover skipped item {} for ticket {} at round {}: {}",
                             item.id, request.ticket_id, entry.round, error
                         ),
+                    );
+                    self.push_routing_activity(
+                        ActivityLevel::Warn,
+                        format!(
+                            "Ticket {} 的下一路由候选 {} 被跳过",
+                            request.ticket_id, item.id
+                        ),
+                        Some(format!(
+                            "provider={} round={} error={}",
+                            if provider_for_disable.is_empty() {
+                                ROUTING_ANY_PROVIDER
+                            } else {
+                                provider_for_disable.as_str()
+                            },
+                            entry.round,
+                            error
+                        )),
+                        (!provider_for_disable.is_empty()).then_some(provider_for_disable.clone()),
+                        Some(plan.service.clone()),
+                        acquire_request.country.clone(),
+                        &plan,
+                        item,
+                        entry.round,
+                        Some(request.ticket_id.clone()),
                     );
                     last_error = error;
                 }
@@ -1715,6 +2097,10 @@ impl SmsService {
                 Err(_) => continue,
             };
 
+            if ticket.status == TicketStatus::CancelPending {
+                continue;
+            }
+
             let latest = if ticket.code.is_some() {
                 ticket
             } else {
@@ -1805,6 +2191,155 @@ impl SmsService {
                 subscriptions.remove(&ticket_id);
             }
         }
+    }
+
+    pub async fn maybe_process_pending_releases(&self) {
+        {
+            let mut running = self.release_processor_running.lock();
+            if *running {
+                return;
+            }
+            *running = true;
+        }
+        let now = Utc::now();
+        let pending = self
+            .tickets
+            .read()
+            .values()
+            .filter(|ticket| {
+                ticket.status == TicketStatus::CancelPending
+                    && ticket
+                        .next_release_attempt_at
+                        .is_some_and(|time| time <= now)
+                    && ticket.pending_release_action.is_some()
+            })
+            .map(|ticket| {
+                (
+                    ticket.id.clone(),
+                    ticket
+                        .pending_release_action
+                        .clone()
+                        .unwrap_or(crate::models::ReleaseAction::Cancel),
+                    ticket.auto_release_at,
+                    ticket.release_retry_deadline_at,
+                    ticket.release_retry_count,
+                )
+            })
+            .collect::<Vec<_>>();
+
+        for (ticket_id, action, auto_release_at, retry_deadline_at, retry_count) in pending {
+            if retry_deadline_at.is_some_and(|deadline| now > deadline) {
+                let _ = self.update_ticket(&ticket_id, |ticket| {
+                    ticket.updated_at = Utc::now();
+                    ticket.status = TicketStatus::WaitingCode;
+                    ticket.message = Some("auto cancel retry window expired".to_string());
+                    ticket.pending_release_action = None;
+                    ticket.auto_release_at = None;
+                    ticket.next_release_attempt_at = None;
+                    ticket.release_retry_deadline_at = None;
+                    ticket.release_retry_count = retry_count;
+                });
+                self.log(
+                    "system",
+                    "error",
+                    format!("ticket {} auto cancel expired", ticket_id),
+                );
+                if let Ok(ticket) = self.ticket(&ticket_id) {
+                    self.push_ticket_activity(
+                        ActivityKind::ReleaseEvent,
+                        ActivityLevel::Error,
+                        "自动取消重试窗口已过期".to_string(),
+                        Some("服务商侧取消未完成，工单恢复为等待短信状态".to_string()),
+                        &ticket,
+                    );
+                }
+                continue;
+            }
+
+            if let Some(auto_release_at) = auto_release_at {
+                let retry_limit = auto_release_retry_limit(
+                    (retry_deadline_at.unwrap_or(auto_release_at) - auto_release_at)
+                        .num_seconds()
+                        .max(0) as u64,
+                );
+                if retry_count >= retry_limit {
+                    let _ = self.update_ticket(&ticket_id, |ticket| {
+                        ticket.updated_at = Utc::now();
+                        ticket.status = TicketStatus::WaitingCode;
+                        ticket.message = Some("auto cancel retry limit reached".to_string());
+                        ticket.pending_release_action = None;
+                        ticket.auto_release_at = None;
+                        ticket.next_release_attempt_at = None;
+                        ticket.release_retry_deadline_at = None;
+                    });
+                    self.log(
+                        "system",
+                        "error",
+                        format!("ticket {} auto cancel retry limit reached", ticket_id),
+                    );
+                    if let Ok(ticket) = self.ticket(&ticket_id) {
+                        self.push_ticket_activity(
+                            ActivityKind::ReleaseEvent,
+                            ActivityLevel::Error,
+                            "自动取消已达到重试上限".to_string(),
+                            Some("服务商侧取消未完成，工单恢复为等待短信状态".to_string()),
+                            &ticket,
+                        );
+                    }
+                    continue;
+                }
+            }
+
+            match self
+                .release_code(ReleaseCodeRequest {
+                    ticket_id: ticket_id.clone(),
+                    action,
+                })
+                .await
+            {
+                Ok(response) => {
+                    if response.status == TicketStatus::CancelPending {
+                        self.log(
+                            "system",
+                            "warn",
+                            format!("ticket {} auto cancel retry scheduled", ticket_id),
+                        );
+                    } else {
+                        self.log(
+                            "system",
+                            "info",
+                            format!("ticket {} auto cancel completed", ticket_id),
+                        );
+                    }
+                }
+                Err(error) => {
+                    let message = error.to_string();
+                    let _ = self.update_ticket(&ticket_id, |ticket| {
+                        ticket.updated_at = Utc::now();
+                        ticket.status = TicketStatus::CancelPending;
+                        ticket.message = Some(format!("auto cancel retry failed: {}", message));
+                        ticket.next_release_attempt_at =
+                            Some(Utc::now() + Duration::seconds(AUTO_RELEASE_RETRY_INTERVAL_SEC));
+                        ticket.release_retry_count = retry_count + 1;
+                    });
+                    self.log(
+                        "system",
+                        "warn",
+                        format!("ticket {} auto cancel retry failed: {}", ticket_id, error),
+                    );
+                    if let Ok(ticket) = self.ticket(&ticket_id) {
+                        self.push_ticket_activity(
+                            ActivityKind::ReleaseEvent,
+                            ActivityLevel::Warn,
+                            "自动取消重试失败".to_string(),
+                            None,
+                            &ticket,
+                        );
+                    }
+                }
+            }
+        }
+        *self.release_processor_running.lock() = false;
     }
 
     pub fn list_provider_manifests(&self) -> ProviderManifestList {
@@ -2192,7 +2727,28 @@ impl SmsService {
 
     pub fn notification_feed(&self) -> NotificationFeed {
         NotificationFeed {
-            items: self.logs.read().iter().rev().take(20).cloned().collect(),
+            items: self
+                .logs
+                .read()
+                .iter()
+                .rev()
+                .filter(|entry| Self::should_include_in_notification_feed(entry))
+                .take(DEFAULT_NOTIFICATION_FEED_LIMIT)
+                .cloned()
+                .collect(),
+        }
+    }
+
+    pub fn activity_feed(&self) -> ActivityFeed {
+        ActivityFeed {
+            items: self
+                .activity
+                .read()
+                .iter()
+                .rev()
+                .take(SNAPSHOT_ACTIVITY_LIMIT)
+                .cloned()
+                .collect(),
         }
     }
 
@@ -2299,6 +2855,14 @@ impl SmsService {
             .collect();
         let tickets = sorted_tickets(self.tickets.read().values().cloned().collect());
         let logs = self.logs.read().iter().cloned().collect();
+        let activity = self
+            .activity
+            .read()
+            .iter()
+            .rev()
+            .take(SNAPSHOT_ACTIVITY_LIMIT)
+            .cloned()
+            .collect();
         let reuse_pool = self
             .reuse_pool
             .read()
@@ -2336,6 +2900,7 @@ impl SmsService {
             tickets,
             logs,
             reuse_pool,
+            activity,
         }
     }
 
@@ -2824,13 +3389,18 @@ impl SmsService {
         level: impl Into<String>,
         message: impl Into<String>,
     ) {
+        let timestamp = Utc::now();
+        let scope = scope.into();
+        let level = level.into();
+        let message = message.into();
+        let entry = LogEntry {
+            timestamp,
+            scope,
+            level,
+            message,
+        };
         let mut logs = self.logs.write();
-        logs.push_back(LogEntry {
-            timestamp: Utc::now(),
-            scope: scope.into(),
-            level: level.into(),
-            message: message.into(),
-        });
+        logs.push_back(entry.clone());
         while logs.len() > self.log_buffer {
             logs.pop_front();
         }
@@ -3024,6 +3594,26 @@ fn normalize_runtime_logs(logs: Vec<LogEntry>, log_buffer: usize) -> VecDeque<Lo
     let mut normalized = VecDeque::with_capacity(log_buffer);
     let start = logs.len().saturating_sub(log_buffer);
     for entry in logs.into_iter().skip(start) {
+        normalized.push_back(entry);
+    }
+    normalized
+}
+
+fn normalize_runtime_activity(
+    mut activity: Vec<ActivityEntry>,
+    activity_buffer: usize,
+) -> VecDeque<ActivityEntry> {
+    activity.sort_by(|left, right| {
+        right
+            .timestamp
+            .cmp(&left.timestamp)
+            .then_with(|| right.id.cmp(&left.id))
+    });
+    if activity.len() > activity_buffer {
+        activity.truncate(activity_buffer);
+    }
+    let mut normalized = VecDeque::with_capacity(activity_buffer);
+    for entry in activity.into_iter().rev() {
         normalized.push_back(entry);
     }
     normalized
@@ -4070,6 +4660,11 @@ mod tests {
                 message: None,
                 same_activation_retry_supported: false,
                 same_activation_retry_expires_at: None,
+                pending_release_action: None,
+                auto_release_at: None,
+                next_release_attempt_at: None,
+                release_retry_deadline_at: None,
+                release_retry_count: 0,
                 routing_plan_id: None,
                 routing_plan_name: None,
                 routing_item_id: None,
@@ -4168,6 +4763,11 @@ mod tests {
             message: None,
             same_activation_retry_supported: false,
             same_activation_retry_expires_at: None,
+            pending_release_action: None,
+            auto_release_at: None,
+            next_release_attempt_at: None,
+            release_retry_deadline_at: None,
+            release_retry_count: 0,
             routing_plan_id: Some("openai-plan".to_string()),
             routing_plan_name: Some("OpenAI Plan".to_string()),
             routing_item_id: Some("mock-first".to_string()),
@@ -4346,6 +4946,33 @@ mod tests {
         assert!(feed.items.is_empty());
     }
 
+    #[test]
+    fn activity_feed_is_capped_and_recent_first() {
+        let service = make_service();
+        for index in 0..80 {
+            service.push_activity(ActivityEntry {
+                id: format!("activity-{index}"),
+                timestamp: Utc::now(),
+                kind: ActivityKind::TicketEvent,
+                level: ActivityLevel::Info,
+                title: format!("event-{index}"),
+                detail: None,
+                provider: Some("mock".to_string()),
+                service: Some("openai".to_string()),
+                country: Some("usa".to_string()),
+                routing_plan_id: None,
+                routing_plan_name: None,
+                routing_item_id: None,
+                routing_round: None,
+                ticket_id: Some(format!("ticket-{index}")),
+            });
+        }
+
+        let feed = service.activity_feed();
+        assert_eq!(feed.items.len(), SNAPSHOT_ACTIVITY_LIMIT);
+        assert_eq!(feed.items.first().map(|entry| entry.id.as_str()), Some("activity-79"));
+    }
+
     #[tokio::test]
     async fn routing_failover_returns_last_provider_error() {
         let service = make_service();
@@ -4373,6 +5000,11 @@ mod tests {
                 message: None,
                 same_activation_retry_supported: false,
                 same_activation_retry_expires_at: None,
+                pending_release_action: None,
+                auto_release_at: None,
+                next_release_attempt_at: None,
+                release_retry_deadline_at: None,
+                release_retry_count: 0,
                 upstream_id: None,
                 routing_plan_id: Some("openai-plan".to_string()),
                 routing_plan_name: Some("OpenAI Plan".to_string()),
@@ -4410,7 +5042,350 @@ mod tests {
             entry.scope == "router"
                 && entry
                     .message
-                    .contains("routing failover skipped mock-second")
+                    .contains("routing failover skipped item mock-second")
+        }));
+    }
+
+    #[tokio::test]
+    async fn cancel_during_cooldown_enters_cancel_pending() {
+        #[derive(Clone, Default)]
+        struct ReleaseState {
+            calls: Arc<parking_lot::Mutex<u32>>,
+        }
+
+        async fn handler(
+            State(state): State<ReleaseState>,
+            Query(query): Query<HashMap<String, String>>,
+        ) -> String {
+            match query.get("action").map(String::as_str) {
+                Some("setStatus") => {
+                    let mut calls = state.calls.lock();
+                    *calls += 1;
+                    r#"{"title":"EARLY_CANCEL_DENIED","details":"Activation cannot be cancelled at this time. Minimum activation period must pass.","info":{"minActivationTime":120}}"#.to_string()
+                }
+                Some("getNumberV2") => r#"{"activationId":"activation-1","phoneNumber":"79001234567","activationCost":"0.06","canGetAnotherSms":true}"#.to_string(),
+                _ => "ACCESS_OK".to_string(),
+            }
+        }
+
+        let state = ReleaseState::default();
+        let router = Router::new().route("/", get(handler)).with_state(state.clone());
+        let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let addr: SocketAddr = listener.local_addr().unwrap();
+        let server = tokio::spawn(async move {
+            let _ = axum::serve(listener, router).await;
+        });
+
+        let service = make_service_with_provider_overrides(&[("herosms", |manifest| {
+            manifest.handler_api.as_mut().unwrap().base_url = format!("http://{addr}/");
+        })]);
+
+        let acquire = service
+            .acquire_code(AcquireCodeRequest {
+                provider: "herosms".to_string(),
+                service: Some("telegram".to_string()),
+                country: Some("US".to_string()),
+                max_price: None,
+                min_price: None,
+                auto_pick_country: None,
+                reuse_phone: Some(true),
+                reuse_key: None,
+                metadata: BTreeMap::new(),
+                routing_plan_id: None,
+                routing_plan_name: None,
+            })
+            .await
+            .unwrap();
+
+        let release = service
+            .release_code(ReleaseCodeRequest {
+                ticket_id: acquire.ticket_id.clone(),
+                action: crate::models::ReleaseAction::Cancel,
+            })
+            .await
+            .unwrap();
+
+        assert_eq!(release.status, TicketStatus::CancelPending);
+        let ticket = service.ticket(&acquire.ticket_id).unwrap();
+        assert_eq!(ticket.status, TicketStatus::CancelPending);
+        assert_eq!(
+            ticket.pending_release_action,
+            Some(crate::models::ReleaseAction::Cancel)
+        );
+        assert!(ticket.auto_release_at.is_some());
+        assert_eq!(ticket.next_release_attempt_at, ticket.auto_release_at);
+        assert!(ticket.release_retry_deadline_at.is_some());
+        assert_eq!(ticket.release_retry_count, 0);
+        assert!(!ticket.same_activation_retry_supported);
+        let activity = service.activity_feed();
+        assert!(activity.items.iter().any(|entry| {
+            entry.kind == ActivityKind::ReleaseEvent
+                && entry.title.contains("自动取消已安排")
+        }));
+
+        server.abort();
+    }
+
+    #[tokio::test]
+    async fn pending_cancel_is_auto_released_after_cooldown() {
+        #[derive(Clone, Default)]
+        struct ReleaseState {
+            calls: Arc<parking_lot::Mutex<u32>>,
+        }
+
+        async fn handler(
+            State(state): State<ReleaseState>,
+            Query(query): Query<HashMap<String, String>>,
+        ) -> String {
+            match query.get("action").map(String::as_str) {
+                Some("setStatus") => {
+                    let mut calls = state.calls.lock();
+                    *calls += 1;
+                    if *calls == 1 {
+                        r#"{"title":"EARLY_CANCEL_DENIED","details":"Activation cannot be cancelled at this time. Minimum activation period must pass.","info":{"minActivationTime":0}}"#.to_string()
+                    } else {
+                        "ACCESS_CANCEL".to_string()
+                    }
+                }
+                Some("getNumberV2") => r#"{"activationId":"activation-1","phoneNumber":"79001234567","activationCost":"0.06","canGetAnotherSms":true}"#.to_string(),
+                _ => "ACCESS_OK".to_string(),
+            }
+        }
+
+        let state = ReleaseState::default();
+        let router = Router::new().route("/", get(handler)).with_state(state.clone());
+        let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let addr: SocketAddr = listener.local_addr().unwrap();
+        let server = tokio::spawn(async move {
+            let _ = axum::serve(listener, router).await;
+        });
+
+        let service = make_service_with_provider_overrides(&[("herosms", |manifest| {
+            manifest.handler_api.as_mut().unwrap().base_url = format!("http://{addr}/");
+        })]);
+
+        let acquire = service
+            .acquire_code(AcquireCodeRequest {
+                provider: "herosms".to_string(),
+                service: Some("telegram".to_string()),
+                country: Some("US".to_string()),
+                max_price: None,
+                min_price: None,
+                auto_pick_country: None,
+                reuse_phone: Some(true),
+                reuse_key: None,
+                metadata: BTreeMap::new(),
+                routing_plan_id: None,
+                routing_plan_name: None,
+            })
+            .await
+            .unwrap();
+
+        let _ = service
+            .release_code(ReleaseCodeRequest {
+                ticket_id: acquire.ticket_id.clone(),
+                action: crate::models::ReleaseAction::Cancel,
+            })
+            .await
+            .unwrap();
+
+        service.maybe_process_pending_releases().await;
+
+        let ticket = service.ticket(&acquire.ticket_id).unwrap();
+        assert_eq!(ticket.status, TicketStatus::Cancelled);
+        assert_eq!(ticket.pending_release_action, None);
+        assert_eq!(ticket.auto_release_at, None);
+        assert_eq!(ticket.next_release_attempt_at, None);
+        assert_eq!(ticket.release_retry_deadline_at, None);
+        assert_eq!(ticket.release_retry_count, 0);
+        let logs = service.runtime_snapshot().logs;
+        assert!(logs.iter().any(|entry| entry.message.contains("auto cancel completed")));
+
+        server.abort();
+    }
+
+    #[tokio::test]
+    async fn pending_cancel_failure_schedules_five_second_retry() {
+        #[derive(Clone, Default)]
+        struct ReleaseState {
+            calls: Arc<parking_lot::Mutex<u32>>,
+        }
+
+        async fn handler(
+            State(state): State<ReleaseState>,
+            Query(query): Query<HashMap<String, String>>,
+        ) -> String {
+            match query.get("action").map(String::as_str) {
+                Some("setStatus") => {
+                    let mut calls = state.calls.lock();
+                    *calls += 1;
+                    r#"{"title":"EARLY_CANCEL_DENIED","details":"Activation cannot be cancelled at this time. Minimum activation period must pass.","info":{"minActivationTime":0}}"#.to_string()
+                }
+                Some("getNumberV2") => r#"{"activationId":"activation-1","phoneNumber":"79001234567","activationCost":"0.06","canGetAnotherSms":true}"#.to_string(),
+                _ => "ACCESS_OK".to_string(),
+            }
+        }
+
+        let state = ReleaseState::default();
+        let router = Router::new().route("/", get(handler)).with_state(state.clone());
+        let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let addr: SocketAddr = listener.local_addr().unwrap();
+        let server = tokio::spawn(async move {
+            let _ = axum::serve(listener, router).await;
+        });
+
+        let service = make_service_with_provider_overrides(&[("herosms", |manifest| {
+            manifest.handler_api.as_mut().unwrap().base_url = format!("http://{addr}/");
+        })]);
+
+        let acquire = service
+            .acquire_code(AcquireCodeRequest {
+                provider: "herosms".to_string(),
+                service: Some("telegram".to_string()),
+                country: Some("US".to_string()),
+                max_price: None,
+                min_price: None,
+                auto_pick_country: None,
+                reuse_phone: Some(true),
+                reuse_key: None,
+                metadata: BTreeMap::new(),
+                routing_plan_id: None,
+                routing_plan_name: None,
+            })
+            .await
+            .unwrap();
+
+        let _ = service
+            .release_code(ReleaseCodeRequest {
+                ticket_id: acquire.ticket_id.clone(),
+                action: crate::models::ReleaseAction::Cancel,
+            })
+            .await
+            .unwrap();
+
+        service.maybe_process_pending_releases().await;
+
+        let ticket = service.ticket(&acquire.ticket_id).unwrap();
+        assert_eq!(ticket.status, TicketStatus::CancelPending);
+        assert_eq!(ticket.release_retry_count, 1);
+        assert!(ticket.next_release_attempt_at.is_some());
+        let logs = service.runtime_snapshot().logs;
+        assert!(logs.iter().any(|entry| entry.message.contains("auto cancel retry scheduled")));
+
+        server.abort();
+    }
+
+    #[tokio::test]
+    async fn pending_cancel_retry_window_expiry_returns_ticket_to_waiting_code() {
+        let service = make_service_with_provider_overrides(&[]);
+        let ticket = TicketRecord {
+            id: "ticket-expired".to_string(),
+            provider: "herosms".to_string(),
+            service: "telegram".to_string(),
+            country: "US".to_string(),
+            phone_number: "79001234567".to_string(),
+            upstream_id: Some("activation-1".to_string()),
+            price: Some(0.06),
+            status: TicketStatus::CancelPending,
+            created_at: Utc::now() - Duration::seconds(120),
+            updated_at: Utc::now() - Duration::seconds(30),
+            acquire_path: AcquirePath::FreshAcquire,
+            code: None,
+            message: None,
+            same_activation_retry_supported: false,
+            same_activation_retry_expires_at: None,
+            pending_release_action: Some(crate::models::ReleaseAction::Cancel),
+            auto_release_at: Some(Utc::now() - Duration::seconds(20)),
+            next_release_attempt_at: Some(Utc::now() - Duration::seconds(5)),
+            release_retry_deadline_at: Some(Utc::now() - Duration::seconds(1)),
+            release_retry_count: 1,
+            routing_plan_id: None,
+            routing_plan_name: None,
+            routing_item_id: None,
+            routing_item_index: None,
+            routing_execution_mode: None,
+            routing_execution_rounds: None,
+            routing_current_round: None,
+            routing_candidate_item_ids: Vec::new(),
+            routing_attempt_count: 0,
+            reuse_count: 0,
+        };
+        service.upsert_ticket(ticket);
+
+        service.maybe_process_pending_releases().await;
+
+        let updated = service.ticket("ticket-expired").unwrap();
+        assert_eq!(updated.status, TicketStatus::WaitingCode);
+        assert_eq!(updated.pending_release_action, None);
+        assert_eq!(updated.auto_release_at, None);
+        assert_eq!(updated.next_release_attempt_at, None);
+        assert_eq!(updated.release_retry_deadline_at, None);
+        assert_eq!(
+            updated.message.as_deref(),
+            Some("auto cancel retry window expired")
+        );
+        let activity = service.activity_feed();
+        assert!(activity.items.iter().any(|entry| {
+            entry.level == ActivityLevel::Error
+                && entry.title.contains("自动取消重试窗口已过期")
+        }));
+    }
+
+    #[tokio::test]
+    async fn pending_cancel_retry_limit_returns_ticket_to_waiting_code() {
+        let service = make_service_with_provider_overrides(&[]);
+        let now = Utc::now();
+        let retry_limit = auto_release_retry_limit(30);
+        let ticket = TicketRecord {
+            id: "ticket-retry-limit".to_string(),
+            provider: "herosms".to_string(),
+            service: "telegram".to_string(),
+            country: "US".to_string(),
+            phone_number: "79001234567".to_string(),
+            upstream_id: Some("activation-2".to_string()),
+            price: Some(0.06),
+            status: TicketStatus::CancelPending,
+            created_at: now - Duration::seconds(120),
+            updated_at: now - Duration::seconds(30),
+            acquire_path: AcquirePath::FreshAcquire,
+            code: None,
+            message: None,
+            same_activation_retry_supported: false,
+            same_activation_retry_expires_at: None,
+            pending_release_action: Some(crate::models::ReleaseAction::Cancel),
+            auto_release_at: Some(now - Duration::seconds(30)),
+            next_release_attempt_at: Some(now - Duration::seconds(5)),
+            release_retry_deadline_at: Some(now),
+            release_retry_count: retry_limit,
+            routing_plan_id: None,
+            routing_plan_name: None,
+            routing_item_id: None,
+            routing_item_index: None,
+            routing_execution_mode: None,
+            routing_execution_rounds: None,
+            routing_current_round: None,
+            routing_candidate_item_ids: Vec::new(),
+            routing_attempt_count: 0,
+            reuse_count: 0,
+        };
+        service.upsert_ticket(ticket);
+
+        service.maybe_process_pending_releases().await;
+
+        let updated = service.ticket("ticket-retry-limit").unwrap();
+        assert_eq!(updated.status, TicketStatus::WaitingCode);
+        assert_eq!(updated.pending_release_action, None);
+        assert_eq!(updated.auto_release_at, None);
+        assert_eq!(updated.next_release_attempt_at, None);
+        assert_eq!(updated.release_retry_deadline_at, None);
+        assert_eq!(
+            updated.message.as_deref(),
+            Some("auto cancel retry limit reached")
+        );
+        let activity = service.activity_feed();
+        assert!(activity.items.iter().any(|entry| {
+            entry.level == ActivityLevel::Error
+                && entry.title.contains("自动取消已达到重试上限")
         }));
     }
 }

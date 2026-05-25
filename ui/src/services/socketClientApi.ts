@@ -16,6 +16,7 @@ import type {
   RuntimeAccessInfo,
   RuntimeSettings,
   RuntimeSettingsUpdate,
+  ReleaseCodeResponse,
   Snapshot,
 } from '../app/types';
 
@@ -167,8 +168,8 @@ export async function pollActivationTicketViaSocket(ticketId: string): Promise<v
 export async function releaseActivationTicketViaSocket(
   ticketId: string,
   action: 'finish' | 'cancel' | 'retry',
-): Promise<void> {
-  await socketInvoke<unknown>('release', { request: { ticket_id: ticketId, action } });
+): Promise<ReleaseCodeResponse> {
+  return socketInvoke<ReleaseCodeResponse>('release', { request: { ticket_id: ticketId, action } });
 }
 
 export function failoverRoutingTicketViaSocket(

@@ -7,7 +7,10 @@ use sms_core::registry::ProviderRegistry;
 use sms_core::service::SmsService;
 use sms_core::socket_api::SocketCommand;
 use sms_server::{spawn_http_server, spawn_socket_server};
+use fs2::FileExt;
 use std::fs;
+use std::fs::File;
+use std::io::ErrorKind;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use tauri::Emitter;
@@ -42,6 +45,7 @@ const RUNTIME_SETTINGS_FILE_NAME: &str = "runtime-settings.json";
 const RUNTIME_STATE_FILE_NAME: &str = "runtime-state.json";
 const PROVIDER_OPTIONS_CACHE_FILE_NAME: &str = "provider-options-cache.json";
 const PROVIDER_OPTIONS_RAW_AUDIT_FILE_NAME: &str = "provider-options-raw.json";
+const DESKTOP_RUNTIME_OWNER_LOCK_FILE_NAME: &str = "desktop-runtime-owner.lock";
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 enum MenuAction {
@@ -191,6 +195,22 @@ fn seed_default_providers(app: &tauri::AppHandle, target_dir: &Path) -> Result<(
     }
 
     Ok(())
+}
+
+fn try_acquire_desktop_runtime_owner(config_dir: &Path) -> Result<Option<File>, String> {
+    let lock_path = config_dir.join(DESKTOP_RUNTIME_OWNER_LOCK_FILE_NAME);
+    let file = File::options()
+        .create(true)
+        .read(true)
+        .write(true)
+        .truncate(false)
+        .open(&lock_path)
+        .map_err(|err| format!("open desktop owner lock failed: {err}"))?;
+    match file.try_lock_exclusive() {
+        Ok(()) => Ok(Some(file)),
+        Err(error) if matches!(error.kind(), ErrorKind::WouldBlock | ErrorKind::PermissionDenied) => Ok(None),
+        Err(error) => Err(format!("lock desktop runtime owner failed: {error}")),
+    }
 }
 
 fn build_app_menu(app: &tauri::AppHandle) -> Result<Menu<tauri::Wry>, String> {
@@ -852,6 +872,10 @@ pub fn run() {
         })
         .setup(move |app| {
             let (config_path, providers_dir) = init_user_config(&app.handle())?;
+            let config_dir = config_path
+                .parent()
+                .ok_or_else(|| "resolve config parent dir failed".to_string())?
+                .to_path_buf();
             let mut config =
                 ServerConfig::load_from_file(&config_path).map_err(|err| err.to_string())?;
             let runtime_settings_path = config_path
@@ -887,40 +911,57 @@ pub fn run() {
             ));
             service.ensure_runtime_settings_persisted();
             app.manage(Arc::clone(&service));
+            let runtime_owner_lock = try_acquire_desktop_runtime_owner(&config_dir)?;
+            let is_runtime_owner = runtime_owner_lock.is_some();
+            if let Some(file) = runtime_owner_lock {
+                app.manage(file);
+            }
             let app_handle = app.handle().clone();
             let config = config.clone();
             let socket_path = config.socket_path.clone();
             let cache_service = Arc::clone(&service);
-            tauri::async_runtime::spawn(async move {
-                match spawn_http_server(service, &config, None).await {
-                    Ok((addr, _handle)) => {
-                        eprintln!("embedded http server listening on {addr}");
+            if is_runtime_owner {
+                tauri::async_runtime::spawn(async move {
+                    match spawn_http_server(service, &config, None).await {
+                        Ok((addr, _handle)) => {
+                            eprintln!("embedded http server listening on {addr}");
+                        }
+                        Err(error) => {
+                            eprintln!("embedded http server failed to start: {error}");
+                            let _ = app_handle.emit("runtime-error", error.to_string());
+                        }
                     }
-                    Err(error) => {
-                        eprintln!("embedded http server failed to start: {error}");
-                        let _ = app_handle.emit("runtime-error", error.to_string());
+                });
+                let socket_service = Arc::clone(&cache_service);
+                tauri::async_runtime::spawn(async move {
+                    if let Err(error) = spawn_socket_server(socket_service, &socket_path).await {
+                        eprintln!("embedded socket server failed to start: {error}");
+                    } else {
+                        eprintln!(
+                            "embedded socket server listening on {}",
+                            socket_path.display()
+                        );
                     }
-                }
-            });
-            let socket_service = Arc::clone(&cache_service);
-            tauri::async_runtime::spawn(async move {
-                if let Err(error) = spawn_socket_server(socket_service, &socket_path).await {
-                    eprintln!("embedded socket server failed to start: {error}");
-                } else {
-                    eprintln!(
-                        "embedded socket server listening on {}",
-                        socket_path.display()
-                    );
-                }
-            });
-            tauri::async_runtime::spawn(async move {
-                loop {
-                    let _ = cache_service.maybe_poll_provider_options().await;
-                    cache_service.refresh_all_provider_balances().await;
-                    cache_service.maybe_dispatch_ticket_callbacks().await;
-                    tokio::time::sleep(std::time::Duration::from_secs(60)).await;
-                }
-            });
+                });
+                let background_service = Arc::clone(&cache_service);
+                tauri::async_runtime::spawn(async move {
+                    loop {
+                        let _ = background_service.maybe_poll_provider_options().await;
+                        background_service.refresh_all_provider_balances().await;
+                        background_service.maybe_dispatch_ticket_callbacks().await;
+                        tokio::time::sleep(std::time::Duration::from_secs(60)).await;
+                    }
+                });
+                let release_service = Arc::clone(&cache_service);
+                tauri::async_runtime::spawn(async move {
+                    loop {
+                        release_service.maybe_process_pending_releases().await;
+                        tokio::time::sleep(std::time::Duration::from_secs(5)).await;
+                    }
+                });
+            } else {
+                eprintln!("desktop runtime running in client-only mode because another local runtime owns background services");
+            }
             if let Some(window) = app.get_webview_window("main") {
                 let _ = window.set_title(APP_WINDOW_TITLE);
             }

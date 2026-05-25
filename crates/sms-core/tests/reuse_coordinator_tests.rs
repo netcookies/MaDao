@@ -81,6 +81,7 @@ fn setup_service_with_state(tickets: Vec<TicketRecord>) -> (SmsService, TempDir)
     let state = RuntimeStateStore {
         tickets,
         logs: vec![],
+        activity: vec![],
         provider_balance_cache: vec![],
         reuse_pool: HashMap::new(),
         openai_sms_regions_cache: Default::default(),
@@ -313,6 +314,82 @@ async fn test_same_activation_retry_disabled_by_reuse_switch() {
 }
 
 #[tokio::test]
+async fn test_cancelled_ticket_is_not_reused_by_same_activation_retry() {
+    let mut ticket = TicketRecord::new(
+        "herosms".to_string(),
+        "telegram".to_string(),
+        "RU".to_string(),
+        "+79001234567".to_string(),
+        Some("retry-cancelled".to_string()),
+        Some(0.06),
+    );
+    ticket.status = TicketStatus::WaitingCode;
+    ticket.same_activation_retry_supported = true;
+    ticket.same_activation_retry_expires_at = Some(Utc::now() + Duration::minutes(5));
+    let ticket_id = ticket.id.clone();
+    let (service, _dir) = setup_service_with_state(vec![ticket]);
+
+    service
+        .release_code(ReleaseCodeRequest {
+            ticket_id: ticket_id.clone(),
+            action: ReleaseAction::Cancel,
+        })
+        .await
+        .unwrap();
+
+    let resp = service
+        .acquire_code(AcquireCodeRequest {
+            provider: "herosms".to_string(),
+            service: Some("telegram".to_string()),
+            country: Some("RU".to_string()),
+            ..default_request()
+        })
+        .await
+        .unwrap();
+
+    assert_ne!(resp.ticket_id, ticket_id);
+    assert_eq!(resp.acquire_path, AcquirePath::FreshAcquire);
+}
+
+#[tokio::test]
+async fn test_banned_ticket_is_not_reused_by_same_activation_retry() {
+    let mut ticket = TicketRecord::new(
+        "smsbower".to_string(),
+        "telegram".to_string(),
+        "RU".to_string(),
+        "+79001234567".to_string(),
+        Some("retry-banned".to_string()),
+        Some(0.06),
+    );
+    ticket.status = TicketStatus::WaitingCode;
+    ticket.same_activation_retry_supported = true;
+    ticket.same_activation_retry_expires_at = Some(Utc::now() + Duration::minutes(5));
+    let ticket_id = ticket.id.clone();
+    let (service, _dir) = setup_service_with_state(vec![ticket]);
+
+    service
+        .release_code(ReleaseCodeRequest {
+            ticket_id: ticket_id.clone(),
+            action: ReleaseAction::Ban,
+        })
+        .await
+        .unwrap();
+
+    let resp = service
+        .acquire_code(AcquireCodeRequest {
+            provider: "smsbower".to_string(),
+            service: Some("telegram".to_string()),
+            country: Some("RU".to_string()),
+            ..default_request()
+        })
+        .await
+        .unwrap();
+
+    assert_ne!(resp.ticket_id, ticket_id);
+    assert_eq!(resp.acquire_path, AcquirePath::FreshAcquire);
+}
+
+#[tokio::test]
 async fn test_exact_reuse_disabled_by_reuse_switch() {
     let (service, _dir) = setup_service();
     let request = AcquireCodeRequest {
@@ -422,6 +499,7 @@ async fn test_stale_eviction_ttl() {
     let state = RuntimeStateStore {
         tickets: vec![],
         logs: vec![],
+        activity: vec![],
         provider_balance_cache: vec![],
         reuse_pool: pool,
         openai_sms_regions_cache: Default::default(),
@@ -462,6 +540,7 @@ async fn test_stale_eviction_max_count() {
     let state = RuntimeStateStore {
         tickets: vec![],
         logs: vec![],
+        activity: vec![],
         provider_balance_cache: vec![],
         reuse_pool: pool,
         openai_sms_regions_cache: Default::default(),

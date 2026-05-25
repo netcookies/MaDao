@@ -35,6 +35,7 @@ import { SettingsScreen } from '../app/settings/SettingsScreen';
 import { AppButton } from '../app/ui-bridge';
 import { formatScopeLabel } from '../lib/formatters';
 import type {
+  ActivityEntry,
   ActivationFormState,
   LogEntry,
   LogFilter,
@@ -245,7 +246,7 @@ const TICKETS: TicketRecord[] = [
     service: 'openai',
       country: 'US',
     phone_number: '+1 (555) 019-2834',
-    status: 'CodeReceived',
+    status: 'code_received',
     price: 0.04,
     code: '395776',
     message: 'SMS received successfully',
@@ -278,41 +279,48 @@ const TICKETS: TicketRecord[] = [
   },
 ];
 
-const OVERVIEW_ACTIVITY: TicketRecord[] = [
+const OVERVIEW_ACTIVITY = [
   {
     id: 'OA-1',
+    timestamp: '2026-05-03T14:24:00.000Z',
+    kind: 'ticket_event',
+    level: 'info',
+    title: '工单 OA-1 获取成功',
+    detail: 'provider=fivesim service=openai country=US',
     provider: 'fivesim',
     service: 'openai',
-      country: 'US',
-    phone_number: '+1 (555) 019-2834',
-    status: 'Delivered',
-    price: null,
-    code: null,
-    message: null,
+    country: 'US',
+    ticket_id: 'OA-1',
   },
   {
     id: 'OA-2',
+    timestamp: '2026-05-03T14:23:30.000Z',
+    kind: 'release_event',
+    level: 'warn',
+    title: '自动取消已安排',
+    detail: '等待冷却结束后自动执行取消',
     provider: 'herosms',
     service: 'telegram',
-      country: 'GB',
-    phone_number: '+44 7700 900077',
-    status: 'Pending',
-    price: null,
-    code: null,
-    message: null,
+    country: 'GB',
+    ticket_id: 'OA-2',
   },
   {
     id: 'OA-3',
+    timestamp: '2026-05-03T14:23:10.000Z',
+    kind: 'routing_event',
+    level: 'error',
+    title: '路由候选 mock-second 被跳过',
+    detail: 'provider=smsbower item=mock-second round=1',
     provider: 'smsbower',
     service: 'whatsapp',
-      country: 'AU',
-    phone_number: '+61 7000 000000',
-    status: 'Failed',
-    price: null,
-    code: null,
-    message: null,
+    country: 'AU',
+    routing_plan_id: 'openai-plan',
+    routing_plan_name: 'OpenGPT Plan 1',
+    routing_item_id: 'mock-second',
+    routing_round: 1,
+    ticket_id: 'OA-3',
   },
-];
+] satisfies ActivityEntry[];
 
 const LOGS: LogEntry[] = [
   {
@@ -574,7 +582,7 @@ function renderPageTarget(target: ScreenshotTarget, t: (key: string, options?: R
           successRate: '100.0%',
         }}
         activity={[]}
-        snapshot={{ providers: [], tickets: [], logs: [], reuse_pool: [] }}
+        providers={{}}
         onViewAll={noop}
       />,
     );

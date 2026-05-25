@@ -3,6 +3,7 @@ import {
   type ActivationFormState,
   type LanguageCode,
   type MessageFilter,
+  type ReleaseCodeResponse,
   type TicketRecord,
   type SelectorKind,
 } from '../app/types';
@@ -41,6 +42,11 @@ export function useActivationFlow(
     return formatProviderErrorMessage(error, ui.language);
   }
 
+  function isCancelPending(response: ReleaseCodeResponse) {
+    return response.status === 'cancel_pending'
+      || response.status === 'CancelPending';
+  }
+
   async function pollTicket(ticketId: string, options?: { silent?: boolean }) {
     try {
       ui.setBusyAction(`poll-${ticketId}`);
@@ -70,8 +76,13 @@ export function useActivationFlow(
           index: (nextTicket.routing_item_index ?? 0) + 1,
         }));
       } else {
-        await releaseActivationTicket(ticket.id, action);
-        ui.setStatusMessage(translate('ticket_action_complete', { ticket: ticket.id, action }));
+        const response = await releaseActivationTicket(ticket.id, action);
+        if (action === 'cancel' && isCancelPending(response)) {
+          ui.setMessageFilter('waiting');
+          ui.setStatusMessage(translate('auto_cancel_scheduled_ticket', { ticket: ticket.id }));
+        } else {
+          ui.setStatusMessage(translate('ticket_action_complete', { ticket: ticket.id, action }));
+        }
       }
       await runtime.loadSnapshot();
     } catch (error) {
