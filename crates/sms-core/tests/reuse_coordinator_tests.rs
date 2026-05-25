@@ -4,6 +4,7 @@ use sms_core::models::{
     RuntimeStateStore, TicketRecord, TicketStatus,
 };
 use sms_core::registry::ProviderRegistry;
+use sms_core::runtime_store::RuntimeStore;
 use sms_core::service::SmsService;
 use std::collections::{BTreeMap, HashMap};
 use std::fs;
@@ -51,7 +52,7 @@ fn setup_service() -> (SmsService, TempDir) {
     .unwrap();
 
     let registry = ProviderRegistry::load_from_dir(&providers_dir).unwrap();
-    let state_path = dir.path().join("runtime-state.json");
+    let state_path = dir.path().join("runtime.db");
     let service =
         SmsService::with_persistence_paths(registry, 100, None, Some(state_path), None, None, None);
     (service, dir)
@@ -77,7 +78,7 @@ fn setup_service_with_state(tickets: Vec<TicketRecord>) -> (SmsService, TempDir)
     )
     .unwrap();
 
-    let state_path = dir.path().join("runtime-state.json");
+    let state_path = dir.path().join("runtime.db");
     let state = RuntimeStateStore {
         tickets,
         logs: vec![],
@@ -86,7 +87,7 @@ fn setup_service_with_state(tickets: Vec<TicketRecord>) -> (SmsService, TempDir)
         reuse_pool: HashMap::new(),
         openai_sms_regions_cache: Default::default(),
     };
-    fs::write(&state_path, serde_json::to_string(&state).unwrap()).unwrap();
+    RuntimeStore::open(&state_path).unwrap().replace_state(&state).unwrap();
 
     let registry = ProviderRegistry::load_from_dir(&providers_dir).unwrap();
     let service =
@@ -184,9 +185,8 @@ async fn test_same_activation_retry_not_pool() {
         })
         .await
         .unwrap();
-    let state_path = dir.path().join("runtime-state.json");
-    let content = fs::read_to_string(&state_path).unwrap();
-    let state: RuntimeStateStore = serde_json::from_str(&content).unwrap();
+    let state_path = dir.path().join("runtime.db");
+    let state = RuntimeStore::open(&state_path).unwrap().load_state().unwrap();
     assert!(
         state.reuse_pool.is_empty() || state.reuse_pool.values().all(|v| v.is_empty()),
         "Retry should not record candidate in pool"
@@ -504,8 +504,8 @@ async fn test_stale_eviction_ttl() {
         reuse_pool: pool,
         openai_sms_regions_cache: Default::default(),
     };
-    let state_path = dir.path().join("runtime-state.json");
-    fs::write(&state_path, serde_json::to_string(&state).unwrap()).unwrap();
+    let state_path = dir.path().join("runtime.db");
+    RuntimeStore::open(&state_path).unwrap().replace_state(&state).unwrap();
 
     let providers_dir = dir.path().join("providers");
     let registry = ProviderRegistry::load_from_dir(&providers_dir).unwrap();
@@ -545,8 +545,8 @@ async fn test_stale_eviction_max_count() {
         reuse_pool: pool,
         openai_sms_regions_cache: Default::default(),
     };
-    let state_path = dir.path().join("runtime-state.json");
-    fs::write(&state_path, serde_json::to_string(&state).unwrap()).unwrap();
+    let state_path = dir.path().join("runtime.db");
+    RuntimeStore::open(&state_path).unwrap().replace_state(&state).unwrap();
 
     let providers_dir = dir.path().join("providers");
     let registry = ProviderRegistry::load_from_dir(&providers_dir).unwrap();
@@ -578,9 +578,8 @@ async fn test_pool_persistence() {
         })
         .await
         .unwrap();
-    let state_path = dir.path().join("runtime-state.json");
-    let content = fs::read_to_string(&state_path).unwrap();
-    let state: RuntimeStateStore = serde_json::from_str(&content).unwrap();
+    let state_path = dir.path().join("runtime.db");
+    let state = RuntimeStore::open(&state_path).unwrap().load_state().unwrap();
     assert!(
         !state.reuse_pool.is_empty(),
         "reuse_pool should be persisted"

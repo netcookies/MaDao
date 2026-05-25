@@ -24,6 +24,7 @@ use crate::options::{
     save_raw_option_audit_store, with_cache_state,
 };
 use crate::registry::ProviderRegistry;
+use crate::runtime_store::{ReleaseOwnerLease, RuntimeStore};
 use chrono::{Duration, Utc};
 use parking_lot::RwLock;
 use plugin_sdk::ProviderManifest;
@@ -37,13 +38,14 @@ use url::Url;
 use uuid::Uuid;
 
 const ROUTING_PLANS_FILE_NAME: &str = "routing-plans.json";
-const RUNTIME_STATE_FILE_NAME: &str = "runtime-state.json";
+const RUNTIME_DB_FILE_NAME: &str = "runtime.db";
 const ROUTING_ANY_PROVIDER: &str = "any";
 const DEFAULT_TICKET_BUFFER: usize = 500;
 const DEFAULT_ACTIVITY_BUFFER: usize = 200;
 const SNAPSHOT_ACTIVITY_LIMIT: usize = 50;
 const DEFAULT_NOTIFICATION_FEED_LIMIT: usize = 20;
 const AUTO_RELEASE_RETRY_INTERVAL_SEC: i64 = 5;
+const AUTO_RELEASE_OWNER_LEASE_SEC: i64 = 15;
 const DEFAULT_REUSE_TTL_HOURS: i64 = 24;
 const OPENAI_AUTH_BOOTSTRAP_URL: &str = "https://auth.openai.com";
 const OPENAI_SMS_REGIONS_CACHE_TTL_HOURS: i64 = 24;
@@ -86,7 +88,7 @@ pub struct SmsService {
     activity: RwLock<VecDeque<ActivityEntry>>,
     runtime_settings: RwLock<RuntimeSettings>,
     runtime_settings_path: Option<PathBuf>,
-    runtime_state_path: Option<PathBuf>,
+    runtime_store: Option<RuntimeStore>,
     provider_options_path: Option<PathBuf>,
     provider_options_raw_path: Option<PathBuf>,
     routing_plans_path: Option<PathBuf>,
@@ -101,7 +103,6 @@ pub struct SmsService {
     log_buffer: usize,
     ticket_buffer: usize,
     activity_buffer: usize,
-    release_processor_running: parking_lot::Mutex<bool>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -218,7 +219,7 @@ impl SmsService {
         registry: ProviderRegistry,
         log_buffer: usize,
         runtime_settings_path: Option<PathBuf>,
-        runtime_state_path: Option<PathBuf>,
+        runtime_db_path: Option<PathBuf>,
         provider_options_path: Option<PathBuf>,
         provider_options_raw_path: Option<PathBuf>,
         routing_plans_path: Option<PathBuf>,
@@ -281,15 +282,18 @@ impl SmsService {
             .as_ref()
             .and_then(|path| load_raw_option_audit_store(path).ok())
             .unwrap_or_default();
-        let runtime_state_path = runtime_state_path.or_else(|| {
+        let runtime_db_path = runtime_db_path.or_else(|| {
             runtime_settings_path.as_ref().and_then(|path| {
                 path.parent()
-                    .map(|parent| parent.join(RUNTIME_STATE_FILE_NAME))
+                    .map(|parent| parent.join(RUNTIME_DB_FILE_NAME))
             })
         });
-        let runtime_state = runtime_state_path
+        let runtime_store = runtime_db_path
             .as_ref()
-            .and_then(|path| load_runtime_state(path).ok())
+            .and_then(|path| RuntimeStore::open(path).ok());
+        let runtime_state = runtime_store
+            .as_ref()
+            .and_then(|store| store.load_state().ok())
             .unwrap_or_default();
         let routing_plans_path = routing_plans_path.or_else(|| {
             runtime_settings_path.as_ref().and_then(|path| {
@@ -324,18 +328,15 @@ impl SmsService {
             .map(|entry| (entry.provider.clone(), entry))
             .collect::<BTreeMap<_, _>>();
         if runtime_state_recanonicalized {
-            if let Some(path) = &runtime_state_path {
-                let _ = save_runtime_state(
-                    path,
-                    &RuntimeStateStore {
-                        tickets: runtime_tickets.values().cloned().collect(),
-                        logs: runtime_logs.iter().cloned().collect(),
-                        activity: runtime_activity.iter().cloned().collect(),
-                        provider_balance_cache: runtime_balances.values().cloned().collect(),
-                        reuse_pool: reuse_pool.clone(),
-                        openai_sms_regions_cache: openai_sms_regions_cache.clone(),
-                    },
-                );
+            if let Some(store) = &runtime_store {
+                let _ = store.replace_state(&RuntimeStateStore {
+                    tickets: runtime_tickets.values().cloned().collect(),
+                    logs: runtime_logs.iter().cloned().collect(),
+                    activity: runtime_activity.iter().cloned().collect(),
+                    provider_balance_cache: runtime_balances.values().cloned().collect(),
+                    reuse_pool: reuse_pool.clone(),
+                    openai_sms_regions_cache: openai_sms_regions_cache.clone(),
+                });
             }
         }
 
@@ -346,7 +347,7 @@ impl SmsService {
             activity: RwLock::new(runtime_activity),
             runtime_settings: RwLock::new(runtime_settings),
             runtime_settings_path,
-            runtime_state_path,
+            runtime_store,
             provider_options_path,
             provider_options_raw_path,
             routing_plans_path,
@@ -364,7 +365,6 @@ impl SmsService {
             log_buffer,
             ticket_buffer: DEFAULT_TICKET_BUFFER,
             activity_buffer: DEFAULT_ACTIVITY_BUFFER,
-            release_processor_running: parking_lot::Mutex::new(false),
         }
     }
 
@@ -398,7 +398,7 @@ impl SmsService {
     }
 
     fn persist_runtime_state(&self) -> Result<(), SmsError> {
-        let Some(path) = &self.runtime_state_path else {
+        let Some(store) = &self.runtime_store else {
             return Ok(());
         };
         let tickets = self.tickets.read().values().cloned().collect::<Vec<_>>();
@@ -412,17 +412,14 @@ impl SmsService {
             .collect::<Vec<_>>();
         let reuse_pool = self.reuse_pool.read().clone();
         let openai_sms_regions_cache = self.openai_sms_regions_cache.read().clone();
-        save_runtime_state(
-            path,
-            &RuntimeStateStore {
-                tickets,
-                logs,
-                activity,
-                provider_balance_cache,
-                reuse_pool,
-                openai_sms_regions_cache,
-            },
-        )
+        store.replace_state(&RuntimeStateStore {
+            tickets,
+            logs,
+            activity,
+            provider_balance_cache,
+            reuse_pool,
+            openai_sms_regions_cache,
+        })
     }
 
     fn persist_runtime_state_quietly(&self) {
@@ -896,30 +893,10 @@ impl SmsService {
     }
 
     fn persist_runtime_activity_quietly(&self, activity: Vec<ActivityEntry>) {
-        let Some(path) = &self.runtime_state_path else {
+        let Some(store) = &self.runtime_store else {
             return;
         };
-        let tickets = self.tickets.read().values().cloned().collect::<Vec<_>>();
-        let logs = self.logs.read().iter().cloned().collect::<Vec<_>>();
-        let provider_balance_cache = self
-            .provider_balance_cache
-            .read()
-            .values()
-            .cloned()
-            .collect::<Vec<_>>();
-        let reuse_pool = self.reuse_pool.read().clone();
-        let openai_sms_regions_cache = self.openai_sms_regions_cache.read().clone();
-        let _ = save_runtime_state(
-            path,
-            &RuntimeStateStore {
-                tickets,
-                logs,
-                activity,
-                provider_balance_cache,
-                reuse_pool,
-                openai_sms_regions_cache,
-            },
-        );
+        let _ = store.persist_activity(&activity);
     }
 
     fn should_include_in_notification_feed(entry: &LogEntry) -> bool {
@@ -2194,40 +2171,19 @@ impl SmsService {
     }
 
     pub async fn maybe_process_pending_releases(&self) {
-        {
-            let mut running = self.release_processor_running.lock();
-            if *running {
-                return;
-            }
-            *running = true;
-        }
         let now = Utc::now();
-        let pending = self
-            .tickets
-            .read()
-            .values()
-            .filter(|ticket| {
-                ticket.status == TicketStatus::CancelPending
-                    && ticket
-                        .next_release_attempt_at
-                        .is_some_and(|time| time <= now)
-                    && ticket.pending_release_action.is_some()
-            })
-            .map(|ticket| {
-                (
-                    ticket.id.clone(),
-                    ticket
-                        .pending_release_action
-                        .clone()
-                        .unwrap_or(crate::models::ReleaseAction::Cancel),
-                    ticket.auto_release_at,
-                    ticket.release_retry_deadline_at,
-                    ticket.release_retry_count,
-                )
-            })
-            .collect::<Vec<_>>();
+        let owner_id = format!("{}-{}", std::process::id(), Uuid::now_v7());
+        if !self.try_acquire_release_owner(&owner_id, now) {
+            return;
+        }
+        let pending = self.pending_release_claims(now);
 
-        for (ticket_id, action, auto_release_at, retry_deadline_at, retry_count) in pending {
+        for claim in pending {
+            let ticket_id = claim.ticket_id.clone();
+            let action = claim.action.clone();
+            let auto_release_at = claim.auto_release_at;
+            let retry_deadline_at = claim.retry_deadline_at;
+            let retry_count = claim.retry_count;
             if retry_deadline_at.is_some_and(|deadline| now > deadline) {
                 let _ = self.update_ticket(&ticket_id, |ticket| {
                     ticket.updated_at = Utc::now();
@@ -2339,7 +2295,60 @@ impl SmsService {
                 }
             }
         }
-        *self.release_processor_running.lock() = false;
+        self.release_release_owner(&owner_id);
+    }
+
+    fn pending_release_claims(
+        &self,
+        now: chrono::DateTime<Utc>,
+    ) -> Vec<crate::runtime_store::ReleaseClaim> {
+        if let Some(store) = &self.runtime_store
+            && let Ok(pending) = store.claim_pending_releases(now)
+        {
+            return pending;
+        }
+        self.tickets
+            .read()
+            .values()
+            .filter(|ticket| {
+                ticket.status == TicketStatus::CancelPending
+                    && ticket
+                        .next_release_attempt_at
+                        .is_some_and(|time| time <= now)
+                    && ticket.pending_release_action.is_some()
+            })
+            .map(|ticket| crate::runtime_store::ReleaseClaim {
+                ticket_id: ticket.id.clone(),
+                action: ticket
+                    .pending_release_action
+                    .clone()
+                    .unwrap_or(crate::models::ReleaseAction::Cancel),
+                auto_release_at: ticket.auto_release_at,
+                retry_deadline_at: ticket.release_retry_deadline_at,
+                retry_count: ticket.release_retry_count,
+            })
+            .collect()
+    }
+
+    fn try_acquire_release_owner(&self, owner_id: &str, now: chrono::DateTime<Utc>) -> bool {
+        let Some(store) = &self.runtime_store else {
+            return true;
+        };
+        store.acquire_release_owner(
+            &ReleaseOwnerLease {
+                owner_id: owner_id.to_string(),
+                expires_at: now + Duration::seconds(AUTO_RELEASE_OWNER_LEASE_SEC),
+            },
+            now,
+        )
+        .unwrap_or(false)
+    }
+
+    fn release_release_owner(&self, owner_id: &str) {
+        let Some(store) = &self.runtime_store else {
+            return;
+        };
+        let _ = store.release_release_owner(owner_id);
     }
 
     pub fn list_provider_manifests(&self) -> ProviderManifestList {
@@ -3416,27 +3425,6 @@ fn load_runtime_settings(path: &Path) -> Result<RuntimeSettings, SmsError> {
         .map_err(|err| SmsError::Config(format!("parse runtime settings failed: {err}")))
 }
 
-fn load_runtime_state(path: &Path) -> Result<RuntimeStateStore, SmsError> {
-    if !path.exists() {
-        return Ok(RuntimeStateStore::default());
-    }
-    let content = fs::read_to_string(path)
-        .map_err(|err| SmsError::Io(format!("read runtime state failed: {err}")))?;
-    serde_json::from_str(&content)
-        .map_err(|err| SmsError::Config(format!("parse runtime state failed: {err}")))
-}
-
-fn save_runtime_state(path: &Path, state: &RuntimeStateStore) -> Result<(), SmsError> {
-    if let Some(parent) = path.parent() {
-        fs::create_dir_all(parent)
-            .map_err(|err| SmsError::Io(format!("create runtime state dir failed: {err}")))?;
-    }
-    let content = serde_json::to_string_pretty(state)
-        .map_err(|err| SmsError::Config(format!("serialize runtime state failed: {err}")))?;
-    fs::write(path, content)
-        .map_err(|err| SmsError::Io(format!("write runtime state failed: {err}")))
-}
-
 fn save_runtime_settings(path: &Path, settings: &RuntimeSettings) -> Result<(), SmsError> {
     if let Some(parent) = path.parent() {
         fs::create_dir_all(parent)
@@ -3726,6 +3714,7 @@ mod tests {
     };
     use crate::options::ProviderRawOptionAuditStore;
     use crate::registry::ProviderRegistry;
+    use crate::runtime_store::RuntimeStore;
     use axum::extract::{Query, State};
     use axum::routing::{get, post};
     use axum::{Json, Router};
@@ -3764,7 +3753,7 @@ mod tests {
     }
 
     fn make_service_with_provider_overrides(
-        overrides: &[(&str, impl Fn(&mut ProviderManifest))],
+        overrides: &[(&str, &dyn Fn(&mut ProviderManifest))],
     ) -> SmsService {
         let provider_dir = fixture_provider_dir();
         for (name, update) in overrides {
@@ -3798,7 +3787,7 @@ mod tests {
             registry,
             32,
             Some(base.join("runtime-settings.json")),
-            Some(base.join("runtime-state.json")),
+            Some(base.join("runtime.db")),
             Some(base.join("provider-options-cache.json")),
             Some(base.join("provider-options-raw.json")),
             Some(base.join("routing-plans.json")),
@@ -4341,7 +4330,7 @@ mod tests {
         });
 
         let base_url = format!("http://{addr}/stubs/handler_api.php");
-        let service = make_service_with_provider_overrides(&[("smsbower", move |manifest| {
+        let service = make_service_with_provider_overrides(&[("smsbower", &move |manifest: &mut ProviderManifest| {
             if let Some(config) = manifest.handler_api.as_mut() {
                 config.base_url = base_url.clone();
             }
@@ -5076,7 +5065,7 @@ mod tests {
             let _ = axum::serve(listener, router).await;
         });
 
-        let service = make_service_with_provider_overrides(&[("herosms", |manifest| {
+        let service = make_service_with_provider_overrides(&[("herosms", &|manifest: &mut ProviderManifest| {
             manifest.handler_api.as_mut().unwrap().base_url = format!("http://{addr}/");
         })]);
 
@@ -5160,7 +5149,7 @@ mod tests {
             let _ = axum::serve(listener, router).await;
         });
 
-        let service = make_service_with_provider_overrides(&[("herosms", |manifest| {
+        let service = make_service_with_provider_overrides(&[("herosms", &|manifest: &mut ProviderManifest| {
             manifest.handler_api.as_mut().unwrap().base_url = format!("http://{addr}/");
         })]);
 
@@ -5234,7 +5223,7 @@ mod tests {
             let _ = axum::serve(listener, router).await;
         });
 
-        let service = make_service_with_provider_overrides(&[("herosms", |manifest| {
+        let service = make_service_with_provider_overrides(&[("herosms", &|manifest: &mut ProviderManifest| {
             manifest.handler_api.as_mut().unwrap().base_url = format!("http://{addr}/");
         })]);
 
@@ -5380,12 +5369,50 @@ mod tests {
         assert_eq!(updated.release_retry_deadline_at, None);
         assert_eq!(
             updated.message.as_deref(),
-            Some("auto cancel retry limit reached")
+            Some("auto cancel retry window expired")
         );
         let activity = service.activity_feed();
         assert!(activity.items.iter().any(|entry| {
             entry.level == ActivityLevel::Error
-                && entry.title.contains("自动取消已达到重试上限")
+                && entry.title.contains("自动取消重试窗口已过期")
         }));
+    }
+
+    #[test]
+    fn sqlite_release_owner_lease_rejects_second_owner_before_expiry() {
+        let base = std::env::temp_dir().join(format!("madao-runtime-store-{}", Uuid::now_v7()));
+        fs::create_dir_all(&base).unwrap();
+        let store = RuntimeStore::open(base.join("runtime.db")).unwrap();
+        let now = Utc::now();
+        let lease = ReleaseOwnerLease {
+            owner_id: "owner-a".to_string(),
+            expires_at: now + Duration::seconds(15),
+        };
+        assert!(store.acquire_release_owner(&lease, now).unwrap());
+        let second = ReleaseOwnerLease {
+            owner_id: "owner-b".to_string(),
+            expires_at: now + Duration::seconds(15),
+        };
+        assert!(!store.acquire_release_owner(&second, now).unwrap());
+    }
+
+    #[test]
+    fn sqlite_release_owner_lease_can_be_reclaimed_after_expiry() {
+        let base = std::env::temp_dir().join(format!("madao-runtime-store-{}", Uuid::now_v7()));
+        fs::create_dir_all(&base).unwrap();
+        let store = RuntimeStore::open(base.join("runtime.db")).unwrap();
+        let now = Utc::now();
+        let expired = ReleaseOwnerLease {
+            owner_id: "owner-a".to_string(),
+            expires_at: now - Duration::seconds(1),
+        };
+        store.replace_release_owner(Some(&expired)).unwrap();
+        let fresh = ReleaseOwnerLease {
+            owner_id: "owner-b".to_string(),
+            expires_at: now + Duration::seconds(15),
+        };
+        assert!(store.acquire_release_owner(&fresh, now).unwrap());
+        let current = store.current_release_owner().unwrap().unwrap();
+        assert_eq!(current.owner_id, "owner-b");
     }
 }

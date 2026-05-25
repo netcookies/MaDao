@@ -42,7 +42,7 @@ const MENU_PROVIDER_PREFIX: &str = "provider.";
 const DEFAULT_CONFIG_RESOURCE_PATH: &str = "defaults/config/server.toml";
 const DEFAULT_PROVIDER_RESOURCE_DIR: &str = "defaults/providers";
 const RUNTIME_SETTINGS_FILE_NAME: &str = "runtime-settings.json";
-const RUNTIME_STATE_FILE_NAME: &str = "runtime-state.json";
+const RUNTIME_DB_FILE_NAME: &str = "runtime.db";
 const PROVIDER_OPTIONS_CACHE_FILE_NAME: &str = "provider-options-cache.json";
 const PROVIDER_OPTIONS_RAW_AUDIT_FILE_NAME: &str = "provider-options-raw.json";
 const DESKTOP_RUNTIME_OWNER_LOCK_FILE_NAME: &str = "desktop-runtime-owner.lock";
@@ -896,15 +896,15 @@ pub fn run() {
                 .parent()
                 .ok_or_else(|| "resolve config parent dir failed".to_string())?
                 .join(PROVIDER_OPTIONS_RAW_AUDIT_FILE_NAME);
-            let runtime_state_path = config_path
+            let runtime_db_path = config_path
                 .parent()
                 .ok_or_else(|| "resolve config parent dir failed".to_string())?
-                .join(RUNTIME_STATE_FILE_NAME);
+                .join(RUNTIME_DB_FILE_NAME);
             let service = Arc::new(SmsService::with_persistence_paths(
                 registry,
                 config.log_buffer,
                 Some(runtime_settings_path),
-                Some(runtime_state_path),
+                Some(runtime_db_path),
                 Some(provider_options_path),
                 Some(provider_options_raw_path),
                 None,

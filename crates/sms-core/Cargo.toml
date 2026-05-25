@@ -11,6 +11,7 @@ chrono.workspace = true
 parking_lot.workspace = true
 plugin-sdk = { path = "../plugin-sdk" }
 reqwest.workspace = true
+rusqlite.workspace = true
 serde.workspace = true
 serde_json.workspace = true
 thiserror.workspace = true
