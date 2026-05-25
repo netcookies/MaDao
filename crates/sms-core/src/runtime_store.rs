@@ -17,9 +17,40 @@ pub struct RuntimeStore {
     path: PathBuf,
 }
 
-pub struct RuntimeStoreTx<'store, 'conn> {
+struct RuntimeStoreTx<'store, 'conn> {
     store: &'store RuntimeStore,
     tx: Transaction<'conn>,
+}
+
+#[derive(Debug, Default)]
+pub struct RuntimeStoreBatch {
+    pub upsert_ticket: Option<TicketRecord>,
+    pub delete_ticket_ids: Vec<String>,
+    pub log_entries: Vec<LogEntry>,
+    pub activity_entries: Vec<ActivityEntry>,
+    pub reuse_bucket: Option<(String, Vec<ReusePoolEntry>)>,
+    pub provider_balance: Option<ProviderBalanceCacheEntry>,
+    pub openai_regions: Option<OpenAiSmsRegionsCache>,
+    pub clear_logs: bool,
+}
+
+impl RuntimeStoreBatch {
+    pub fn is_empty(&self) -> bool {
+        self.upsert_ticket.is_none()
+            && self.delete_ticket_ids.is_empty()
+            && self.log_entries.is_empty()
+            && self.activity_entries.is_empty()
+            && self.reuse_bucket.is_none()
+            && self.provider_balance.is_none()
+            && self.openai_regions.is_none()
+            && !self.clear_logs
+    }
+}
+
+#[derive(Debug, Clone, Copy)]
+pub struct RuntimeStoreApplyOptions {
+    pub log_limit: usize,
+    pub activity_limit: usize,
 }
 
 #[derive(Debug, Clone)]
@@ -199,7 +230,18 @@ impl RuntimeStore {
         self.transact(|tx| tx.save_openai_regions(cache))
     }
 
-    pub fn transact<T>(
+    pub fn apply_batch(
+        &self,
+        batch: &RuntimeStoreBatch,
+        options: RuntimeStoreApplyOptions,
+    ) -> Result<(), SmsError> {
+        if batch.is_empty() {
+            return Ok(());
+        }
+        self.transact(|tx| tx.apply_batch(batch, options))
+    }
+
+    fn transact<T>(
         &self,
         op: impl FnOnce(&mut RuntimeStoreTx<'_, '_>) -> Result<T, SmsError>,
     ) -> Result<T, SmsError> {
@@ -707,6 +749,44 @@ impl RuntimeStore {
 }
 
 impl RuntimeStoreTx<'_, '_> {
+    pub fn apply_batch(
+        &mut self,
+        batch: &RuntimeStoreBatch,
+        options: RuntimeStoreApplyOptions,
+    ) -> Result<(), SmsError> {
+        if batch.clear_logs {
+            self.clear_logs()?;
+        }
+        if let Some(ticket) = batch.upsert_ticket.as_ref() {
+            self.upsert_ticket(ticket)?;
+        }
+        if !batch.delete_ticket_ids.is_empty() {
+            self.delete_tickets(&batch.delete_ticket_ids)?;
+        }
+        for entry in &batch.log_entries {
+            self.append_log(entry)?;
+        }
+        if !batch.log_entries.is_empty() {
+            self.trim_logs(options.log_limit)?;
+        }
+        for entry in &batch.activity_entries {
+            self.append_activity(entry)?;
+        }
+        if !batch.activity_entries.is_empty() {
+            self.trim_activity(options.activity_limit)?;
+        }
+        if let Some((provider_bucket, entries)) = batch.reuse_bucket.as_ref() {
+            self.replace_reuse_bucket(provider_bucket, entries)?;
+        }
+        if let Some(balance) = batch.provider_balance.as_ref() {
+            self.upsert_provider_balance(balance)?;
+        }
+        if let Some(cache) = batch.openai_regions.as_ref() {
+            self.save_openai_regions(cache)?;
+        }
+        Ok(())
+    }
+
     pub fn replace_state(&mut self, state: &RuntimeStateStore) -> Result<(), SmsError> {
         self.tx
             .execute_batch(

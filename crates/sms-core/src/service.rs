@@ -23,7 +23,9 @@ use crate::options::{
     save_option_cache_store, save_raw_option_audit_store, with_cache_state,
 };
 use crate::registry::ProviderRegistry;
-use crate::runtime_store::{ReleaseOwnerLease, RuntimeStore};
+use crate::runtime_store::{
+    ReleaseOwnerLease, RuntimeStore, RuntimeStoreApplyOptions, RuntimeStoreBatch,
+};
 use chrono::{Duration, Utc};
 use parking_lot::RwLock;
 use plugin_sdk::ProviderManifest;
@@ -134,31 +136,6 @@ struct OpenAiSmsRegionsPayload {
     sms: Vec<String>,
     #[serde(default)]
     whatsapp: Vec<String>,
-}
-
-#[derive(Default)]
-struct RuntimePersistBatch {
-    upsert_ticket: Option<TicketRecord>,
-    delete_ticket_ids: Vec<String>,
-    log_entries: Vec<LogEntry>,
-    activity_entries: Vec<ActivityEntry>,
-    reuse_bucket: Option<(String, Vec<ReusePoolEntry>)>,
-    provider_balance: Option<ProviderBalanceCacheEntry>,
-    openai_regions: Option<OpenAiSmsRegionsCache>,
-    clear_logs: bool,
-}
-
-impl RuntimePersistBatch {
-    fn is_empty(&self) -> bool {
-        self.upsert_ticket.is_none()
-            && self.delete_ticket_ids.is_empty()
-            && self.log_entries.is_empty()
-            && self.activity_entries.is_empty()
-            && self.reuse_bucket.is_none()
-            && self.provider_balance.is_none()
-            && self.openai_regions.is_none()
-            && !self.clear_logs
-    }
 }
 
 impl SmsService {
@@ -522,7 +499,7 @@ impl SmsService {
         let _ = self.persist_runtime_state();
     }
 
-    fn persist_runtime_batch(&self, batch: RuntimePersistBatch) {
+    fn persist_runtime_batch(&self, batch: RuntimeStoreBatch) {
         if batch.is_empty() {
             return;
         }
@@ -530,39 +507,13 @@ impl SmsService {
             self.persist_runtime_state_quietly();
             return;
         };
-        let _ = store.transact(|tx| {
-            if batch.clear_logs {
-                tx.clear_logs()?;
-            }
-            if let Some(ticket) = batch.upsert_ticket.as_ref() {
-                tx.upsert_ticket(ticket)?;
-            }
-            if !batch.delete_ticket_ids.is_empty() {
-                tx.delete_tickets(&batch.delete_ticket_ids)?;
-            }
-            for entry in &batch.log_entries {
-                tx.append_log(entry)?;
-            }
-            if !batch.log_entries.is_empty() {
-                tx.trim_logs(self.log_buffer)?;
-            }
-            for entry in &batch.activity_entries {
-                tx.append_activity(entry)?;
-            }
-            if !batch.activity_entries.is_empty() {
-                tx.trim_activity(self.activity_buffer)?;
-            }
-            if let Some((provider_bucket, entries)) = batch.reuse_bucket.as_ref() {
-                tx.replace_reuse_bucket(provider_bucket, entries)?;
-            }
-            if let Some(balance) = batch.provider_balance.as_ref() {
-                tx.upsert_provider_balance(balance)?;
-            }
-            if let Some(cache) = batch.openai_regions.as_ref() {
-                tx.save_openai_regions(cache)?;
-            }
-            Ok(())
-        });
+        let _ = store.apply_batch(
+            &batch,
+            RuntimeStoreApplyOptions {
+                log_limit: self.log_buffer,
+                activity_limit: self.activity_buffer,
+            },
+        );
     }
 
     fn persist_reuse_bucket_quietly(&self, provider_bucket: &str) {
@@ -572,17 +523,17 @@ impl SmsService {
             .get(provider_bucket)
             .cloned()
             .unwrap_or_default();
-        self.persist_runtime_batch(RuntimePersistBatch {
+        self.persist_runtime_batch(RuntimeStoreBatch {
             reuse_bucket: Some((provider_bucket.to_string(), entries)),
-            ..RuntimePersistBatch::default()
+            ..RuntimeStoreBatch::default()
         });
     }
 
     fn persist_tickets_trimmed_quietly(&self, ticket: &TicketRecord, deleted_ids: Vec<String>) {
-        self.persist_runtime_batch(RuntimePersistBatch {
+        self.persist_runtime_batch(RuntimeStoreBatch {
             upsert_ticket: Some(ticket.clone()),
             delete_ticket_ids: deleted_ids,
-            ..RuntimePersistBatch::default()
+            ..RuntimeStoreBatch::default()
         });
     }
 
@@ -661,9 +612,9 @@ impl SmsService {
             fetched_at: Some(Utc::now()),
         };
         *self.openai_sms_regions_cache.write() = next.clone();
-        self.persist_runtime_batch(RuntimePersistBatch {
+        self.persist_runtime_batch(RuntimeStoreBatch {
             openai_regions: Some(next.clone()),
-            ..RuntimePersistBatch::default()
+            ..RuntimeStoreBatch::default()
         });
         self.log("config", "info", "openai sms region cache refreshed");
         Ok(next)
@@ -688,9 +639,9 @@ impl SmsService {
         let snapshot = should_persist.then(|| entries.clone());
         drop(pool);
         if let Some(snapshot) = snapshot {
-            self.persist_runtime_batch(RuntimePersistBatch {
+            self.persist_runtime_batch(RuntimeStoreBatch {
                 reuse_bucket: Some((provider.to_string(), snapshot)),
-                ..RuntimePersistBatch::default()
+                ..RuntimeStoreBatch::default()
             });
         }
         candidate
@@ -1063,9 +1014,9 @@ impl SmsService {
 
     fn push_activity(&self, entry: ActivityEntry) {
         self.push_activity_entry_in_memory(entry.clone());
-        self.persist_runtime_batch(RuntimePersistBatch {
+        self.persist_runtime_batch(RuntimeStoreBatch {
             activity_entries: vec![entry],
-            ..RuntimePersistBatch::default()
+            ..RuntimeStoreBatch::default()
         });
     }
 
@@ -1663,12 +1614,12 @@ impl SmsService {
                     );
                     self.push_log_entry_in_memory(log_entry.clone());
                     self.push_activity_entry_in_memory(activity_entry.clone());
-                    self.persist_runtime_batch(RuntimePersistBatch {
+                    self.persist_runtime_batch(RuntimeStoreBatch {
                         upsert_ticket: Some(updated),
                         delete_ticket_ids: Vec::new(),
                         log_entries: vec![log_entry],
                         activity_entries: vec![activity_entry],
-                        ..RuntimePersistBatch::default()
+                        ..RuntimeStoreBatch::default()
                     });
                     return Ok(ReleaseCodeResponse {
                         ticket_id: current.id,
@@ -1740,13 +1691,13 @@ impl SmsService {
         if let Some(entry) = reuse_log_entry.as_ref() {
             self.push_log_entry_in_memory(entry.clone());
         }
-        self.persist_runtime_batch(RuntimePersistBatch {
+        self.persist_runtime_batch(RuntimeStoreBatch {
             upsert_ticket: Some(updated),
             delete_ticket_ids: Vec::new(),
             activity_entries: vec![activity_entry],
             log_entries: reuse_log_entry.into_iter().collect(),
             reuse_bucket,
-            ..RuntimePersistBatch::default()
+            ..RuntimeStoreBatch::default()
         });
         Ok(ReleaseCodeResponse {
             ticket_id: current.id,
@@ -1929,9 +1880,9 @@ impl SmsService {
                 self.provider_balance_cache
                     .write()
                     .insert(provider_id.to_string(), cache_entry.clone());
-                self.persist_runtime_batch(RuntimePersistBatch {
+                self.persist_runtime_batch(RuntimeStoreBatch {
                     provider_balance: Some(cache_entry),
-                    ..RuntimePersistBatch::default()
+                    ..RuntimeStoreBatch::default()
                 });
                 self.log_upstream_response(
                     provider_id,
@@ -2417,12 +2368,12 @@ impl SmsService {
                     );
                     self.push_log_entry_in_memory(log_entry.clone());
                     self.push_activity_entry_in_memory(activity_entry.clone());
-                    self.persist_runtime_batch(RuntimePersistBatch {
+                    self.persist_runtime_batch(RuntimeStoreBatch {
                         upsert_ticket: Some(ticket),
                         delete_ticket_ids: Vec::new(),
                         log_entries: vec![log_entry],
                         activity_entries: vec![activity_entry],
-                        ..RuntimePersistBatch::default()
+                        ..RuntimeStoreBatch::default()
                     });
                 }
                 continue;
@@ -2459,12 +2410,12 @@ impl SmsService {
                         );
                         self.push_log_entry_in_memory(log_entry.clone());
                         self.push_activity_entry_in_memory(activity_entry.clone());
-                        self.persist_runtime_batch(RuntimePersistBatch {
+                        self.persist_runtime_batch(RuntimeStoreBatch {
                             upsert_ticket: Some(ticket),
                             delete_ticket_ids: Vec::new(),
                             log_entries: vec![log_entry],
                             activity_entries: vec![activity_entry],
-                            ..RuntimePersistBatch::default()
+                            ..RuntimeStoreBatch::default()
                         });
                     }
                     continue;
@@ -2518,12 +2469,12 @@ impl SmsService {
                         );
                         self.push_log_entry_in_memory(log_entry.clone());
                         self.push_activity_entry_in_memory(activity_entry.clone());
-                        self.persist_runtime_batch(RuntimePersistBatch {
+                        self.persist_runtime_batch(RuntimeStoreBatch {
                             upsert_ticket: Some(ticket),
                             delete_ticket_ids: Vec::new(),
                             log_entries: vec![log_entry],
                             activity_entries: vec![activity_entry],
-                            ..RuntimePersistBatch::default()
+                            ..RuntimeStoreBatch::default()
                         });
                     }
                 }
@@ -2998,9 +2949,9 @@ impl SmsService {
 
     pub fn clear_logs(&self) {
         self.logs.write().clear();
-        self.persist_runtime_batch(RuntimePersistBatch {
+        self.persist_runtime_batch(RuntimeStoreBatch {
             clear_logs: true,
-            ..RuntimePersistBatch::default()
+            ..RuntimeStoreBatch::default()
         });
     }
 
@@ -3196,9 +3147,9 @@ impl SmsService {
                 .map(|entries| entries.len() as u32)
                 .unwrap_or(0)
         };
-        self.persist_runtime_batch(RuntimePersistBatch {
+        self.persist_runtime_batch(RuntimeStoreBatch {
             reuse_bucket: Some((provider_id.to_string(), Vec::new())),
-            ..RuntimePersistBatch::default()
+            ..RuntimeStoreBatch::default()
         });
         self.log(
             "reuse_pool",
