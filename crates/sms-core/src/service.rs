@@ -3891,7 +3891,7 @@ mod tests {
     };
     use crate::options::ProviderRawOptionAuditStore;
     use crate::registry::ProviderRegistry;
-    use crate::runtime_store::RuntimeStore;
+    use crate::runtime_store::{ReleaseOwnerLease, RuntimeStore};
     use axum::extract::{Query, State};
     use axum::routing::{get, post};
     use axum::{Json, Router};
