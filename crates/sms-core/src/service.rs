@@ -24,7 +24,7 @@ use crate::options::{
 };
 use crate::registry::ProviderRegistry;
 use crate::runtime_store::{
-    ReleaseOwnerLease, RuntimeStore, RuntimeStoreApplyOptions, RuntimeStoreBatch,
+    RuntimeStore, RuntimeStoreApplyOptions, RuntimeStoreBatch,
 };
 use chrono::{Duration, Utc};
 use parking_lot::RwLock;
@@ -2331,10 +2331,16 @@ impl SmsService {
     pub async fn maybe_process_pending_releases(&self) {
         let now = Utc::now();
         let owner_id = format!("{}-{}", std::process::id(), Uuid::now_v7());
-        if !self.try_acquire_release_owner(&owner_id, now) {
+        if self.runtime_store.as_ref().is_some_and(|store| {
+            !store.try_acquire_release_owner(&owner_id, now, AUTO_RELEASE_OWNER_LEASE_SEC)
+        }) {
             return;
         }
-        let pending = self.pending_release_claims(now);
+        let pending = if let Some(store) = &self.runtime_store {
+            store.pending_release_claims_or_empty(now)
+        } else {
+            self.pending_release_claims(now)
+        };
 
         for claim in pending {
             let ticket_id = claim.ticket_id.clone();
@@ -2480,18 +2486,15 @@ impl SmsService {
                 }
             }
         }
-        self.release_release_owner(&owner_id);
+        if let Some(store) = &self.runtime_store {
+            store.release_release_owner_quietly(&owner_id);
+        }
     }
 
     fn pending_release_claims(
         &self,
         now: chrono::DateTime<Utc>,
     ) -> Vec<crate::runtime_store::ReleaseClaim> {
-        if let Some(store) = &self.runtime_store
-            && let Ok(pending) = store.claim_pending_releases(now)
-        {
-            return pending;
-        }
         self.tickets
             .read()
             .values()
@@ -2513,28 +2516,6 @@ impl SmsService {
                 retry_count: ticket.release_retry_count,
             })
             .collect()
-    }
-
-    fn try_acquire_release_owner(&self, owner_id: &str, now: chrono::DateTime<Utc>) -> bool {
-        let Some(store) = &self.runtime_store else {
-            return true;
-        };
-        store
-            .acquire_release_owner(
-                &ReleaseOwnerLease {
-                    owner_id: owner_id.to_string(),
-                    expires_at: now + Duration::seconds(AUTO_RELEASE_OWNER_LEASE_SEC),
-                },
-                now,
-            )
-            .unwrap_or(false)
-    }
-
-    fn release_release_owner(&self, owner_id: &str) {
-        let Some(store) = &self.runtime_store else {
-            return;
-        };
-        let _ = store.release_release_owner(owner_id);
     }
 
     pub fn list_provider_manifests(&self) -> ProviderManifestList {

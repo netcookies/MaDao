@@ -207,6 +207,10 @@ impl RuntimeStore {
             .map_err(|err| SmsError::Io(format!("decode release claims failed: {err}")))
     }
 
+    pub fn pending_release_claims_or_empty(&self, now: DateTime<Utc>) -> Vec<ReleaseClaim> {
+        self.claim_pending_releases(now).unwrap_or_default()
+    }
+
     pub fn acquire_release_owner(
         &self,
         lease: &ReleaseOwnerLease,
@@ -235,6 +239,22 @@ impl RuntimeStore {
         Ok(updated > 0)
     }
 
+    pub fn try_acquire_release_owner(
+        &self,
+        owner_id: &str,
+        now: DateTime<Utc>,
+        lease_seconds: i64,
+    ) -> bool {
+        self.acquire_release_owner(
+            &ReleaseOwnerLease {
+                owner_id: owner_id.to_string(),
+                expires_at: now + chrono::Duration::seconds(lease_seconds),
+            },
+            now,
+        )
+        .unwrap_or(false)
+    }
+
     pub fn release_release_owner(&self, owner_id: &str) -> Result<(), SmsError> {
         let conn = self.connect()?;
         conn.execute(
@@ -243,6 +263,10 @@ impl RuntimeStore {
         )
         .map_err(|err| SmsError::Io(format!("release release owner failed: {err}")))?;
         Ok(())
+    }
+
+    pub fn release_release_owner_quietly(&self, owner_id: &str) {
+        let _ = self.release_release_owner(owner_id);
     }
 
     fn connect(&self) -> Result<Connection, SmsError> {
