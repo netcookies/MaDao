@@ -147,89 +147,6 @@ impl RuntimeStore {
         self.transact(|tx| tx.replace_state(state))
     }
 
-    pub fn persist_tickets(&self, tickets: &[TicketRecord]) -> Result<(), SmsError> {
-        self.transact(|tx| tx.persist_tickets(tickets))
-    }
-
-    pub fn upsert_ticket(&self, ticket: &TicketRecord) -> Result<(), SmsError> {
-        self.transact(|tx| tx.upsert_ticket(ticket))
-    }
-
-    pub fn persist_logs(&self, logs: &[LogEntry]) -> Result<(), SmsError> {
-        self.transact(|tx| tx.persist_logs(logs))
-    }
-
-    pub fn append_log(&self, entry: &LogEntry) -> Result<(), SmsError> {
-        self.transact(|tx| tx.append_log(entry))
-    }
-
-    pub fn append_log_limited(&self, entry: &LogEntry, max_entries: usize) -> Result<(), SmsError> {
-        self.transact(|tx| {
-            tx.append_log(entry)?;
-            tx.trim_logs(max_entries)
-        })
-    }
-
-    pub fn clear_logs(&self) -> Result<(), SmsError> {
-        self.transact(|tx| tx.clear_logs())
-    }
-
-    pub fn persist_activity(&self, activity: &[ActivityEntry]) -> Result<(), SmsError> {
-        self.transact(|tx| tx.persist_activity(activity))
-    }
-
-    pub fn append_activity(&self, entry: &ActivityEntry) -> Result<(), SmsError> {
-        self.transact(|tx| tx.append_activity(entry))
-    }
-
-    pub fn append_activity_limited(
-        &self,
-        entry: &ActivityEntry,
-        max_entries: usize,
-    ) -> Result<(), SmsError> {
-        self.transact(|tx| {
-            tx.append_activity(entry)?;
-            tx.trim_activity(max_entries)
-        })
-    }
-
-    pub fn persist_provider_balances(
-        &self,
-        balances: &[ProviderBalanceCacheEntry],
-    ) -> Result<(), SmsError> {
-        self.transact(|tx| tx.persist_provider_balances(balances))
-    }
-
-    pub fn upsert_provider_balance(
-        &self,
-        balance: &ProviderBalanceCacheEntry,
-    ) -> Result<(), SmsError> {
-        self.transact(|tx| tx.upsert_provider_balance(balance))
-    }
-
-    pub fn persist_reuse_pool(
-        &self,
-        reuse_pool: &HashMap<String, Vec<ReusePoolEntry>>,
-    ) -> Result<(), SmsError> {
-        self.transact(|tx| tx.persist_reuse_pool(reuse_pool))
-    }
-
-    pub fn replace_reuse_bucket(
-        &self,
-        provider_bucket: &str,
-        entries: &[ReusePoolEntry],
-    ) -> Result<(), SmsError> {
-        self.transact(|tx| tx.replace_reuse_bucket(provider_bucket, entries))
-    }
-
-    pub fn persist_openai_regions(&self, cache: &OpenAiSmsRegionsCache) -> Result<(), SmsError> {
-        self.transact(|tx| tx.save_openai_regions(cache))
-    }
-
-    pub fn save_openai_regions(&self, cache: &OpenAiSmsRegionsCache) -> Result<(), SmsError> {
-        self.transact(|tx| tx.save_openai_regions(cache))
-    }
-
     pub fn apply_batch(
         &self,
         batch: &RuntimeStoreBatch,
@@ -749,7 +666,7 @@ impl RuntimeStore {
 }
 
 impl RuntimeStoreTx<'_, '_> {
-    pub fn apply_batch(
+    fn apply_batch(
         &mut self,
         batch: &RuntimeStoreBatch,
         options: RuntimeStoreApplyOptions,
@@ -787,7 +704,7 @@ impl RuntimeStoreTx<'_, '_> {
         Ok(())
     }
 
-    pub fn replace_state(&mut self, state: &RuntimeStateStore) -> Result<(), SmsError> {
+    fn replace_state(&mut self, state: &RuntimeStateStore) -> Result<(), SmsError> {
         self.tx
             .execute_batch(
                 "DELETE FROM tickets;
@@ -809,18 +726,11 @@ impl RuntimeStoreTx<'_, '_> {
         Ok(())
     }
 
-    pub fn persist_tickets(&mut self, tickets: &[TicketRecord]) -> Result<(), SmsError> {
-        self.tx
-            .execute("DELETE FROM tickets", [])
-            .map_err(|err| SmsError::Io(format!("clear tickets failed: {err}")))?;
-        self.store.insert_tickets(&self.tx, tickets)
-    }
-
-    pub fn upsert_ticket(&mut self, ticket: &TicketRecord) -> Result<(), SmsError> {
+    fn upsert_ticket(&mut self, ticket: &TicketRecord) -> Result<(), SmsError> {
         self.store.upsert_ticket_tx(&self.tx, ticket)
     }
 
-    pub fn delete_tickets(&mut self, ticket_ids: &[String]) -> Result<(), SmsError> {
+    fn delete_tickets(&mut self, ticket_ids: &[String]) -> Result<(), SmsError> {
         if ticket_ids.is_empty() {
             return Ok(());
         }
@@ -837,14 +747,7 @@ impl RuntimeStoreTx<'_, '_> {
         Ok(())
     }
 
-    pub fn persist_logs(&mut self, logs: &[LogEntry]) -> Result<(), SmsError> {
-        self.tx
-            .execute("DELETE FROM logs", [])
-            .map_err(|err| SmsError::Io(format!("clear logs failed: {err}")))?;
-        self.store.insert_logs(&self.tx, logs)
-    }
-
-    pub fn append_log(&mut self, entry: &LogEntry) -> Result<(), SmsError> {
+    fn append_log(&mut self, entry: &LogEntry) -> Result<(), SmsError> {
         self.tx
             .execute(
                 "INSERT INTO logs (timestamp, scope, level, message) VALUES (?1, ?2, ?3, ?4)",
@@ -859,7 +762,7 @@ impl RuntimeStoreTx<'_, '_> {
         Ok(())
     }
 
-    pub fn trim_logs(&mut self, max_entries: usize) -> Result<(), SmsError> {
+    fn trim_logs(&mut self, max_entries: usize) -> Result<(), SmsError> {
         if max_entries == 0 {
             return self.clear_logs();
         }
@@ -875,21 +778,14 @@ impl RuntimeStoreTx<'_, '_> {
         Ok(())
     }
 
-    pub fn clear_logs(&mut self) -> Result<(), SmsError> {
+    fn clear_logs(&mut self) -> Result<(), SmsError> {
         self.tx
             .execute("DELETE FROM logs", [])
             .map_err(|err| SmsError::Io(format!("clear logs failed: {err}")))?;
         Ok(())
     }
 
-    pub fn persist_activity(&mut self, activity: &[ActivityEntry]) -> Result<(), SmsError> {
-        self.tx
-            .execute("DELETE FROM activity", [])
-            .map_err(|err| SmsError::Io(format!("clear activity failed: {err}")))?;
-        self.store.insert_activity(&self.tx, activity)
-    }
-
-    pub fn append_activity(&mut self, entry: &ActivityEntry) -> Result<(), SmsError> {
+    fn append_activity(&mut self, entry: &ActivityEntry) -> Result<(), SmsError> {
         let payload = serde_json::to_string(entry)
             .map_err(|err| SmsError::Config(format!("serialize activity failed: {err}")))?;
         self.tx
@@ -908,7 +804,7 @@ impl RuntimeStoreTx<'_, '_> {
         Ok(())
     }
 
-    pub fn trim_activity(&mut self, max_entries: usize) -> Result<(), SmsError> {
+    fn trim_activity(&mut self, max_entries: usize) -> Result<(), SmsError> {
         if max_entries == 0 {
             self.tx
                 .execute("DELETE FROM activity", [])
@@ -927,17 +823,7 @@ impl RuntimeStoreTx<'_, '_> {
         Ok(())
     }
 
-    pub fn persist_provider_balances(
-        &mut self,
-        balances: &[ProviderBalanceCacheEntry],
-    ) -> Result<(), SmsError> {
-        self.tx
-            .execute("DELETE FROM provider_balance_cache", [])
-            .map_err(|err| SmsError::Io(format!("clear balances failed: {err}")))?;
-        self.store.insert_provider_balances(&self.tx, balances)
-    }
-
-    pub fn upsert_provider_balance(
+    fn upsert_provider_balance(
         &mut self,
         balance: &ProviderBalanceCacheEntry,
     ) -> Result<(), SmsError> {
@@ -955,17 +841,7 @@ impl RuntimeStoreTx<'_, '_> {
         Ok(())
     }
 
-    pub fn persist_reuse_pool(
-        &mut self,
-        reuse_pool: &HashMap<String, Vec<ReusePoolEntry>>,
-    ) -> Result<(), SmsError> {
-        self.tx
-            .execute("DELETE FROM reuse_pool", [])
-            .map_err(|err| SmsError::Io(format!("clear reuse pool failed: {err}")))?;
-        self.store.insert_reuse_pool(&self.tx, reuse_pool)
-    }
-
-    pub fn replace_reuse_bucket(
+    fn replace_reuse_bucket(
         &mut self,
         provider_bucket: &str,
         entries: &[ReusePoolEntry],
@@ -980,7 +856,7 @@ impl RuntimeStoreTx<'_, '_> {
             .insert_reuse_bucket(&self.tx, provider_bucket, entries)
     }
 
-    pub fn save_openai_regions(&mut self, cache: &OpenAiSmsRegionsCache) -> Result<(), SmsError> {
+    fn save_openai_regions(&mut self, cache: &OpenAiSmsRegionsCache) -> Result<(), SmsError> {
         self.store.save_openai_regions_tx(&self.tx, cache)
     }
 }

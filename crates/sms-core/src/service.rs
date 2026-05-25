@@ -3603,11 +3603,10 @@ impl SmsService {
             logs.pop_front();
         }
         drop(logs);
-        if let Some(store) = &self.runtime_store {
-            let _ = store.append_log_limited(&entry, self.log_buffer);
-            return;
-        }
-        self.persist_runtime_state_quietly();
+        self.persist_runtime_batch(RuntimeStoreBatch {
+            log_entries: vec![entry],
+            ..RuntimeStoreBatch::default()
+        });
     }
 }
 
