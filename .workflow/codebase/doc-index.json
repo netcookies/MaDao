@@ -1,0 +1,158 @@
+{
+  "version": "1.0",
+  "schema_version": "1.0",
+  "project": "MaDao",
+  "last_updated": "2026-05-26T18:00:00+08:00",
+  "documents": [
+    {
+      "id": "DOC-001",
+      "name": "Tech Stack",
+      "type": "tech-stack",
+      "path": "tech-stack.md",
+      "scope": "full",
+      "last_updated": "2026-05-26T18:00:00+08:00"
+    },
+    {
+      "id": "DOC-002",
+      "name": "Architecture",
+      "type": "architecture",
+      "path": "architecture.md",
+      "scope": "full",
+      "last_updated": "2026-05-26T18:00:00+08:00"
+    },
+    {
+      "id": "DOC-003",
+      "name": "Features",
+      "type": "features",
+      "path": "features.md",
+      "scope": "full",
+      "last_updated": "2026-05-26T18:00:00+08:00"
+    },
+    {
+      "id": "DOC-004",
+      "name": "Cross-cutting Concerns",
+      "type": "concerns",
+      "path": "concerns.md",
+      "scope": "full",
+      "last_updated": "2026-05-26T18:00:00+08:00"
+    }
+  ],
+  "components": [
+    {
+      "id": "TC-001",
+      "name": "SmsCore",
+      "type": "core",
+      "code_locations": ["crates/sms-core/src/"],
+      "feature_ids": ["FT-001", "FT-002", "FT-003", "FT-004"],
+      "symbols": ["SmsService", "RuntimeStore", "ProviderRegistry", "SmsError", "RuntimeSettings", "TicketRecord", "RuntimeStoreBatch"],
+      "last_updated": "2026-05-26T18:00:00+08:00"
+    },
+    {
+      "id": "TC-002",
+      "name": "SmsServer",
+      "type": "controller",
+      "code_locations": ["crates/sms-server/src/"],
+      "feature_ids": ["FT-001"],
+      "symbols": ["spawn_http_server", "spawn_socket_server"],
+      "last_updated": "2026-05-26T18:00:00+08:00"
+    },
+    {
+      "id": "TC-003",
+      "name": "Daemon",
+      "type": "service",
+      "code_locations": ["apps/daemon/src/"],
+      "feature_ids": ["FT-005"],
+      "symbols": ["main"],
+      "last_updated": "2026-05-26T18:00:00+08:00"
+    },
+    {
+      "id": "TC-004",
+      "name": "TauriShell",
+      "type": "service",
+      "code_locations": ["src-tauri/src/"],
+      "feature_ids": ["FT-005"],
+      "symbols": ["run"],
+      "last_updated": "2026-05-26T18:00:00+08:00"
+    },
+    {
+      "id": "TC-005",
+      "name": "PluginSdk",
+      "type": "core",
+      "code_locations": ["crates/plugin-sdk/src/"],
+      "feature_ids": ["FT-002"],
+      "symbols": [],
+      "last_updated": "2026-05-26T18:00:00+08:00"
+    },
+    {
+      "id": "TC-006",
+      "name": "UI",
+      "type": "ui",
+      "code_locations": ["ui/src/"],
+      "feature_ids": ["FT-001", "FT-003", "FT-006"],
+      "symbols": ["App", "OverviewScreen", "ProvidersListScreen", "RoutingScreen", "MessagesScreen", "SettingsScreen"],
+      "last_updated": "2026-05-26T18:00:00+08:00"
+    },
+    {
+      "id": "TC-007",
+      "name": "ProviderManifests",
+      "type": "config",
+      "code_locations": ["plugins/providers/"],
+      "feature_ids": ["FT-002"],
+      "symbols": [],
+      "last_updated": "2026-05-26T18:00:00+08:00"
+    }
+  ],
+  "features": [
+    {
+      "id": "FT-001",
+      "name": "HTTP & Socket API",
+      "status": "active",
+      "requirement_ids": [],
+      "component_ids": ["TC-001", "TC-002", "TC-006"],
+      "phase": null
+    },
+    {
+      "id": "FT-002",
+      "name": "Provider Management",
+      "status": "active",
+      "requirement_ids": [],
+      "component_ids": ["TC-001", "TC-005", "TC-007"],
+      "phase": null
+    },
+    {
+      "id": "FT-003",
+      "name": "Activation & Reuse",
+      "status": "active",
+      "requirement_ids": [],
+      "component_ids": ["TC-001", "TC-006"],
+      "phase": null
+    },
+    {
+      "id": "FT-004",
+      "name": "Routing Engine",
+      "status": "active",
+      "requirement_ids": [],
+      "component_ids": ["TC-001"],
+      "phase": null
+    },
+    {
+      "id": "FT-005",
+      "name": "Runtime Lifecycle",
+      "status": "active",
+      "requirement_ids": [],
+      "component_ids": ["TC-003", "TC-004"],
+      "phase": null
+    },
+    {
+      "id": "FT-006",
+      "name": "Desktop Console UI",
+      "status": "active",
+      "requirement_ids": [],
+      "component_ids": ["TC-006"],
+      "phase": null
+    }
+  ],
+  "requirements": [],
+  "architecture_decisions": [],
+  "actions": []
+}

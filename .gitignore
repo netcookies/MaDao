@@ -8,7 +8,25 @@ target/
 dist/
 node_modules/
 .env
-.workflow/
+# Workflow / Maestro 知识与会话分层
+/.workflow/*
+!/.workflow/project.md
+!/.workflow/roadmap.md
+!/.workflow/config.json
+!/.workflow/state.json
+!/.workflow/wiki-index.json
+!/.workflow/specs/
+!/.workflow/specs/**
+!/.workflow/codebase/
+!/.workflow/codebase/**
+!/.workflow/issues/
+!/.workflow/issues/**
+# 会话产物 — 不追踪
+/.workflow/.*/
+/.workflow/active/
+/.workflow/archives/
+/.workflow/scratch/
+/.workflow/spec-analytics.jsonl
 .claude/
 .artifacts/
 .ccw/

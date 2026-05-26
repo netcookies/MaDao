@@ -1,0 +1,237 @@
+{
+  "version": "2.0",
+  "project_name": "MaDao",
+  "status": "executing",
+  "current_milestone": "operator-closure",
+  "current_task_id": null,
+  "milestones": [
+    {
+      "id": "capability-truth",
+      "name": "Capability Truth",
+      "status": "completed",
+      "phase_slugs": [
+        "1"
+      ],
+      "version": "v1"
+    },
+    {
+      "id": "backend-reuse-architecture",
+      "name": "Backend Reuse Architecture",
+      "status": "completed",
+      "phase_slugs": [
+        "2"
+      ],
+      "version": "v2"
+    },
+    {
+      "id": "operator-closure",
+      "name": "Operator Closure",
+      "status": "completed",
+      "phase_slugs": [
+        "3"
+      ],
+      "version": "v3"
+    }
+  ],
+  "artifacts": [
+    {
+      "id": "RMAP-20260522-three-provider-phone-reuse",
+      "type": "roadmap",
+      "scope": "macro",
+      "path": ".workflow/roadmap.md",
+      "context_package": ".workflow/.csv-wave/20260521-analyze-three-provider-phone-reuse/context-package.json",
+      "created_at": "2026-05-22T08:45:00+08:00"
+    },
+    {
+      "id": "ANL-phase1-capability-truth-20260522",
+      "type": "analyze",
+      "scope": "phase",
+      "status": "completed",
+      "milestone": "capability-truth",
+      "phase": 1,
+      "path": "scratch/analyze-phase1-capability-truth-20260522",
+      "context_package": "scratch/analyze-phase1-capability-truth-20260522/context-package.json",
+      "harvested": false,
+      "created_at": "2026-05-22T09:10:00+08:00",
+      "completed_at": "2026-05-22T09:10:00+08:00"
+    },
+    {
+      "id": "PLN-001",
+      "type": "plan",
+      "scope": "phase",
+      "status": "completed",
+      "milestone": "capability-truth",
+      "phase": 1,
+      "path": "scratch/20260522-plan-P1-capability-truth",
+      "depends_on": [
+        "ANL-phase1-capability-truth-20260522"
+      ],
+      "harvested": false,
+      "created_at": "2026-05-22T09:15:00+08:00",
+      "completed_at": "2026-05-22T09:15:00+08:00"
+    },
+    {
+      "id": "EXC-001",
+      "type": "execute",
+      "scope": "phase",
+      "status": "completed",
+      "milestone": "capability-truth",
+      "phase": 1,
+      "path": "scratch/20260522-plan-P1-capability-truth",
+      "depends_on": "PLN-001",
+      "harvested": false,
+      "created_at": "2026-05-22T09:30:00+08:00",
+      "completed_at": "2026-05-22T09:40:00+08:00"
+    },
+    {
+      "id": "ANL-002",
+      "type": "analyze",
+      "scope": "phase",
+      "status": "completed",
+      "milestone": "backend-reuse-architecture",
+      "phase": 2,
+      "path": "scratch/analyze-phase2-shared-reuse-coordinator-20260522",
+      "context_package": "scratch/analyze-phase2-shared-reuse-coordinator-20260522/context-package.json",
+      "harvested": false,
+      "created_at": "2026-05-22T13:06:00+08:00",
+      "completed_at": "2026-05-22T13:10:00+08:00"
+    },
+    {
+      "id": "PLN-002",
+      "type": "plan",
+      "scope": "phase",
+      "status": "completed",
+      "milestone": "backend-reuse-architecture",
+      "phase": 2,
+      "path": "scratch/20260522-plan-P2-shared-reuse-coordinator",
+      "depends_on": [
+        "ANL-002"
+      ],
+      "harvested": false,
+      "created_at": "2026-05-22T13:15:00+08:00",
+      "completed_at": "2026-05-22T13:15:00+08:00"
+    },
+    {
+      "id": "ANL-003",
+      "type": "analyze",
+      "scope": "phase",
+      "status": "completed",
+      "milestone": "operator-closure",
+      "phase": 3,
+      "path": "scratch/analyze-phase3-console-visibility-20260522",
+      "context_package": "scratch/analyze-phase3-console-visibility-20260522/context-package.json",
+      "harvested": false,
+      "created_at": "2026-05-22T14:30:00+08:00",
+      "completed_at": "2026-05-22T14:35:00+08:00"
+    },
+    {
+      "id": "PLN-003",
+      "type": "plan",
+      "scope": "phase",
+      "status": "completed",
+      "milestone": "operator-closure",
+      "phase": 3,
+      "path": "scratch/20260522-plan-P3-console-visibility",
+      "depends_on": [
+        "ANL-003"
+      ],
+      "harvested": false,
+      "created_at": "2026-05-22T15:00:00+08:00",
+      "completed_at": "2026-05-22T15:00:00+08:00"
+    },
+    {
+      "id": "ANL-20260524-country-alpha2-openai-filter",
+      "type": "analyze",
+      "scope": "macro",
+      "status": "completed",
+      "path": ".workflow/.csv-wave/20260524-analyze-country-alpha2-and-openai-filter",
+      "context_package": ".workflow/.csv-wave/20260524-analyze-country-alpha2-and-openai-filter/context-package.json",
+      "harvested": false,
+      "created_at": "2026-05-24T16:15:00+08:00",
+      "completed_at": "2026-05-24T16:15:00+08:00"
+    }
+  ],
+  "last_updated": "2026-05-26T18:00:00+08:00",
+  "quick_tasks": [
+    {
+      "id": "quick-align-provider-workspace-screen-2026-05-07",
+      "description": "对齐 Provider 详情页设计稿（Providers > 5SIM 页面）",
+      "completed_at": "2026-05-07T00:00:00Z",
+      "directory": ".workflow/scratch/quick-align-provider-workspace-screen-2026-05-07",
+      "verified": "skipped"
+    },
+    {
+      "id": "quick-settings-logs-providers-header-cta-2026-05-07",
+      "description": "对齐 settings、logs、providers 页面标题与 toolbar CTA，并统一 settings 页面 segmented control 视觉实现",
+      "completed_at": "2026-05-07T04:48:50Z",
+      "directory": ".workflow/scratch/quick-settings-logs-providers-header-cta",
+      "verified": "build"
+    },
+    {
+      "id": "quick-routing-item-editor-selector-align-2026-05-07",
+      "description": "对齐 Edit Route Candidate 弹窗的 selector、segmented control 和价格输入布局",
+      "completed_at": "2026-05-07T05:06:04Z",
+      "directory": ".workflow/scratch/quick-routing-item-editor-selector-align",
+      "verified": "build"
+    },
+    {
+      "id": "quick-segmented-and-routing-button-align-2026-05-07",
+      "description": "统一 segmented control 背景颜色，并修复 routing 页面按钮尺寸与样式",
+      "completed_at": "2026-05-07T05:17:07Z",
+      "directory": ".workflow/scratch/quick-segmented-and-routing-button-align",
+      "verified": "build"
+    },
+    {
+      "id": "quick-toggle-and-rail-token-align-2026-05-07",
+      "description": "统一 rail 灰色 token，并修复 ToggleSwitch 滑块为纯白",
+      "completed_at": "2026-05-07T05:32:35Z",
+      "directory": ".workflow/scratch/quick-toggle-and-rail-token-align",
+      "verified": "build"
+    },
+    {
+      "id": "quick-dark-theme-hardcoded-cleanup-2026-05-07",
+      "description": "修复暗色主题下残留的浅色硬编码，并统一 segmented control 亮暗色 rail 表现",
+      "completed_at": "2026-05-07T05:47:20Z",
+      "directory": ".workflow/scratch/quick-dark-theme-hardcoded-cleanup",
+      "verified": "build"
+    },
+    {
+      "id": "quick-routing-toolbar-and-plan-toggle-2026-05-07",
+      "description": "调整 routing plans 详情页的 toolbar、banner 和 plan details 启用开关布局",
+      "completed_at": "2026-05-07T06:10:00Z",
+      "directory": ".workflow/scratch/quick-routing-toolbar-and-plan-toggle",
+      "verified": "build"
+    },
+    {
+      "id": "quick-fix-tauri-import-warning-2026-05-18",
+      "description": "修复 npm run app 构建阶段的 Tauri API mixed import warning",
+      "completed_at": "2026-05-18T15:33:42Z",
+      "directory": ".workflow/scratch/quick-fix-tauri-import-warning",
+      "verified": "build"
+    }
+  ],
+  "accumulated_context": {
+    "key_decisions": [
+      "采用 Rust workspace + Tauri 2 + React 的分层架构",
+      "provider 协议兼容通过 manifest 与 provider 实现解耦",
+      "前端样式体系以 design token + Tailwind 为主路径"
+    ],
+    "blockers": [],
+    "deferred": [
+      "内部平台真实返回样例映射与 contract tests",
+      "更强的日志与事件流",
+      "Windows 本地通信兼容",
+      "配置权限与审计"
+    ]
+  },
+  "transition_history": [
+    {
+      "from": null,
+      "to": "idle",
+      "reason": "bootstrap existing workflow directory with minimal project state",
+      "at": "2026-05-06T00:00:00+08:00"
+    }
+  ],
+  "milestone_history": [],
+  "codebase_last_rebuilt": "2026-05-26T18:00:00+08:00"
+}
