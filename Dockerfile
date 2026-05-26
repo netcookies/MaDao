@@ -4,6 +4,7 @@ WORKDIR /app
 COPY package.json package-lock.json ./
 RUN npm ci
 
+COPY config ./config
 COPY ui ./ui
 COPY ui/login.html ./ui/login.html
 COPY vite.config.ts tsconfig.json tailwind.config.cjs postcss.config.cjs Cargo.toml ./
