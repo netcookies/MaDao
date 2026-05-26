@@ -5,6 +5,7 @@ pub mod models;
 pub mod options;
 pub mod provider;
 pub mod registry;
+pub mod runtime_config;
 pub mod runtime_store;
 pub mod service;
 pub mod smsbower_assets;

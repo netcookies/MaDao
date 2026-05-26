@@ -6,17 +6,17 @@ use std::fs;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
-pub struct ProviderRegistry {
+#[derive(Debug, Clone)]
+struct ProviderManifestStore {
     root_dir: PathBuf,
-    providers: BTreeMap<String, Arc<dyn SmsProvider>>,
-    manifests: BTreeMap<String, ProviderManifest>,
     manifest_paths: BTreeMap<String, PathBuf>,
 }
 
-impl ProviderRegistry {
-    pub fn load_from_dir(path: impl AsRef<Path>) -> Result<Self, SmsError> {
-        let root_dir = path.as_ref().to_path_buf();
-        let mut providers = BTreeMap::new();
+impl ProviderManifestStore {
+    fn discover(
+        root_dir: impl AsRef<Path>,
+    ) -> Result<(Self, BTreeMap<String, ProviderManifest>), SmsError> {
+        let root_dir = root_dir.as_ref().to_path_buf();
         let mut manifests = BTreeMap::new();
         let mut manifest_paths = BTreeMap::new();
         let entries = fs::read_dir(&root_dir)
@@ -28,23 +28,50 @@ impl ProviderRegistry {
             if path.extension().and_then(|value| value.to_str()) != Some("toml") {
                 continue;
             }
-            let text = fs::read_to_string(&path)
-                .map_err(|err| SmsError::Io(format!("read provider manifest failed: {err}")))?;
-            let manifest: ProviderManifest =
-                normalize_manifest_defaults(toml::from_str(&text).map_err(|err| {
-                    SmsError::Config(format!("parse provider manifest failed: {err}"))
-                })?);
+            let manifest = load_manifest_file(&path)?;
+            manifest_paths.insert(manifest.id.clone(), path);
+            manifests.insert(manifest.id.clone(), manifest);
+        }
+        Ok((
+            Self {
+                root_dir,
+                manifest_paths,
+            },
+            manifests,
+        ))
+    }
+
+    fn resolve_path(&self, id: &str) -> PathBuf {
+        self.manifest_paths
+            .get(id)
+            .cloned()
+            .unwrap_or_else(|| self.root_dir.join(format!("{id}.toml")))
+    }
+
+    fn save_manifest(&self, id: &str, manifest: &ProviderManifest) -> Result<(), SmsError> {
+        save_manifest_file(&self.resolve_path(id), manifest)
+    }
+}
+
+pub struct ProviderRegistry {
+    manifest_store: ProviderManifestStore,
+    providers: BTreeMap<String, Arc<dyn SmsProvider>>,
+    manifests: BTreeMap<String, ProviderManifest>,
+}
+
+impl ProviderRegistry {
+    pub fn load_from_dir(path: impl AsRef<Path>) -> Result<Self, SmsError> {
+        let (manifest_store, manifests) = ProviderManifestStore::discover(path)?;
+        let mut providers = BTreeMap::new();
+        for manifest in manifests.values() {
             let id = manifest.id.clone();
             let provider = build_provider(manifest.clone())?;
-            manifests.insert(id.clone(), manifest);
-            manifest_paths.insert(id.clone(), path);
             providers.insert(id, provider);
         }
         Ok(Self {
-            root_dir,
+            manifest_store,
             providers,
             manifests,
-            manifest_paths,
         })
     }
 
@@ -70,18 +97,38 @@ impl ProviderRegistry {
     }
 
     pub fn set_priorities(&mut self, priorities: &[(String, u32)]) -> Result<(), SmsError> {
+        let mut pending = Vec::new();
+        let original_manifests = self.manifests.clone();
         for (id, priority) in priorities {
-            if let Some(manifest) = self.manifests.get_mut(id) {
-                manifest.priority = *priority;
-                let path = self
-                    .manifest_paths
-                    .get(id)
-                    .cloned()
-                    .unwrap_or_else(|| self.root_dir.join(format!("{id}.toml")));
-                let content = toml::to_string_pretty(manifest)
-                    .map_err(|err| SmsError::Config(format!("serialize manifest failed: {err}")))?;
-                fs::write(&path, &content)
-                    .map_err(|err| SmsError::Io(format!("write manifest failed: {err}")))?;
+            if let Some(manifest) = self.manifests.get(id) {
+                let mut next = manifest.clone();
+                next.priority = *priority;
+                pending.push((id.clone(), next));
+            }
+        }
+        let mut backups = Vec::new();
+        let mut applied_backups = Vec::new();
+        for (id, manifest) in &pending {
+            let path = self.manifest_store.resolve_path(id);
+            let previous = fs::read_to_string(&path).ok();
+            backups.push((path.clone(), previous.clone()));
+            if let Err(error) = self.manifest_store.save_manifest(id, manifest) {
+                for (path, previous) in applied_backups.into_iter().rev() {
+                    match previous {
+                        Some(content) => {
+                            let _ = fs::write(&path, content);
+                        }
+                        None => {
+                            let _ = fs::remove_file(&path);
+                        }
+                    }
+                }
+                self.manifests = original_manifests;
+                return Err(error);
+            }
+            applied_backups.push((path, previous));
+            if let Some(current) = self.manifests.get_mut(id) {
+                *current = manifest.clone();
             }
         }
         self.reload()
@@ -95,7 +142,7 @@ impl ProviderRegistry {
     }
 
     pub fn reload(&mut self) -> Result<(), SmsError> {
-        let refreshed = Self::load_from_dir(self.root_dir.clone())?;
+        let refreshed = Self::load_from_dir(self.manifest_store.root_dir.clone())?;
         *self = refreshed;
         Ok(())
     }
@@ -116,17 +163,9 @@ impl ProviderRegistry {
         for manifest in next_manifests.values() {
             let _ = build_provider(manifest.clone())?;
         }
-        let path = self
-            .manifest_paths
-            .get(id)
-            .cloned()
-            .unwrap_or_else(|| self.root_dir.join(format!("{id}.toml")));
+        let path = self.manifest_store.resolve_path(id);
         let previous = fs::read_to_string(&path).ok();
-        let content = toml::to_string_pretty(&manifest).map_err(|err| {
-            SmsError::Config(format!("serialize provider manifest failed: {err}"))
-        })?;
-        fs::write(&path, &content)
-            .map_err(|err| SmsError::Io(format!("write provider manifest failed: {err}")))?;
+        self.manifest_store.save_manifest(id, &manifest)?;
         if let Err(err) = self.reload() {
             match previous {
                 Some(previous_content) => {
@@ -142,6 +181,21 @@ impl ProviderRegistry {
         }
         self.manifest(id)
     }
+}
+
+fn load_manifest_file(path: &Path) -> Result<ProviderManifest, SmsError> {
+    let text = fs::read_to_string(path)
+        .map_err(|err| SmsError::Io(format!("read provider manifest failed: {err}")))?;
+    let manifest = toml::from_str(&text)
+        .map_err(|err| SmsError::Config(format!("parse provider manifest failed: {err}")))?;
+    Ok(normalize_manifest_defaults(manifest))
+}
+
+fn save_manifest_file(path: &Path, manifest: &ProviderManifest) -> Result<(), SmsError> {
+    let content = toml::to_string_pretty(manifest)
+        .map_err(|err| SmsError::Config(format!("serialize provider manifest failed: {err}")))?;
+    fs::write(path, &content)
+        .map_err(|err| SmsError::Io(format!("write provider manifest failed: {err}")))
 }
 
 fn normalize_manifest_defaults(manifest: ProviderManifest) -> ProviderManifest {
@@ -277,5 +331,40 @@ code_json_pointers = ["/sms/code", "/code", "/data/code", "/sms/0/code"]
         let manifest = registry.manifest("smsbower").unwrap();
         assert_eq!(manifest.handler_api_profile(), "smsbower");
         assert_eq!(manifest.defaults.service, "openai");
+    }
+
+    #[test]
+    fn set_priorities_rolls_back_written_manifests_when_later_write_fails() {
+        let base = std::env::temp_dir().join(format!("madao-registry-priority-{}", Uuid::now_v7()));
+        fs::create_dir_all(&base).unwrap();
+        for name in ["mock.toml", "fivesim.toml"] {
+            fs::copy(
+                repo_root().join("plugins/providers").join(name),
+                base.join(name),
+            )
+            .unwrap();
+        }
+
+        let mut registry = ProviderRegistry::load_from_dir(&base).unwrap();
+        let mock_before = registry.manifest("mock").unwrap().priority;
+        let fivesim_path = base.join("fivesim.toml");
+        let fivesim_original = fs::read_to_string(&fivesim_path).unwrap();
+        fs::remove_file(&fivesim_path).unwrap();
+        fs::create_dir_all(&fivesim_path).unwrap();
+
+        let result = registry.set_priorities(&[
+            ("mock".to_string(), 111),
+            ("fivesim".to_string(), 222),
+        ]);
+
+        assert!(result.is_err());
+        assert_eq!(registry.manifest("mock").unwrap().priority, mock_before);
+        let mock_manifest = fs::read_to_string(base.join("mock.toml")).unwrap();
+        let parsed: ProviderManifest = toml::from_str(&mock_manifest).unwrap();
+        assert_eq!(parsed.priority, mock_before);
+        assert!(fivesim_path.is_dir());
+
+        fs::remove_dir_all(&fivesim_path).unwrap();
+        fs::write(&fivesim_path, fivesim_original).unwrap();
     }
 }

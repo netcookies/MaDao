@@ -4,6 +4,8 @@ use sms_core::config::ServerConfig;
 use sms_core::models::ProviderSummary;
 use sms_core::models::{RuntimeAccessInfo, RuntimeSettings};
 use sms_core::registry::ProviderRegistry;
+use sms_core::runtime_config::load_runtime_settings_from_disk;
+use sms_core::runtime_config::AppPersistencePaths;
 use sms_core::service::SmsService;
 use sms_core::socket_api::SocketCommand;
 use sms_server::{spawn_http_server, spawn_socket_server};
@@ -41,10 +43,6 @@ const MENU_SCREEN_LOGS_ID: &str = "screen.logs";
 const MENU_PROVIDER_PREFIX: &str = "provider.";
 const DEFAULT_CONFIG_RESOURCE_PATH: &str = "defaults/config/server.toml";
 const DEFAULT_PROVIDER_RESOURCE_DIR: &str = "defaults/providers";
-const RUNTIME_SETTINGS_FILE_NAME: &str = "runtime-settings.json";
-const RUNTIME_DB_FILE_NAME: &str = "runtime.db";
-const PROVIDER_OPTIONS_CACHE_FILE_NAME: &str = "provider-options-cache.json";
-const PROVIDER_OPTIONS_RAW_AUDIT_FILE_NAME: &str = "provider-options-raw.json";
 const DESKTOP_RUNTIME_OWNER_LOCK_FILE_NAME: &str = "desktop-runtime-owner.lock";
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -878,36 +876,27 @@ pub fn run() {
                 .to_path_buf();
             let mut config =
                 ServerConfig::load_from_file(&config_path).map_err(|err| err.to_string())?;
-            let runtime_settings_path = config_path
-                .parent()
-                .ok_or_else(|| "resolve config parent dir failed".to_string())?
-                .join(RUNTIME_SETTINGS_FILE_NAME);
-            if let Ok(settings) = load_runtime_settings_file(&runtime_settings_path) {
+            let persistence_paths = AppPersistencePaths::from_config_dir(
+                config_path
+                    .parent()
+                    .ok_or_else(|| "resolve config parent dir failed".to_string())?,
+            );
+            if let Ok(settings) =
+                load_runtime_settings_file(&persistence_paths.runtime_settings_path)
+            {
                 config = config.with_http_port(settings.http_port);
             }
             config = config.with_http_bind_host("0.0.0.0");
             let registry =
                 ProviderRegistry::load_from_dir(&providers_dir).map_err(|err| err.to_string())?;
-            let provider_options_path = config_path
-                .parent()
-                .ok_or_else(|| "resolve config parent dir failed".to_string())?
-                .join(PROVIDER_OPTIONS_CACHE_FILE_NAME);
-            let provider_options_raw_path = config_path
-                .parent()
-                .ok_or_else(|| "resolve config parent dir failed".to_string())?
-                .join(PROVIDER_OPTIONS_RAW_AUDIT_FILE_NAME);
-            let runtime_db_path = config_path
-                .parent()
-                .ok_or_else(|| "resolve config parent dir failed".to_string())?
-                .join(RUNTIME_DB_FILE_NAME);
             let service = Arc::new(SmsService::with_persistence_paths(
                 registry,
                 config.log_buffer,
-                Some(runtime_settings_path),
-                Some(runtime_db_path),
-                Some(provider_options_path),
-                Some(provider_options_raw_path),
-                None,
+                Some(persistence_paths.runtime_settings_path.clone()),
+                Some(persistence_paths.runtime_db_path.clone()),
+                Some(persistence_paths.provider_options_path.clone()),
+                Some(persistence_paths.provider_options_raw_path.clone()),
+                Some(persistence_paths.routing_plans_path.clone()),
             ));
             service.ensure_runtime_settings_persisted();
             app.manage(Arc::clone(&service));
@@ -976,8 +965,7 @@ pub fn run() {
 }
 
 fn load_runtime_settings_file(path: &Path) -> Result<RuntimeSettings, String> {
-    let content = fs::read_to_string(path).map_err(|err| err.to_string())?;
-    serde_json::from_str(&content).map_err(|err| err.to_string())
+    load_runtime_settings_from_disk(path).map_err(|err| err.to_string())
 }
 
 #[cfg(test)]

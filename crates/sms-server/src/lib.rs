@@ -122,7 +122,7 @@ async fn handle_socket_command(service: &SmsService, line: &str) -> String {
                 wrap_socket_plain_result(Ok(service.runtime_settings()))
             }
             SocketCommand::UpdateRuntimeSettings { request } => {
-                wrap_socket_plain_result(Ok(service.update_runtime_settings(request)))
+                wrap_socket_plain_result(service.update_runtime_settings(request))
             }
             SocketCommand::RegenerateHttpSecret => {
                 wrap_socket_plain_result(service.regenerate_http_secret())
@@ -691,7 +691,11 @@ async fn update_runtime_settings(
     state
         .service
         .log_http_access("POST", "/api/settings/runtime", "200");
-    Ok(Json(state.service.update_runtime_settings(update)))
+    state
+        .service
+        .update_runtime_settings(update)
+        .map(Json)
+        .map_err(to_api_error)
 }
 
 async fn regenerate_http_secret(

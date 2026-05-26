@@ -4,6 +4,8 @@ use fs2::FileExt;
 use sms_core::config::ServerConfig;
 use sms_core::models::RuntimeSettings;
 use sms_core::registry::ProviderRegistry;
+use sms_core::runtime_config::load_runtime_settings_from_disk;
+use sms_core::runtime_config::AppPersistencePaths;
 use sms_core::service::SmsService;
 use sms_server::{spawn_http_server, spawn_socket_server};
 use std::env;
@@ -29,19 +31,20 @@ async fn main() -> anyhow::Result<()> {
     let config_dir = config_path
         .parent()
         .context("resolve config directory failed")?;
+    let persistence_paths = AppPersistencePaths::from_config_dir(config_dir);
     let _runtime_owner_lock = acquire_runtime_owner_lock(config_dir)?;
-    if let Ok(settings) = load_runtime_settings_file(&config_dir.join("runtime-settings.json")) {
+    if let Ok(settings) = load_runtime_settings_file(&persistence_paths.runtime_settings_path) {
         config = config.with_http_port(settings.http_port);
     }
     config = config.with_http_bind_host("0.0.0.0");
     let service = Arc::new(SmsService::with_persistence_paths(
         registry,
         config.log_buffer,
-        Some(config_dir.join("runtime-settings.json")),
-        Some(config_dir.join("runtime.db")),
-        Some(config_dir.join("provider-options-cache.json")),
-        Some(config_dir.join("provider-options-raw.json")),
-        Some(config_dir.join("routing-plans.json")),
+        Some(persistence_paths.runtime_settings_path.clone()),
+        Some(persistence_paths.runtime_db_path.clone()),
+        Some(persistence_paths.provider_options_path.clone()),
+        Some(persistence_paths.provider_options_raw_path.clone()),
+        Some(persistence_paths.routing_plans_path.clone()),
     ));
     service.ensure_runtime_settings_persisted();
     let http_secret_override = env::var("MADAO_HTTP_SECRET")
@@ -199,8 +202,8 @@ fn is_docker_runtime() -> bool {
 }
 
 fn load_runtime_settings_file(path: &Path) -> anyhow::Result<RuntimeSettings> {
-    let content = fs::read_to_string(path)?;
-    Ok(serde_json::from_str(&content)?)
+    load_runtime_settings_from_disk(path)
+        .map_err(|err| anyhow::anyhow!(err.to_string()))
 }
 
 fn seed_default_providers(config_dir: &Path) -> anyhow::Result<()> {

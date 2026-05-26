@@ -24,6 +24,11 @@ use crate::options::{
     with_cache_state,
 };
 use crate::registry::ProviderRegistry;
+use crate::runtime_config::{
+    AppPersistencePaths, FileRuntimeConfigRepository, RuntimeConfigRepository, RuntimeConfigState,
+    default_runtime_settings, normalize_loaded_routing_plans, normalize_routing_plan_item,
+    normalize_routing_plan_service,
+};
 use crate::runtime_store::{
     ReleaseCoordinationRepository, RuntimeRepositories, RuntimeStateRepository, RuntimeStore,
     RuntimeStoreApplyOptions, RuntimeStoreBatch,
@@ -34,14 +39,11 @@ use plugin_sdk::ProviderManifest;
 use reqwest::Client;
 use serde::Deserialize;
 use std::collections::{BTreeMap, HashMap, VecDeque};
-use std::fs;
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 use std::sync::Arc;
 use url::Url;
 use uuid::Uuid;
 
-const ROUTING_PLANS_FILE_NAME: &str = "routing-plans.json";
-const RUNTIME_DB_FILE_NAME: &str = "runtime.db";
 const ROUTING_ANY_PROVIDER: &str = "any";
 const DEFAULT_TICKET_BUFFER: usize = 500;
 const DEFAULT_ACTIVITY_BUFFER: usize = 200;
@@ -90,11 +92,10 @@ pub struct SmsService {
     logs: RwLock<VecDeque<LogEntry>>,
     activity: RwLock<VecDeque<ActivityEntry>>,
     runtime_settings: RwLock<RuntimeSettings>,
-    runtime_settings_path: Option<PathBuf>,
+    runtime_config_repository: Arc<dyn RuntimeConfigRepository>,
     runtime_state_repository: Arc<dyn RuntimeStateRepository>,
     release_coordination_repository: Arc<dyn ReleaseCoordinationRepository>,
     provider_metadata_cache_repository: Arc<dyn ProviderMetadataCacheRepository>,
-    routing_plans_path: Option<PathBuf>,
     routing_plans: RwLock<RoutingPlanStore>,
     provider_option_cache: RwLock<ProviderOptionCacheStore>,
     provider_raw_option_audit: RwLock<ProviderRawOptionAuditStore>,
@@ -232,36 +233,55 @@ struct PreparedReuseRequest {
 }
 
 impl SmsService {
+    fn persistence_warning_entry(
+        &self,
+        scope: impl Into<String>,
+        message: impl Into<String>,
+    ) -> LogEntry {
+        self.log_entry(scope, "warn", message)
+    }
+
+    fn record_persistence_warning(&self, scope: impl Into<String>, message: impl Into<String>) {
+        let entry = self.persistence_warning_entry(scope, message);
+        self.push_log_entry_in_memory(entry.clone());
+        self.persist_runtime_batch(RuntimeStoreBatch {
+            log_entries: vec![entry],
+            ..RuntimeStoreBatch::default()
+        });
+    }
+
     fn with_runtime_repositories(
         registry: ProviderRegistry,
         log_buffer: usize,
-        runtime_settings_path: Option<PathBuf>,
+        runtime_config_repository: Arc<dyn RuntimeConfigRepository>,
         runtime_repositories: RuntimeRepositories,
         provider_metadata_cache_repository: Arc<dyn ProviderMetadataCacheRepository>,
-        routing_plans_path: Option<PathBuf>,
     ) -> Self {
+        let mut startup_warnings = Vec::new();
         let RuntimeRepositories {
             state: runtime_state_repository,
             release_coordination: release_coordination_repository,
         } = runtime_repositories;
-        let runtime_settings = runtime_settings_path
-            .as_ref()
-            .and_then(|path| load_runtime_settings(path).ok())
-            .unwrap_or_else(|| RuntimeSettings {
-                routing_strategy: "ordered_priority".to_string(),
-                auto_fallback: true,
-                option_cache_enabled: true,
-                option_cache_poll_interval_minutes: 30,
-                only_show_openai_sms_countries: false,
-                check_updates_on_launch: true,
-                http_port: 7822,
-                http_secret: generate_runtime_secret(),
-            });
+        let RuntimeConfigState {
+            settings: runtime_settings,
+            routing_plans,
+        } = match runtime_config_repository.load_state() {
+            Ok(state) => state,
+            Err(error) => {
+                startup_warnings.push(format!("runtime config load degraded to defaults: {error}"));
+                RuntimeConfigState {
+                    settings: default_runtime_settings(),
+                    routing_plans: RoutingPlanStore::default(),
+                }
+            }
+        };
         let mut runtime_settings = runtime_settings;
         if runtime_settings.http_secret.trim().is_empty() {
             runtime_settings.http_secret = generate_runtime_secret();
-            if let Some(path) = &runtime_settings_path {
-                let _ = save_runtime_settings(path, &runtime_settings);
+            if let Err(error) = runtime_config_repository.save_settings(&runtime_settings) {
+                startup_warnings.push(format!(
+                    "runtime settings persistence failed during startup repair: {error}"
+                ));
             }
         }
         let ProviderMetadataCacheState {
@@ -302,20 +322,13 @@ impl SmsService {
             });
         }
         let runtime_state = runtime_state_repository.load_state().unwrap_or_default();
-        let routing_plans_path = routing_plans_path.or_else(|| {
-            runtime_settings_path.as_ref().and_then(|path| {
-                path.parent()
-                    .map(|parent| parent.join(ROUTING_PLANS_FILE_NAME))
-            })
-        });
-        let (routing_plans, routing_plans_recanonicalized) = routing_plans_path
-            .as_ref()
-            .and_then(|path| load_routing_plans(path).ok())
-            .map(normalize_loaded_routing_plans)
-            .unwrap_or_else(|| (RoutingPlanStore::default(), false));
+        let (routing_plans, routing_plans_recanonicalized) =
+            normalize_loaded_routing_plans(routing_plans);
         if routing_plans_recanonicalized {
-            if let Some(path) = &routing_plans_path {
-                let _ = save_routing_plans(path, &routing_plans);
+            if let Err(error) = runtime_config_repository.save_routing_plans(&routing_plans) {
+                startup_warnings.push(format!(
+                    "routing plan recanonicalize persistence failed: {error}"
+                ));
             }
         }
         let RuntimeStateStore {
@@ -345,17 +358,16 @@ impl SmsService {
             });
         }
 
-        Self {
+        let service = Self {
             registry: Arc::new(RwLock::new(registry)),
             tickets: RwLock::new(runtime_tickets),
             logs: RwLock::new(runtime_logs),
             activity: RwLock::new(runtime_activity),
             runtime_settings: RwLock::new(runtime_settings),
-            runtime_settings_path,
+            runtime_config_repository,
             runtime_state_repository,
             release_coordination_repository,
             provider_metadata_cache_repository,
-            routing_plans_path,
             routing_plans: RwLock::new(routing_plans),
             provider_option_cache: RwLock::new(provider_option_cache),
             provider_raw_option_audit: RwLock::new(provider_raw_option_audit),
@@ -370,7 +382,11 @@ impl SmsService {
             log_buffer,
             ticket_buffer: DEFAULT_TICKET_BUFFER,
             activity_buffer: DEFAULT_ACTIVITY_BUFFER,
+        };
+        for message in startup_warnings {
+            service.record_persistence_warning("config", message);
         }
+        service
     }
 
     fn log_entry(
@@ -502,17 +518,38 @@ impl SmsService {
         provider_options_raw_path: Option<PathBuf>,
         routing_plans_path: Option<PathBuf>,
     ) -> Self {
+        let derived_paths = runtime_settings_path
+            .as_ref()
+            .and_then(|path| path.parent().map(AppPersistencePaths::from_config_dir));
         let runtime_db_path = runtime_db_path.or_else(|| {
-            runtime_settings_path.as_ref().and_then(|path| {
-                path.parent()
-                    .map(|parent| parent.join(RUNTIME_DB_FILE_NAME))
-            })
+            derived_paths
+                .as_ref()
+                .map(|paths| paths.runtime_db_path.clone())
+        });
+        let provider_options_path = provider_options_path.or_else(|| {
+            derived_paths
+                .as_ref()
+                .map(|paths| paths.provider_options_path.clone())
+        });
+        let provider_options_raw_path = provider_options_raw_path.or_else(|| {
+            derived_paths
+                .as_ref()
+                .map(|paths| paths.provider_options_raw_path.clone())
+        });
+        let routing_plans_path = routing_plans_path.or_else(|| {
+            derived_paths
+                .as_ref()
+                .map(|paths| paths.routing_plans_path.clone())
         });
         let runtime_repositories = runtime_db_path
             .as_ref()
             .and_then(|path| RuntimeStore::open(path).ok())
             .unwrap_or_else(RuntimeStore::in_memory)
             .repositories();
+        let runtime_config_repository = Arc::new(FileRuntimeConfigRepository::new(
+            runtime_settings_path,
+            routing_plans_path,
+        ));
         let provider_metadata_cache_repository =
             Arc::new(FileProviderMetadataCacheRepository::new(
                 provider_options_path,
@@ -521,17 +558,16 @@ impl SmsService {
         Self::with_runtime_repositories(
             registry,
             log_buffer,
-            runtime_settings_path,
+            runtime_config_repository,
             runtime_repositories,
             provider_metadata_cache_repository,
-            routing_plans_path,
         )
     }
 
     pub fn ensure_runtime_settings_persisted(&self) {
-        if let Some(path) = &self.runtime_settings_path {
-            let _ = save_runtime_settings(path, &self.runtime_settings());
-        }
+        let _ = self
+            .runtime_config_repository
+            .ensure_settings_persisted(&self.runtime_settings());
     }
 
     pub fn openai_sms_regions_cache(&self) -> OpenAiSmsRegionsCache {
@@ -3401,19 +3437,23 @@ impl SmsService {
             }
         }
 
-        let mut store = self.routing_plans.write();
-        if let Some(existing) = store
-            .plans
-            .iter_mut()
-            .find(|existing| existing.id == plan.id)
-        {
-            *existing = plan.clone();
-        } else {
-            store.plans.push(plan.clone());
-        }
-        if let Some(path) = &self.routing_plans_path {
-            save_routing_plans(path, &store)?;
-        }
+        let persisted_store = {
+            let current = self.routing_plans.read();
+            let mut next = current.clone();
+            if let Some(existing) = next
+                .plans
+                .iter_mut()
+                .find(|existing| existing.id == plan.id)
+            {
+                *existing = plan.clone();
+            } else {
+                next.plans.push(plan.clone());
+            }
+            next
+        };
+        self.runtime_config_repository
+            .save_routing_plans(&persisted_store)?;
+        *self.routing_plans.write() = persisted_store;
         self.log(
             "config",
             "info",
@@ -3423,24 +3463,28 @@ impl SmsService {
     }
 
     pub fn delete_routing_plan(&self, plan_id: &str) -> Result<RoutingPlanList, SmsError> {
-        let mut store = self.routing_plans.write();
-        let before = store.plans.len();
-        store.plans.retain(|plan| plan.id != plan_id);
-        if before == store.plans.len() {
-            return Err(SmsError::InvalidRequest(format!(
-                "routing plan `{plan_id}` not found"
-            )));
-        }
-        if let Some(path) = &self.routing_plans_path {
-            save_routing_plans(path, &store)?;
-        }
+        let persisted_store = {
+            let current = self.routing_plans.read();
+            let mut next = current.clone();
+            let before = next.plans.len();
+            next.plans.retain(|plan| plan.id != plan_id);
+            if before == next.plans.len() {
+                return Err(SmsError::InvalidRequest(format!(
+                    "routing plan `{plan_id}` not found"
+                )));
+            }
+            next
+        };
+        self.runtime_config_repository
+            .save_routing_plans(&persisted_store)?;
+        *self.routing_plans.write() = persisted_store.clone();
         self.log(
             "config",
             "info",
             format!("routing plan `{plan_id}` deleted"),
         );
         Ok(RoutingPlanList {
-            plans: store.plans.clone(),
+            plans: persisted_store.plans,
         })
     }
 
@@ -3502,31 +3546,40 @@ impl SmsService {
         }
     }
 
-    pub fn update_runtime_settings(&self, update: RuntimeSettingsUpdate) -> RuntimeSettings {
-        let mut current = self.runtime_settings.write();
-        current.routing_strategy = update.routing_strategy;
-        current.auto_fallback = update.auto_fallback;
-        current.option_cache_enabled = update.option_cache_enabled;
-        current.option_cache_poll_interval_minutes =
-            update.option_cache_poll_interval_minutes.max(1);
-        current.only_show_openai_sms_countries = update.only_show_openai_sms_countries;
-        current.check_updates_on_launch = update.check_updates_on_launch;
-        current.http_port = update.http_port.max(1);
-        if let Some(path) = &self.runtime_settings_path {
-            let _ = save_runtime_settings(path, &current);
-        }
+    pub fn update_runtime_settings(
+        &self,
+        update: RuntimeSettingsUpdate,
+    ) -> Result<RuntimeSettings, SmsError> {
+        let updated = {
+            let current = self.runtime_settings.read();
+            let mut next = current.clone();
+            next.routing_strategy = update.routing_strategy;
+            next.auto_fallback = update.auto_fallback;
+            next.option_cache_enabled = update.option_cache_enabled;
+            next.option_cache_poll_interval_minutes =
+                update.option_cache_poll_interval_minutes.max(1);
+            next.only_show_openai_sms_countries = update.only_show_openai_sms_countries;
+            next.check_updates_on_launch = update.check_updates_on_launch;
+            next.http_port = update.http_port.max(1);
+            next
+        };
+        self.runtime_config_repository.save_settings(&updated)?;
+        *self.runtime_settings.write() = updated.clone();
         self.log("config", "info", "runtime routing settings updated");
-        current.clone()
+        Ok(updated)
     }
 
     pub fn regenerate_http_secret(&self) -> Result<RuntimeSettings, SmsError> {
-        let mut current = self.runtime_settings.write();
-        current.http_secret = generate_runtime_secret();
-        if let Some(path) = &self.runtime_settings_path {
-            save_runtime_settings(path, &current)?;
-        }
+        let updated = {
+            let current = self.runtime_settings.read();
+            let mut next = current.clone();
+            next.http_secret = generate_runtime_secret();
+            next
+        };
+        self.runtime_config_repository.save_settings(&updated)?;
+        *self.runtime_settings.write() = updated.clone();
         self.log("config", "info", "http secret regenerated");
-        Ok(current.clone())
+        Ok(updated)
     }
 
     pub fn effective_http_secret(&self, overridden_secret: Option<&str>) -> String {
@@ -4176,24 +4229,6 @@ impl SmsService {
     }
 }
 
-fn load_runtime_settings(path: &Path) -> Result<RuntimeSettings, SmsError> {
-    let content = fs::read_to_string(path)
-        .map_err(|err| SmsError::Io(format!("read runtime settings failed: {err}")))?;
-    serde_json::from_str(&content)
-        .map_err(|err| SmsError::Config(format!("parse runtime settings failed: {err}")))
-}
-
-fn save_runtime_settings(path: &Path, settings: &RuntimeSettings) -> Result<(), SmsError> {
-    if let Some(parent) = path.parent() {
-        fs::create_dir_all(parent)
-            .map_err(|err| SmsError::Io(format!("create runtime settings dir failed: {err}")))?;
-    }
-    let content = serde_json::to_string_pretty(settings)
-        .map_err(|err| SmsError::Config(format!("serialize runtime settings failed: {err}")))?;
-    fs::write(path, content)
-        .map_err(|err| SmsError::Io(format!("write runtime settings failed: {err}")))
-}
-
 fn generate_runtime_secret() -> String {
     Uuid::now_v7().simple().to_string()
 }
@@ -4225,60 +4260,6 @@ fn normalize_region_codes(values: &[String]) -> Vec<String> {
         }
     }
     deduped
-}
-
-fn normalize_routing_plan_service(plan: &mut RoutingPlan) -> bool {
-    let canonical = canonical_service_key(&plan.service, Some(&plan.service));
-    if plan.service == canonical {
-        return false;
-    }
-    plan.service = canonical;
-    true
-}
-
-fn normalize_routing_plan_country(country: &mut String) -> bool {
-    let canonical = canonical_country_key(country, Some(country.as_str()), None);
-    if *country == canonical {
-        return false;
-    }
-    *country = canonical;
-    true
-}
-
-fn normalize_routing_plan_item(item: &mut RoutingPlanItem) -> bool {
-    normalize_routing_plan_country(&mut item.country)
-}
-
-fn normalize_loaded_routing_plans(mut store: RoutingPlanStore) -> (RoutingPlanStore, bool) {
-    let mut changed = false;
-    for plan in &mut store.plans {
-        changed |= normalize_routing_plan_service(plan);
-        for item in &mut plan.items {
-            changed |= normalize_routing_plan_item(item);
-        }
-    }
-    (store, changed)
-}
-
-fn load_routing_plans(path: &Path) -> Result<RoutingPlanStore, SmsError> {
-    if !path.exists() {
-        return Ok(RoutingPlanStore::default());
-    }
-    let content = fs::read_to_string(path)
-        .map_err(|err| SmsError::Io(format!("read routing plans failed: {err}")))?;
-    serde_json::from_str(&content)
-        .map_err(|err| SmsError::Config(format!("parse routing plans failed: {err}")))
-}
-
-fn save_routing_plans(path: &Path, store: &RoutingPlanStore) -> Result<(), SmsError> {
-    if let Some(parent) = path.parent() {
-        fs::create_dir_all(parent)
-            .map_err(|err| SmsError::Io(format!("create routing plans dir failed: {err}")))?;
-    }
-    let content = serde_json::to_string_pretty(store)
-        .map_err(|err| SmsError::Config(format!("serialize routing plans failed: {err}")))?;
-    fs::write(path, content)
-        .map_err(|err| SmsError::Io(format!("write routing plans failed: {err}")))
 }
 
 fn normalize_runtime_ticket(mut ticket: TicketRecord) -> (TicketRecord, bool) {
@@ -4482,6 +4463,7 @@ mod tests {
     use axum::routing::{get, post};
     use axum::{Json, Router};
     use std::fs;
+    use std::path::Path;
     use std::net::SocketAddr;
     use std::path::PathBuf;
     use std::sync::Arc;
@@ -4578,6 +4560,38 @@ mod tests {
         "#;
         let payload = extract_bootstrap_json(html).unwrap();
         assert!(payload.contains("statsigClientInitData"));
+    }
+
+    #[test]
+    fn file_runtime_config_repository_round_trips_state() {
+        let base = std::env::temp_dir().join(format!("madao-config-repo-{}", Uuid::now_v7()));
+        fs::create_dir_all(&base).unwrap();
+        let repo = FileRuntimeConfigRepository::new(
+            Some(base.join("runtime-settings.json")),
+            Some(base.join("routing-plans.json")),
+        );
+        let settings = RuntimeSettings {
+            routing_strategy: "ordered_priority".to_string(),
+            auto_fallback: false,
+            option_cache_enabled: false,
+            option_cache_poll_interval_minutes: 5,
+            only_show_openai_sms_countries: true,
+            check_updates_on_launch: false,
+            http_port: 9900,
+            http_secret: "secret-token".to_string(),
+        };
+        let plans = RoutingPlanStore {
+            plans: vec![routing_plan()],
+        };
+
+        repo.save_settings(&settings).unwrap();
+        repo.save_routing_plans(&plans).unwrap();
+
+        let loaded = repo.load_state().unwrap();
+        assert_eq!(loaded.settings.http_port, 9900);
+        assert_eq!(loaded.settings.http_secret, "secret-token");
+        assert_eq!(loaded.routing_plans.plans.len(), 1);
+        assert_eq!(loaded.routing_plans.plans[0].id, "openai-plan");
     }
 
     #[test]
@@ -4777,6 +4791,114 @@ mod tests {
         let plans = service.list_routing_plans();
         assert_eq!(plans.plans.len(), 1);
         assert_eq!(plans.plans[0].service, "openai");
+    }
+
+    #[test]
+    fn ensure_runtime_settings_persisted_writes_default_settings() {
+        let base = std::env::temp_dir().join(format!("madao-settings-persist-{}", Uuid::now_v7()));
+        fs::create_dir_all(&base).unwrap();
+        let service = make_persistent_service(&base);
+
+        service.ensure_runtime_settings_persisted();
+
+        let content = fs::read_to_string(base.join("runtime-settings.json")).unwrap();
+        let settings: RuntimeSettings = serde_json::from_str(&content).unwrap();
+        assert_eq!(settings.http_port, 7822);
+        assert!(!settings.http_secret.trim().is_empty());
+    }
+
+    #[test]
+    fn update_runtime_settings_keeps_in_memory_state_when_persist_fails() {
+        let base = std::env::temp_dir().join(format!("madao-settings-fail-{}", Uuid::now_v7()));
+        fs::create_dir_all(&base).unwrap();
+        let registry = ProviderRegistry::load_from_dir(fixture_provider_dir()).unwrap();
+        let service = SmsService::with_persistence_paths(
+            registry,
+            32,
+            Some(base.join("missing").join("runtime-settings.json")),
+            None,
+            None,
+            None,
+            Some(base.join("routing-plans.json")),
+        );
+        let before = service.runtime_settings();
+        fs::write(base.join("missing"), "not-a-dir").unwrap();
+
+        let result = service.update_runtime_settings(RuntimeSettingsUpdate {
+            routing_strategy: "ordered_priority".to_string(),
+            auto_fallback: false,
+            option_cache_enabled: false,
+            option_cache_poll_interval_minutes: 7,
+            only_show_openai_sms_countries: true,
+            check_updates_on_launch: false,
+            http_port: 9001,
+        });
+
+        assert!(result.is_err());
+        let after = service.runtime_settings();
+        assert_eq!(after.http_port, before.http_port);
+        assert_eq!(after.option_cache_enabled, before.option_cache_enabled);
+        assert_eq!(
+            after.only_show_openai_sms_countries,
+            before.only_show_openai_sms_countries
+        );
+    }
+
+    #[test]
+    fn save_routing_plan_keeps_in_memory_state_when_persist_fails() {
+        let base = std::env::temp_dir().join(format!("madao-routing-fail-{}", Uuid::now_v7()));
+        fs::create_dir_all(&base).unwrap();
+        let registry = ProviderRegistry::load_from_dir(fixture_provider_dir()).unwrap();
+        let service = SmsService::with_persistence_paths(
+            registry,
+            32,
+            Some(base.join("runtime-settings.json")),
+            None,
+            None,
+            None,
+            Some(base.join("blocked").join("routing-plans.json")),
+        );
+        fs::write(base.join("blocked"), "not-a-dir").unwrap();
+
+        let result = service.save_routing_plan(routing_plan());
+
+        assert!(result.is_err());
+        assert!(service.list_routing_plans().plans.is_empty());
+    }
+
+    #[test]
+    fn delete_routing_plan_keeps_in_memory_state_when_persist_fails() {
+        let base = std::env::temp_dir().join(format!("madao-routing-delete-fail-{}", Uuid::now_v7()));
+        fs::create_dir_all(&base).unwrap();
+        let blocked_dir = base.join("blocked");
+        let routing_path = blocked_dir.join("routing-plans.json");
+        fs::create_dir_all(&blocked_dir).unwrap();
+        fs::write(
+            &routing_path,
+            serde_json::to_string_pretty(&RoutingPlanStore {
+                plans: vec![routing_plan()],
+            })
+            .unwrap(),
+        )
+        .unwrap();
+        let registry = ProviderRegistry::load_from_dir(fixture_provider_dir()).unwrap();
+        let service = SmsService::with_persistence_paths(
+            registry,
+            32,
+            Some(base.join("runtime-settings.json")),
+            None,
+            None,
+            None,
+            Some(routing_path.clone()),
+        );
+        fs::remove_file(&routing_path).unwrap();
+        fs::remove_dir(&blocked_dir).unwrap();
+        fs::write(&blocked_dir, "not-a-dir").unwrap();
+
+        let result = service.delete_routing_plan("openai-plan");
+
+        assert!(result.is_err());
+        assert_eq!(service.list_routing_plans().plans.len(), 1);
     }
 
     #[test]
