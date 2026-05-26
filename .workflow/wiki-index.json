@@ -1,6 +1,6 @@
 {
   "version": 2,
-  "generatedAt": 1779785856212,
+  "generatedAt": 1779822446135,
   "entries": [
     {
       "id": "project-project",
@@ -9,8 +9,8 @@
       "summary": "## What This Is",
       "tags": [],
       "status": "active",
-      "created": "2026-05-22T05:12:54.581Z",
-      "updated": "2026-05-22T05:12:54.581Z",
+      "created": "2026-05-26T09:37:30.425Z",
+      "updated": "2026-05-26T09:37:30.425Z",
       "scope": null,
       "category": null,
       "createdBy": null,
@@ -56,8 +56,8 @@
         "structure"
       ],
       "status": "active",
-      "created": "2026-05-05T18:22:16.853Z",
-      "updated": "2026-05-24T04:44:11.436Z",
+      "created": "2026-05-26T09:37:49.369Z",
+      "updated": "2026-05-26T09:37:49.369Z",
       "scope": "project",
       "category": "arch",
       "createdBy": null,
@@ -82,8 +82,8 @@
         "runtime-settings"
       ],
       "status": "active",
-      "created": "2026-05-05T18:22:16.853Z",
-      "updated": "2026-05-24T04:44:11.436Z",
+      "created": "2026-05-26T09:37:49.369Z",
+      "updated": "2026-05-26T09:37:49.369Z",
       "scope": "project",
       "category": "arch",
       "createdBy": null,
@@ -109,8 +109,8 @@
         "structure"
       ],
       "status": "active",
-      "created": "2026-05-05T18:22:16.853Z",
-      "updated": "2026-05-24T04:44:11.436Z",
+      "created": "2026-05-26T09:37:49.369Z",
+      "updated": "2026-05-26T09:37:49.369Z",
       "scope": "project",
       "category": "arch",
       "createdBy": null,
@@ -136,8 +136,8 @@
         "structure"
       ],
       "status": "active",
-      "created": "2026-05-05T18:22:16.853Z",
-      "updated": "2026-05-24T04:44:11.436Z",
+      "created": "2026-05-26T09:37:49.369Z",
+      "updated": "2026-05-26T09:37:49.369Z",
       "scope": "project",
       "category": "arch",
       "createdBy": null,
@@ -163,8 +163,8 @@
         "structure"
       ],
       "status": "active",
-      "created": "2026-05-05T18:22:16.853Z",
-      "updated": "2026-05-24T04:44:11.436Z",
+      "created": "2026-05-26T09:37:49.369Z",
+      "updated": "2026-05-26T09:37:49.369Z",
       "scope": "project",
       "category": "arch",
       "createdBy": null,
@@ -190,8 +190,8 @@
         "structure"
       ],
       "status": "active",
-      "created": "2026-05-05T18:22:16.853Z",
-      "updated": "2026-05-24T04:44:11.436Z",
+      "created": "2026-05-26T09:37:49.369Z",
+      "updated": "2026-05-26T09:37:49.369Z",
       "scope": "project",
       "category": "arch",
       "createdBy": null,
@@ -207,7 +207,7 @@
       "id": "spec:project:architecture-constraints-006",
       "type": "spec",
       "title": "Persistence And Config",
-      "summary": "- App config and default provider manifests are seeded by Tauri into user config directories. - Runtime settings and provider option cache are persisted on the Rust side. - `.workflow/` exists for process artifacts and specs; do not overwri",
+      "summary": "- App config and default provider manifests are seeded by Tauri into user config directories. - Runtime state (tickets, logs, activity, reuse pool, provider balance cache, OpenAI regions cache) is persisted via `RuntimeStore` backed by SQLi",
       "tags": [
         "architecture",
         "module",
@@ -217,8 +217,8 @@
         "structure"
       ],
       "status": "active",
-      "created": "2026-05-05T18:22:16.853Z",
-      "updated": "2026-05-24T04:44:11.436Z",
+      "created": "2026-05-26T09:37:49.369Z",
+      "updated": "2026-05-26T09:37:49.369Z",
       "scope": "project",
       "category": "arch",
       "createdBy": null,
@@ -244,8 +244,8 @@
         "structure"
       ],
       "status": "active",
-      "created": "2026-05-05T18:22:16.853Z",
-      "updated": "2026-05-24T04:44:11.436Z",
+      "created": "2026-05-26T09:37:49.369Z",
+      "updated": "2026-05-26T09:37:49.369Z",
       "scope": "project",
       "category": "arch",
       "createdBy": null,
@@ -1387,6 +1387,347 @@
         "kind": "virtual",
         "path": "issues/issues.jsonl",
         "line": 8
+      }
+    },
+    {
+      "id": "codebase-comp-tc-001",
+      "type": "knowhow",
+      "title": "SmsCore",
+      "summary": "SmsService, RuntimeStore, ProviderRegistry, SmsError, RuntimeSettings",
+      "tags": [
+        "core",
+        "FT-001",
+        "FT-002",
+        "FT-003",
+        "FT-004"
+      ],
+      "status": "active",
+      "created": "2026-05-26T18:00:00+08:00",
+      "updated": "2026-05-26T18:00:00+08:00",
+      "scope": null,
+      "category": "arch",
+      "createdBy": "manage-codebase-rebuild",
+      "sourceRef": "TC-001",
+      "parent": null,
+      "related": [
+        "codebase-feat-ft-001",
+        "codebase-feat-ft-002",
+        "codebase-feat-ft-003",
+        "codebase-feat-ft-004"
+      ],
+      "source": {
+        "kind": "virtual",
+        "path": "codebase/tech-registry/smscore.md"
+      }
+    },
+    {
+      "id": "codebase-comp-tc-002",
+      "type": "knowhow",
+      "title": "SmsServer",
+      "summary": "spawn_http_server, spawn_socket_server",
+      "tags": [
+        "controller",
+        "FT-001"
+      ],
+      "status": "active",
+      "created": "2026-05-26T18:00:00+08:00",
+      "updated": "2026-05-26T18:00:00+08:00",
+      "scope": null,
+      "category": "arch",
+      "createdBy": "manage-codebase-rebuild",
+      "sourceRef": "TC-002",
+      "parent": null,
+      "related": [
+        "codebase-feat-ft-001"
+      ],
+      "source": {
+        "kind": "virtual",
+        "path": "codebase/tech-registry/smsserver.md"
+      }
+    },
+    {
+      "id": "codebase-comp-tc-003",
+      "type": "knowhow",
+      "title": "Daemon",
+      "summary": "main",
+      "tags": [
+        "service",
+        "FT-005"
+      ],
+      "status": "active",
+      "created": "2026-05-26T18:00:00+08:00",
+      "updated": "2026-05-26T18:00:00+08:00",
+      "scope": null,
+      "category": "arch",
+      "createdBy": "manage-codebase-rebuild",
+      "sourceRef": "TC-003",
+      "parent": null,
+      "related": [
+        "codebase-feat-ft-005"
+      ],
+      "source": {
+        "kind": "virtual",
+        "path": "codebase/tech-registry/daemon.md"
+      }
+    },
+    {
+      "id": "codebase-comp-tc-004",
+      "type": "knowhow",
+      "title": "TauriShell",
+      "summary": "run",
+      "tags": [
+        "service",
+        "FT-005"
+      ],
+      "status": "active",
+      "created": "2026-05-26T18:00:00+08:00",
+      "updated": "2026-05-26T18:00:00+08:00",
+      "scope": null,
+      "category": "arch",
+      "createdBy": "manage-codebase-rebuild",
+      "sourceRef": "TC-004",
+      "parent": null,
+      "related": [
+        "codebase-feat-ft-005"
+      ],
+      "source": {
+        "kind": "virtual",
+        "path": "codebase/tech-registry/taurishell.md"
+      }
+    },
+    {
+      "id": "codebase-comp-tc-005",
+      "type": "knowhow",
+      "title": "PluginSdk",
+      "summary": "core at crates/plugin-sdk/src/",
+      "tags": [
+        "core",
+        "FT-002"
+      ],
+      "status": "active",
+      "created": "2026-05-26T18:00:00+08:00",
+      "updated": "2026-05-26T18:00:00+08:00",
+      "scope": null,
+      "category": "arch",
+      "createdBy": "manage-codebase-rebuild",
+      "sourceRef": "TC-005",
+      "parent": null,
+      "related": [
+        "codebase-feat-ft-002"
+      ],
+      "source": {
+        "kind": "virtual",
+        "path": "codebase/tech-registry/pluginsdk.md"
+      }
+    },
+    {
+      "id": "codebase-comp-tc-006",
+      "type": "knowhow",
+      "title": "UI",
+      "summary": "App, OverviewScreen, ProvidersListScreen, RoutingScreen, MessagesScreen",
+      "tags": [
+        "ui",
+        "FT-001",
+        "FT-003",
+        "FT-006"
+      ],
+      "status": "active",
+      "created": "2026-05-26T18:00:00+08:00",
+      "updated": "2026-05-26T18:00:00+08:00",
+      "scope": null,
+      "category": "arch",
+      "createdBy": "manage-codebase-rebuild",
+      "sourceRef": "TC-006",
+      "parent": null,
+      "related": [
+        "codebase-feat-ft-001",
+        "codebase-feat-ft-003",
+        "codebase-feat-ft-006"
+      ],
+      "source": {
+        "kind": "virtual",
+        "path": "codebase/tech-registry/ui.md"
+      }
+    },
+    {
+      "id": "codebase-comp-tc-007",
+      "type": "knowhow",
+      "title": "ProviderManifests",
+      "summary": "config at plugins/providers/",
+      "tags": [
+        "config",
+        "FT-002"
+      ],
+      "status": "active",
+      "created": "2026-05-26T18:00:00+08:00",
+      "updated": "2026-05-26T18:00:00+08:00",
+      "scope": null,
+      "category": "arch",
+      "createdBy": "manage-codebase-rebuild",
+      "sourceRef": "TC-007",
+      "parent": null,
+      "related": [
+        "codebase-feat-ft-002"
+      ],
+      "source": {
+        "kind": "virtual",
+        "path": "codebase/tech-registry/providermanifests.md"
+      }
+    },
+    {
+      "id": "codebase-feat-ft-001",
+      "type": "knowhow",
+      "title": "HTTP & Socket API",
+      "summary": "3 components, 0 requirements",
+      "tags": [
+        "feature",
+        "active"
+      ],
+      "status": "active",
+      "created": "2026-05-26T18:00:00+08:00",
+      "updated": "2026-05-26T18:00:00+08:00",
+      "scope": null,
+      "category": "arch",
+      "createdBy": "manage-codebase-rebuild",
+      "sourceRef": "FT-001",
+      "parent": null,
+      "related": [
+        "codebase-comp-tc-001",
+        "codebase-comp-tc-002",
+        "codebase-comp-tc-006"
+      ],
+      "source": {
+        "kind": "virtual",
+        "path": "codebase/feature-maps/http-socket-api.md"
+      }
+    },
+    {
+      "id": "codebase-feat-ft-002",
+      "type": "knowhow",
+      "title": "Provider Management",
+      "summary": "3 components, 0 requirements",
+      "tags": [
+        "feature",
+        "active"
+      ],
+      "status": "active",
+      "created": "2026-05-26T18:00:00+08:00",
+      "updated": "2026-05-26T18:00:00+08:00",
+      "scope": null,
+      "category": "arch",
+      "createdBy": "manage-codebase-rebuild",
+      "sourceRef": "FT-002",
+      "parent": null,
+      "related": [
+        "codebase-comp-tc-001",
+        "codebase-comp-tc-005",
+        "codebase-comp-tc-007"
+      ],
+      "source": {
+        "kind": "virtual",
+        "path": "codebase/feature-maps/provider-management.md"
+      }
+    },
+    {
+      "id": "codebase-feat-ft-003",
+      "type": "knowhow",
+      "title": "Activation & Reuse",
+      "summary": "2 components, 0 requirements",
+      "tags": [
+        "feature",
+        "active"
+      ],
+      "status": "active",
+      "created": "2026-05-26T18:00:00+08:00",
+      "updated": "2026-05-26T18:00:00+08:00",
+      "scope": null,
+      "category": "arch",
+      "createdBy": "manage-codebase-rebuild",
+      "sourceRef": "FT-003",
+      "parent": null,
+      "related": [
+        "codebase-comp-tc-001",
+        "codebase-comp-tc-006"
+      ],
+      "source": {
+        "kind": "virtual",
+        "path": "codebase/feature-maps/activation-reuse.md"
+      }
+    },
+    {
+      "id": "codebase-feat-ft-004",
+      "type": "knowhow",
+      "title": "Routing Engine",
+      "summary": "1 components, 0 requirements",
+      "tags": [
+        "feature",
+        "active"
+      ],
+      "status": "active",
+      "created": "2026-05-26T18:00:00+08:00",
+      "updated": "2026-05-26T18:00:00+08:00",
+      "scope": null,
+      "category": "arch",
+      "createdBy": "manage-codebase-rebuild",
+      "sourceRef": "FT-004",
+      "parent": null,
+      "related": [
+        "codebase-comp-tc-001"
+      ],
+      "source": {
+        "kind": "virtual",
+        "path": "codebase/feature-maps/routing-engine.md"
+      }
+    },
+    {
+      "id": "codebase-feat-ft-005",
+      "type": "knowhow",
+      "title": "Runtime Lifecycle",
+      "summary": "2 components, 0 requirements",
+      "tags": [
+        "feature",
+        "active"
+      ],
+      "status": "active",
+      "created": "2026-05-26T18:00:00+08:00",
+      "updated": "2026-05-26T18:00:00+08:00",
+      "scope": null,
+      "category": "arch",
+      "createdBy": "manage-codebase-rebuild",
+      "sourceRef": "FT-005",
+      "parent": null,
+      "related": [
+        "codebase-comp-tc-003",
+        "codebase-comp-tc-004"
+      ],
+      "source": {
+        "kind": "virtual",
+        "path": "codebase/feature-maps/runtime-lifecycle.md"
+      }
+    },
+    {
+      "id": "codebase-feat-ft-006",
+      "type": "knowhow",
+      "title": "Desktop Console UI",
+      "summary": "1 components, 0 requirements",
+      "tags": [
+        "feature",
+        "active"
+      ],
+      "status": "active",
+      "created": "2026-05-26T18:00:00+08:00",
+      "updated": "2026-05-26T18:00:00+08:00",
+      "scope": null,
+      "category": "arch",
+      "createdBy": "manage-codebase-rebuild",
+      "sourceRef": "FT-006",
+      "parent": null,
+      "related": [
+        "codebase-comp-tc-006"
+      ],
+      "source": {
+        "kind": "virtual",
+        "path": "codebase/feature-maps/desktop-console-ui.md"
       }
     }
   ]
