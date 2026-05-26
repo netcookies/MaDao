@@ -89,7 +89,7 @@ pub struct SmsService {
     activity: RwLock<VecDeque<ActivityEntry>>,
     runtime_settings: RwLock<RuntimeSettings>,
     runtime_settings_path: Option<PathBuf>,
-    runtime_store: Option<RuntimeStore>,
+    runtime_store: RuntimeStore,
     provider_options_path: Option<PathBuf>,
     provider_options_raw_path: Option<PathBuf>,
     routing_plans_path: Option<PathBuf>,
@@ -363,11 +363,9 @@ impl SmsService {
         });
         let runtime_store = runtime_db_path
             .as_ref()
-            .and_then(|path| RuntimeStore::open(path).ok());
-        let runtime_state = runtime_store
-            .as_ref()
-            .and_then(|store| store.load_state().ok())
-            .unwrap_or_default();
+            .and_then(|path| RuntimeStore::open(path).ok())
+            .unwrap_or_else(RuntimeStore::in_memory);
+        let runtime_state = runtime_store.load_state().unwrap_or_default();
         let routing_plans_path = routing_plans_path.or_else(|| {
             runtime_settings_path.as_ref().and_then(|path| {
                 path.parent()
@@ -401,16 +399,14 @@ impl SmsService {
             .map(|entry| (entry.provider.clone(), entry))
             .collect::<BTreeMap<_, _>>();
         if runtime_state_recanonicalized {
-            if let Some(store) = &runtime_store {
-                let _ = store.replace_state(&RuntimeStateStore {
-                    tickets: runtime_tickets.values().cloned().collect(),
-                    logs: runtime_logs.iter().cloned().collect(),
-                    activity: runtime_activity.iter().cloned().collect(),
-                    provider_balance_cache: runtime_balances.values().cloned().collect(),
-                    reuse_pool: reuse_pool.clone(),
-                    openai_sms_regions_cache: openai_sms_regions_cache.clone(),
-                });
-            }
+            let _ = runtime_store.replace_state(&RuntimeStateStore {
+                tickets: runtime_tickets.values().cloned().collect(),
+                logs: runtime_logs.iter().cloned().collect(),
+                activity: runtime_activity.iter().cloned().collect(),
+                provider_balance_cache: runtime_balances.values().cloned().collect(),
+                reuse_pool: reuse_pool.clone(),
+                openai_sms_regions_cache: openai_sms_regions_cache.clone(),
+            });
         }
 
         Self {
@@ -470,44 +466,11 @@ impl SmsService {
         Arc::clone(&self.registry)
     }
 
-    fn persist_runtime_state(&self) -> Result<(), SmsError> {
-        let Some(store) = &self.runtime_store else {
-            return Ok(());
-        };
-        let tickets = self.tickets.read().values().cloned().collect::<Vec<_>>();
-        let logs = self.logs.read().iter().cloned().collect::<Vec<_>>();
-        let activity = self.activity.read().iter().cloned().collect::<Vec<_>>();
-        let provider_balance_cache = self
-            .provider_balance_cache
-            .read()
-            .values()
-            .cloned()
-            .collect::<Vec<_>>();
-        let reuse_pool = self.reuse_pool.read().clone();
-        let openai_sms_regions_cache = self.openai_sms_regions_cache.read().clone();
-        store.replace_state(&RuntimeStateStore {
-            tickets,
-            logs,
-            activity,
-            provider_balance_cache,
-            reuse_pool,
-            openai_sms_regions_cache,
-        })
-    }
-
-    fn persist_runtime_state_quietly(&self) {
-        let _ = self.persist_runtime_state();
-    }
-
     fn persist_runtime_batch(&self, batch: RuntimeStoreBatch) {
         if batch.is_empty() {
             return;
         }
-        let Some(store) = &self.runtime_store else {
-            self.persist_runtime_state_quietly();
-            return;
-        };
-        let _ = store.apply_batch(
+        let _ = self.runtime_store.apply_batch(
             &batch,
             RuntimeStoreApplyOptions {
                 log_limit: self.log_buffer,
@@ -991,11 +954,7 @@ impl SmsService {
         tickets.insert(ticket.id.clone(), ticket.clone());
         let deleted_ids = self.trim_tickets(&mut tickets);
         drop(tickets);
-        if self.runtime_store.is_some() {
-            self.persist_tickets_trimmed_quietly(&ticket, deleted_ids);
-            return;
-        }
-        self.persist_runtime_state_quietly();
+        self.persist_tickets_trimmed_quietly(&ticket, deleted_ids);
     }
 
     fn update_ticket(
@@ -1004,11 +963,7 @@ impl SmsService {
         updater: impl FnOnce(&mut TicketRecord),
     ) -> Result<(), SmsError> {
         let updated = self.update_ticket_in_memory(ticket_id, updater)?;
-        if self.runtime_store.is_some() {
-            self.persist_tickets_trimmed_quietly(&updated, Vec::new());
-            return Ok(());
-        }
-        self.persist_runtime_state_quietly();
+        self.persist_tickets_trimmed_quietly(&updated, Vec::new());
         Ok(())
     }
 
@@ -2331,16 +2286,13 @@ impl SmsService {
     pub async fn maybe_process_pending_releases(&self) {
         let now = Utc::now();
         let owner_id = format!("{}-{}", std::process::id(), Uuid::now_v7());
-        if self.runtime_store.as_ref().is_some_and(|store| {
-            !store.try_acquire_release_owner(&owner_id, now, AUTO_RELEASE_OWNER_LEASE_SEC)
-        }) {
+        if !self
+            .runtime_store
+            .try_acquire_release_owner(&owner_id, now, AUTO_RELEASE_OWNER_LEASE_SEC)
+        {
             return;
         }
-        let pending = if let Some(store) = &self.runtime_store {
-            store.pending_release_claims_or_empty(now)
-        } else {
-            self.pending_release_claims(now)
-        };
+        let pending = self.runtime_store.pending_release_claims_or_empty(now);
 
         for claim in pending {
             let ticket_id = claim.ticket_id.clone();
@@ -2486,36 +2438,7 @@ impl SmsService {
                 }
             }
         }
-        if let Some(store) = &self.runtime_store {
-            store.release_release_owner_quietly(&owner_id);
-        }
-    }
-
-    fn pending_release_claims(
-        &self,
-        now: chrono::DateTime<Utc>,
-    ) -> Vec<crate::runtime_store::ReleaseClaim> {
-        self.tickets
-            .read()
-            .values()
-            .filter(|ticket| {
-                ticket.status == TicketStatus::CancelPending
-                    && ticket
-                        .next_release_attempt_at
-                        .is_some_and(|time| time <= now)
-                    && ticket.pending_release_action.is_some()
-            })
-            .map(|ticket| crate::runtime_store::ReleaseClaim {
-                ticket_id: ticket.id.clone(),
-                action: ticket
-                    .pending_release_action
-                    .clone()
-                    .unwrap_or(crate::models::ReleaseAction::Cancel),
-                auto_release_at: ticket.auto_release_at,
-                retry_deadline_at: ticket.release_retry_deadline_at,
-                retry_count: ticket.release_retry_count,
-            })
-            .collect()
+        self.runtime_store.release_release_owner_quietly(&owner_id);
     }
 
     pub fn list_provider_manifests(&self) -> ProviderManifestList {

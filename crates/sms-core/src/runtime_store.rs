@@ -4,21 +4,34 @@ use crate::models::{
     ReusePoolEntry, RuntimeStateStore, TicketRecord,
 };
 use chrono::{DateTime, Utc};
+use parking_lot::Mutex;
 use rusqlite::{Connection, OptionalExtension, Transaction, params, params_from_iter};
 use std::collections::HashMap;
 use std::error::Error as StdError;
 use std::path::{Path, PathBuf};
+use std::sync::Arc;
 
 const RUNTIME_DB_SCHEMA_VERSION: i64 = 1;
 const RELEASE_OWNER_KEY: &str = "release_owner";
 
 #[derive(Debug, Clone)]
 pub struct RuntimeStore {
-    path: PathBuf,
+    backend: Arc<RuntimeStoreBackend>,
 }
 
-struct RuntimeStoreTx<'store, 'conn> {
-    store: &'store RuntimeStore,
+#[derive(Debug)]
+enum RuntimeStoreBackend {
+    Sqlite {
+        path: PathBuf,
+    },
+    InMemory {
+        state: Mutex<RuntimeStateStore>,
+        release_owner: Mutex<Option<ReleaseOwnerLease>>,
+    },
+}
+
+struct RuntimeStoreTx<'backend, 'conn> {
+    backend: &'backend RuntimeStoreBackend,
     tx: Transaction<'conn>,
 }
 
@@ -70,17 +83,34 @@ pub struct ReleaseOwnerLease {
 
 impl RuntimeStore {
     pub fn open(path: impl Into<PathBuf>) -> Result<Self, SmsError> {
-        let store = Self { path: path.into() };
+        let store = Self {
+            backend: Arc::new(RuntimeStoreBackend::Sqlite { path: path.into() }),
+        };
         let conn = store.connect()?;
         store.initialize(&conn)?;
         Ok(store)
     }
 
+    pub fn in_memory() -> Self {
+        Self {
+            backend: Arc::new(RuntimeStoreBackend::InMemory {
+                state: Mutex::new(RuntimeStateStore::default()),
+                release_owner: Mutex::new(None),
+            }),
+        }
+    }
+
     pub fn path(&self) -> &Path {
-        &self.path
+        match self.backend.as_ref() {
+            RuntimeStoreBackend::Sqlite { path } => path.as_path(),
+            RuntimeStoreBackend::InMemory { .. } => Path::new("<memory>"),
+        }
     }
 
     pub fn load_state(&self) -> Result<RuntimeStateStore, SmsError> {
+        if let RuntimeStoreBackend::InMemory { state, .. } = self.backend.as_ref() {
+            return Ok(state.lock().clone());
+        }
         let conn = self.connect()?;
         let tickets = self.load_tickets(&conn)?;
         let logs = self.load_logs(&conn)?;
@@ -99,6 +129,10 @@ impl RuntimeStore {
     }
 
     pub fn replace_release_owner(&self, lease: Option<&ReleaseOwnerLease>) -> Result<(), SmsError> {
+        if let RuntimeStoreBackend::InMemory { release_owner, .. } = self.backend.as_ref() {
+            *release_owner.lock() = lease.cloned();
+            return Ok(());
+        }
         let conn = self.connect()?;
         conn.execute(
             "DELETE FROM release_owner WHERE id = ?1",
@@ -122,6 +156,9 @@ impl RuntimeStore {
     }
 
     pub fn current_release_owner(&self) -> Result<Option<ReleaseOwnerLease>, SmsError> {
+        if let RuntimeStoreBackend::InMemory { release_owner, .. } = self.backend.as_ref() {
+            return Ok(release_owner.lock().clone());
+        }
         let conn = self.connect()?;
         conn.query_row(
             "SELECT owner_id, expires_at FROM release_owner WHERE id = ?1",
@@ -162,11 +199,25 @@ impl RuntimeStore {
         &self,
         op: impl FnOnce(&mut RuntimeStoreTx<'_, '_>) -> Result<T, SmsError>,
     ) -> Result<T, SmsError> {
+        if let RuntimeStoreBackend::InMemory { .. } = self.backend.as_ref() {
+            let mut conn = self.connect()?;
+            let tx = conn
+                .transaction()
+                .map_err(|err| SmsError::Io(format!("begin in-memory tx failed: {err}")))?;
+            let mut runtime_tx = RuntimeStoreTx {
+                backend: self.backend.as_ref(),
+                tx,
+            };
+            return op(&mut runtime_tx);
+        }
         let mut conn = self.connect()?;
         let tx = conn
             .transaction()
             .map_err(|err| SmsError::Io(format!("begin sqlite tx failed: {err}")))?;
-        let mut runtime_tx = RuntimeStoreTx { store: self, tx };
+        let mut runtime_tx = RuntimeStoreTx {
+            backend: self.backend.as_ref(),
+            tx,
+        };
         let result = op(&mut runtime_tx)?;
         runtime_tx
             .tx
@@ -179,6 +230,30 @@ impl RuntimeStore {
         &self,
         now: DateTime<Utc>,
     ) -> Result<Vec<ReleaseClaim>, SmsError> {
+        if let RuntimeStoreBackend::InMemory { state, .. } = self.backend.as_ref() {
+            return Ok(state
+                .lock()
+                .tickets
+                .iter()
+                .filter(|ticket| {
+                    ticket.status == crate::models::TicketStatus::CancelPending
+                        && ticket.pending_release_action.is_some()
+                        && ticket
+                            .next_release_attempt_at
+                            .is_some_and(|time| time <= now)
+                })
+                .map(|ticket| ReleaseClaim {
+                    ticket_id: ticket.id.clone(),
+                    action: ticket
+                        .pending_release_action
+                        .clone()
+                        .unwrap_or(ReleaseAction::Cancel),
+                    auto_release_at: ticket.auto_release_at,
+                    retry_deadline_at: ticket.release_retry_deadline_at,
+                    retry_count: ticket.release_retry_count,
+                })
+                .collect());
+        }
         let conn = self.connect()?;
         let mut stmt = conn
             .prepare(
@@ -216,6 +291,16 @@ impl RuntimeStore {
         lease: &ReleaseOwnerLease,
         now: DateTime<Utc>,
     ) -> Result<bool, SmsError> {
+        if let RuntimeStoreBackend::InMemory { release_owner, .. } = self.backend.as_ref() {
+            let mut current = release_owner.lock();
+            let allowed = current
+                .as_ref()
+                .is_none_or(|owner| owner.expires_at <= now || owner.owner_id == lease.owner_id);
+            if allowed {
+                *current = Some(lease.clone());
+            }
+            return Ok(allowed);
+        }
         let conn = self.connect()?;
         let updated = conn
             .execute(
@@ -256,6 +341,16 @@ impl RuntimeStore {
     }
 
     pub fn release_release_owner(&self, owner_id: &str) -> Result<(), SmsError> {
+        if let RuntimeStoreBackend::InMemory { release_owner, .. } = self.backend.as_ref() {
+            let mut current = release_owner.lock();
+            if current
+                .as_ref()
+                .is_some_and(|lease| lease.owner_id == owner_id)
+            {
+                *current = None;
+            }
+            return Ok(());
+        }
         let conn = self.connect()?;
         conn.execute(
             "DELETE FROM release_owner WHERE id = ?1 AND owner_id = ?2",
@@ -270,7 +365,14 @@ impl RuntimeStore {
     }
 
     fn connect(&self) -> Result<Connection, SmsError> {
-        let conn = Connection::open(&self.path)
+        let RuntimeStoreBackend::Sqlite { path } = self.backend.as_ref() else {
+            let conn = Connection::open_in_memory()
+                .map_err(|err| SmsError::Io(format!("open in-memory sqlite failed: {err}")))?;
+            conn.execute_batch("PRAGMA foreign_keys=ON;")
+                .map_err(|err| SmsError::Io(format!("configure in-memory runtime store failed: {err}")))?;
+            return Ok(conn);
+        };
+        let conn = Connection::open(path)
             .map_err(|err| SmsError::Io(format!("open sqlite runtime store failed: {err}")))?;
         conn.execute_batch(
             "PRAGMA journal_mode=WAL;
@@ -490,11 +592,9 @@ impl RuntimeStore {
             .map(|value| value.unwrap_or_default())
     }
 
-    fn insert_tickets(
-        &self,
-        tx: &Transaction<'_>,
-        tickets: &[TicketRecord],
-    ) -> Result<(), SmsError> {
+}
+
+fn insert_tickets(tx: &Transaction<'_>, tickets: &[TicketRecord]) -> Result<(), SmsError> {
         let mut stmt = tx
             .prepare(
                 "INSERT INTO tickets (
@@ -523,11 +623,7 @@ impl RuntimeStore {
         Ok(())
     }
 
-    fn upsert_ticket_tx(
-        &self,
-        tx: &Transaction<'_>,
-        ticket: &TicketRecord,
-    ) -> Result<(), SmsError> {
+fn upsert_ticket_tx(tx: &Transaction<'_>, ticket: &TicketRecord) -> Result<(), SmsError> {
         let payload = serde_json::to_string(ticket)
             .map_err(|err| SmsError::Config(format!("serialize ticket failed: {err}")))?;
         tx.execute(
@@ -553,7 +649,7 @@ impl RuntimeStore {
         Ok(())
     }
 
-    fn insert_logs(&self, tx: &Transaction<'_>, logs: &[LogEntry]) -> Result<(), SmsError> {
+fn insert_logs(tx: &Transaction<'_>, logs: &[LogEntry]) -> Result<(), SmsError> {
         let mut stmt = tx
             .prepare("INSERT INTO logs (timestamp, scope, level, message) VALUES (?1, ?2, ?3, ?4)")
             .map_err(|err| SmsError::Io(format!("prepare log insert failed: {err}")))?;
@@ -569,11 +665,7 @@ impl RuntimeStore {
         Ok(())
     }
 
-    fn insert_activity(
-        &self,
-        tx: &Transaction<'_>,
-        activity: &[ActivityEntry],
-    ) -> Result<(), SmsError> {
+fn insert_activity(tx: &Transaction<'_>, activity: &[ActivityEntry]) -> Result<(), SmsError> {
         let mut stmt = tx
             .prepare(
                 "INSERT INTO activity (id, timestamp, level, kind, payload_json)
@@ -595,11 +687,10 @@ impl RuntimeStore {
         Ok(())
     }
 
-    fn insert_provider_balances(
-        &self,
-        tx: &Transaction<'_>,
-        balances: &[ProviderBalanceCacheEntry],
-    ) -> Result<(), SmsError> {
+fn insert_provider_balances(
+    tx: &Transaction<'_>,
+    balances: &[ProviderBalanceCacheEntry],
+) -> Result<(), SmsError> {
         let mut stmt = tx
             .prepare("INSERT INTO provider_balance_cache (provider, payload_json) VALUES (?1, ?2)")
             .map_err(|err| SmsError::Io(format!("prepare balance insert failed: {err}")))?;
@@ -612,11 +703,10 @@ impl RuntimeStore {
         Ok(())
     }
 
-    fn insert_reuse_pool(
-        &self,
-        tx: &Transaction<'_>,
-        reuse_pool: &HashMap<String, Vec<ReusePoolEntry>>,
-    ) -> Result<(), SmsError> {
+fn insert_reuse_pool(
+    tx: &Transaction<'_>,
+    reuse_pool: &HashMap<String, Vec<ReusePoolEntry>>,
+) -> Result<(), SmsError> {
         let mut stmt = tx
             .prepare(
                 "INSERT INTO reuse_pool (provider_bucket, phone_number, service, country, payload_json)
@@ -641,12 +731,11 @@ impl RuntimeStore {
         Ok(())
     }
 
-    fn insert_reuse_bucket(
-        &self,
-        tx: &Transaction<'_>,
-        provider_bucket: &str,
-        entries: &[ReusePoolEntry],
-    ) -> Result<(), SmsError> {
+fn insert_reuse_bucket(
+    tx: &Transaction<'_>,
+    provider_bucket: &str,
+    entries: &[ReusePoolEntry],
+) -> Result<(), SmsError> {
         let mut stmt = tx
             .prepare(
                 "INSERT INTO reuse_pool (provider_bucket, phone_number, service, country, payload_json)
@@ -669,11 +758,10 @@ impl RuntimeStore {
         Ok(())
     }
 
-    fn save_openai_regions_tx(
-        &self,
-        tx: &Transaction<'_>,
-        cache: &OpenAiSmsRegionsCache,
-    ) -> Result<(), SmsError> {
+fn save_openai_regions_tx(
+    tx: &Transaction<'_>,
+    cache: &OpenAiSmsRegionsCache,
+) -> Result<(), SmsError> {
         let payload = serde_json::to_string(cache)
             .map_err(|err| SmsError::Config(format!("serialize openai regions failed: {err}")))?;
         tx.execute(
@@ -686,7 +774,6 @@ impl RuntimeStore {
         )
         .map_err(|err| SmsError::Io(format!("save openai regions failed: {err}")))?;
         Ok(())
-    }
 }
 
 impl RuntimeStoreTx<'_, '_> {
@@ -695,6 +782,51 @@ impl RuntimeStoreTx<'_, '_> {
         batch: &RuntimeStoreBatch,
         options: RuntimeStoreApplyOptions,
     ) -> Result<(), SmsError> {
+        if let RuntimeStoreBackend::InMemory { state, .. } = self.backend {
+            let mut state = state.lock();
+            if batch.clear_logs {
+                state.logs.clear();
+            }
+            if let Some(ticket) = batch.upsert_ticket.as_ref() {
+                state.tickets.retain(|current| current.id != ticket.id);
+                state.tickets.push(ticket.clone());
+            }
+            if !batch.delete_ticket_ids.is_empty() {
+                state.tickets.retain(|ticket| !batch.delete_ticket_ids.contains(&ticket.id));
+            }
+            state.logs.extend(batch.log_entries.iter().cloned());
+            if state.logs.len() > options.log_limit {
+                let start = state.logs.len().saturating_sub(options.log_limit);
+                let trimmed = state.logs.split_off(start);
+                state.logs = trimmed;
+            }
+            state.activity.extend(batch.activity_entries.iter().cloned());
+            if state.activity.len() > options.activity_limit {
+                state.activity.sort_by(|left, right| {
+                    left.timestamp
+                        .cmp(&right.timestamp)
+                        .then_with(|| left.id.cmp(&right.id))
+                });
+                let start = state.activity.len().saturating_sub(options.activity_limit);
+                let trimmed = state.activity.split_off(start);
+                state.activity = trimmed;
+            }
+            if let Some((provider_bucket, entries)) = batch.reuse_bucket.as_ref() {
+                state
+                    .reuse_pool
+                    .insert(provider_bucket.clone(), entries.clone());
+            }
+            if let Some(balance) = batch.provider_balance.as_ref() {
+                state
+                    .provider_balance_cache
+                    .retain(|entry| entry.provider != balance.provider);
+                state.provider_balance_cache.push(balance.clone());
+            }
+            if let Some(cache) = batch.openai_regions.as_ref() {
+                state.openai_sms_regions_cache = cache.clone();
+            }
+            return Ok(());
+        }
         if batch.clear_logs {
             self.clear_logs()?;
         }
@@ -729,6 +861,10 @@ impl RuntimeStoreTx<'_, '_> {
     }
 
     fn replace_state(&mut self, state: &RuntimeStateStore) -> Result<(), SmsError> {
+        if let RuntimeStoreBackend::InMemory { state: current, .. } = self.backend {
+            *current.lock() = state.clone();
+            return Ok(());
+        }
         self.tx
             .execute_batch(
                 "DELETE FROM tickets;
@@ -739,19 +875,20 @@ impl RuntimeStoreTx<'_, '_> {
                  DELETE FROM runtime_meta WHERE key = 'openai_sms_regions_cache';",
             )
             .map_err(|err| SmsError::Io(format!("clear sqlite runtime state failed: {err}")))?;
-        self.store.insert_tickets(&self.tx, &state.tickets)?;
-        self.store.insert_logs(&self.tx, &state.logs)?;
-        self.store.insert_activity(&self.tx, &state.activity)?;
-        self.store
-            .insert_provider_balances(&self.tx, &state.provider_balance_cache)?;
-        self.store.insert_reuse_pool(&self.tx, &state.reuse_pool)?;
-        self.store
-            .save_openai_regions_tx(&self.tx, &state.openai_sms_regions_cache)?;
+        insert_tickets(&self.tx, &state.tickets)?;
+        insert_logs(&self.tx, &state.logs)?;
+        insert_activity(&self.tx, &state.activity)?;
+        insert_provider_balances(&self.tx, &state.provider_balance_cache)?;
+        insert_reuse_pool(&self.tx, &state.reuse_pool)?;
+        save_openai_regions_tx(&self.tx, &state.openai_sms_regions_cache)?;
         Ok(())
     }
 
     fn upsert_ticket(&mut self, ticket: &TicketRecord) -> Result<(), SmsError> {
-        self.store.upsert_ticket_tx(&self.tx, ticket)
+        let RuntimeStoreBackend::Sqlite { .. } = self.backend else {
+            return Ok(());
+        };
+        upsert_ticket_tx(&self.tx, ticket)
     }
 
     fn delete_tickets(&mut self, ticket_ids: &[String]) -> Result<(), SmsError> {
@@ -870,18 +1007,23 @@ impl RuntimeStoreTx<'_, '_> {
         provider_bucket: &str,
         entries: &[ReusePoolEntry],
     ) -> Result<(), SmsError> {
+        let RuntimeStoreBackend::Sqlite { .. } = self.backend else {
+            return Ok(());
+        };
         self.tx
             .execute(
                 "DELETE FROM reuse_pool WHERE provider_bucket = ?1",
                 [provider_bucket],
             )
             .map_err(|err| SmsError::Io(format!("clear reuse bucket failed: {err}")))?;
-        self.store
-            .insert_reuse_bucket(&self.tx, provider_bucket, entries)
+        insert_reuse_bucket(&self.tx, provider_bucket, entries)
     }
 
     fn save_openai_regions(&mut self, cache: &OpenAiSmsRegionsCache) -> Result<(), SmsError> {
-        self.store.save_openai_regions_tx(&self.tx, cache)
+        let RuntimeStoreBackend::Sqlite { .. } = self.backend else {
+            return Ok(());
+        };
+        save_openai_regions_tx(&self.tx, cache)
     }
 }
 
