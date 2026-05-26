@@ -53,8 +53,15 @@ fn setup_service() -> (SmsService, TempDir) {
 
     let registry = ProviderRegistry::load_from_dir(&providers_dir).unwrap();
     let state_path = dir.path().join("runtime.db");
-    let service =
-        SmsService::with_persistence_paths(registry, 100, None, Some(state_path), None, None, None);
+    let service = SmsService::with_persistence_paths(
+        registry,
+        100,
+        None,
+        Some(state_path.clone()),
+        None,
+        None,
+        None,
+    );
     (service, dir)
 }
 
@@ -87,11 +94,21 @@ fn setup_service_with_state(tickets: Vec<TicketRecord>) -> (SmsService, TempDir)
         reuse_pool: HashMap::new(),
         openai_sms_regions_cache: Default::default(),
     };
-    RuntimeStore::open(&state_path).unwrap().replace_state(&state).unwrap();
+    RuntimeStore::open(&state_path)
+        .unwrap()
+        .replace_state(&state)
+        .unwrap();
 
     let registry = ProviderRegistry::load_from_dir(&providers_dir).unwrap();
-    let service =
-        SmsService::with_persistence_paths(registry, 100, None, Some(state_path), None, None, None);
+    let service = SmsService::with_persistence_paths(
+        registry,
+        100,
+        None,
+        Some(state_path.clone()),
+        None,
+        None,
+        None,
+    );
     (service, dir)
 }
 
@@ -186,7 +203,10 @@ async fn test_same_activation_retry_not_pool() {
         .await
         .unwrap();
     let state_path = dir.path().join("runtime.db");
-    let state = RuntimeStore::open(&state_path).unwrap().load_state().unwrap();
+    let state = RuntimeStore::open(&state_path)
+        .unwrap()
+        .load_state()
+        .unwrap();
     assert!(
         state.reuse_pool.is_empty() || state.reuse_pool.values().all(|v| v.is_empty()),
         "Retry should not record candidate in pool"
@@ -505,12 +525,22 @@ async fn test_stale_eviction_ttl() {
         openai_sms_regions_cache: Default::default(),
     };
     let state_path = dir.path().join("runtime.db");
-    RuntimeStore::open(&state_path).unwrap().replace_state(&state).unwrap();
+    RuntimeStore::open(&state_path)
+        .unwrap()
+        .replace_state(&state)
+        .unwrap();
 
     let providers_dir = dir.path().join("providers");
     let registry = ProviderRegistry::load_from_dir(&providers_dir).unwrap();
-    let service =
-        SmsService::with_persistence_paths(registry, 100, None, Some(state_path), None, None, None);
+    let service = SmsService::with_persistence_paths(
+        registry,
+        100,
+        None,
+        Some(state_path.clone()),
+        None,
+        None,
+        None,
+    );
     let request = AcquireCodeRequest {
         provider: "fivesim".to_string(),
         service: Some("telegram".to_string()),
@@ -518,6 +548,18 @@ async fn test_stale_eviction_ttl() {
         ..default_request()
     };
     let _resp = service.acquire_code(request).await.unwrap();
+    let persisted = RuntimeStore::open(&state_path)
+        .unwrap()
+        .load_state()
+        .unwrap();
+    assert!(
+        persisted
+            .reuse_pool
+            .get("fivesim")
+            .map(|entries| entries.is_empty())
+            .unwrap_or(true),
+        "expired reuse entries should be removed from persistence"
+    );
 }
 
 #[tokio::test]
@@ -546,12 +588,22 @@ async fn test_stale_eviction_max_count() {
         openai_sms_regions_cache: Default::default(),
     };
     let state_path = dir.path().join("runtime.db");
-    RuntimeStore::open(&state_path).unwrap().replace_state(&state).unwrap();
+    RuntimeStore::open(&state_path)
+        .unwrap()
+        .replace_state(&state)
+        .unwrap();
 
     let providers_dir = dir.path().join("providers");
     let registry = ProviderRegistry::load_from_dir(&providers_dir).unwrap();
-    let service =
-        SmsService::with_persistence_paths(registry, 100, None, Some(state_path), None, None, None);
+    let service = SmsService::with_persistence_paths(
+        registry,
+        100,
+        None,
+        Some(state_path.clone()),
+        None,
+        None,
+        None,
+    );
     let request = AcquireCodeRequest {
         provider: "fivesim".to_string(),
         service: Some("telegram".to_string()),
@@ -559,6 +611,18 @@ async fn test_stale_eviction_max_count() {
         ..default_request()
     };
     let _resp = service.acquire_code(request).await.unwrap();
+    let persisted = RuntimeStore::open(&state_path)
+        .unwrap()
+        .load_state()
+        .unwrap();
+    assert!(
+        persisted
+            .reuse_pool
+            .get("fivesim")
+            .map(|entries| entries.is_empty())
+            .unwrap_or(true),
+        "exhausted reuse entries should be removed from persistence"
+    );
 }
 
 #[tokio::test]
@@ -579,7 +643,10 @@ async fn test_pool_persistence() {
         .await
         .unwrap();
     let state_path = dir.path().join("runtime.db");
-    let state = RuntimeStore::open(&state_path).unwrap().load_state().unwrap();
+    let state = RuntimeStore::open(&state_path)
+        .unwrap()
+        .load_state()
+        .unwrap();
     assert!(
         !state.reuse_pool.is_empty(),
         "reuse_pool should be persisted"

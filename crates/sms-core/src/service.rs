@@ -15,16 +15,18 @@ use crate::models::{
     TicketStatus,
 };
 use crate::options::{
-    OptionKind, ProviderOptionCacheStore, ProviderRawOptionAuditStore, build_cache_overview,
-    cache_state, canonical_country_key, canonical_service_key, load_option_cache_store,
-    load_raw_option_audit_store, normalize_loaded_provider_options, normalize_operator_options,
+    FileProviderMetadataCacheRepository, OptionKind, ProviderMetadataCacheBatch,
+    ProviderMetadataCacheRepository, ProviderMetadataCacheState, ProviderOptionCacheStore,
+    ProviderRawOptionAuditStore, build_cache_overview, cache_state, canonical_country_key,
+    canonical_service_key, normalize_loaded_provider_options, normalize_operator_options,
     normalize_price_items, normalize_provider_options, normalize_ticket_record,
     operator_country_cache_key, resolve_provider_operator_value, resolve_provider_value,
-    save_option_cache_store, save_raw_option_audit_store, with_cache_state,
+    with_cache_state,
 };
 use crate::registry::ProviderRegistry;
 use crate::runtime_store::{
-    RuntimeStore, RuntimeStoreApplyOptions, RuntimeStoreBatch,
+    ReleaseCoordinationRepository, RuntimeRepositories, RuntimeStateRepository, RuntimeStore,
+    RuntimeStoreApplyOptions, RuntimeStoreBatch,
 };
 use chrono::{Duration, Utc};
 use parking_lot::RwLock;
@@ -89,9 +91,9 @@ pub struct SmsService {
     activity: RwLock<VecDeque<ActivityEntry>>,
     runtime_settings: RwLock<RuntimeSettings>,
     runtime_settings_path: Option<PathBuf>,
-    runtime_store: RuntimeStore,
-    provider_options_path: Option<PathBuf>,
-    provider_options_raw_path: Option<PathBuf>,
+    runtime_state_repository: Arc<dyn RuntimeStateRepository>,
+    release_coordination_repository: Arc<dyn ReleaseCoordinationRepository>,
+    provider_metadata_cache_repository: Arc<dyn ProviderMetadataCacheRepository>,
     routing_plans_path: Option<PathBuf>,
     routing_plans: RwLock<RoutingPlanStore>,
     provider_option_cache: RwLock<ProviderOptionCacheStore>,
@@ -104,6 +106,86 @@ pub struct SmsService {
     log_buffer: usize,
     ticket_buffer: usize,
     activity_buffer: usize,
+}
+
+struct AcquireTicketRuntimeEffect {
+    ticket: TicketRecord,
+    uow: RuntimeUnitOfWork,
+}
+
+struct AcquireTicketRuntimeError {
+    error: SmsError,
+    uow: Option<RuntimeUnitOfWork>,
+}
+
+struct RoutingAcquireRuntimeEffect {
+    response: AcquireCodeResponse,
+    uow: RuntimeUnitOfWork,
+}
+
+struct RoutingAcquireRuntimeError {
+    error: SmsError,
+    uow: Option<RuntimeUnitOfWork>,
+}
+
+struct AcquireCodeRuntimeEffect {
+    response: AcquireCodeResponse,
+    uow: RuntimeUnitOfWork,
+}
+
+struct AcquireCodeRuntimeError {
+    error: SmsError,
+    uow: Option<RuntimeUnitOfWork>,
+}
+
+struct SameActivationRetryRuntimeEffect {
+    response: Option<AcquireCodeResponse>,
+    uow: RuntimeUnitOfWork,
+}
+
+struct SameActivationRetryRuntimeError {
+    error: SmsError,
+    uow: Option<RuntimeUnitOfWork>,
+}
+
+struct ReleaseRuntimeEffect {
+    response: ReleaseCodeResponse,
+    uow: RuntimeUnitOfWork,
+}
+
+struct ReleaseRuntimeError {
+    error: SmsError,
+    uow: Option<RuntimeUnitOfWork>,
+}
+
+struct ProviderOptionsRuntimeEffect {
+    response: ProviderDynamicOptions,
+    uow: RuntimeUnitOfWork,
+}
+
+struct ProviderOptionsRuntimeError {
+    error: SmsError,
+    uow: Option<RuntimeUnitOfWork>,
+}
+
+struct ProviderBalanceRuntimeEffect {
+    response: ProviderBalance,
+    uow: RuntimeUnitOfWork,
+}
+
+struct ProviderBalanceRuntimeError {
+    error: SmsError,
+    uow: Option<RuntimeUnitOfWork>,
+}
+
+struct ProviderPricesRuntimeEffect {
+    response: ProviderPriceResponse,
+    uow: RuntimeUnitOfWork,
+}
+
+struct ProviderPricesRuntimeError {
+    error: SmsError,
+    uow: Option<RuntimeUnitOfWork>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -138,7 +220,159 @@ struct OpenAiSmsRegionsPayload {
     whatsapp: Vec<String>,
 }
 
+#[derive(Default)]
+struct RuntimeUnitOfWork {
+    batch: RuntimeStoreBatch,
+}
+
+#[derive(Default)]
+struct PreparedReuseRequest {
+    exact_candidate: Option<ReusePoolEntry>,
+    cleaned_bucket: Option<(String, Vec<ReusePoolEntry>)>,
+}
+
 impl SmsService {
+    fn with_runtime_repositories(
+        registry: ProviderRegistry,
+        log_buffer: usize,
+        runtime_settings_path: Option<PathBuf>,
+        runtime_repositories: RuntimeRepositories,
+        provider_metadata_cache_repository: Arc<dyn ProviderMetadataCacheRepository>,
+        routing_plans_path: Option<PathBuf>,
+    ) -> Self {
+        let RuntimeRepositories {
+            state: runtime_state_repository,
+            release_coordination: release_coordination_repository,
+        } = runtime_repositories;
+        let runtime_settings = runtime_settings_path
+            .as_ref()
+            .and_then(|path| load_runtime_settings(path).ok())
+            .unwrap_or_else(|| RuntimeSettings {
+                routing_strategy: "ordered_priority".to_string(),
+                auto_fallback: true,
+                option_cache_enabled: true,
+                option_cache_poll_interval_minutes: 30,
+                only_show_openai_sms_countries: false,
+                check_updates_on_launch: true,
+                http_port: 7822,
+                http_secret: generate_runtime_secret(),
+            });
+        let mut runtime_settings = runtime_settings;
+        if runtime_settings.http_secret.trim().is_empty() {
+            runtime_settings.http_secret = generate_runtime_secret();
+            if let Some(path) = &runtime_settings_path {
+                let _ = save_runtime_settings(path, &runtime_settings);
+            }
+        }
+        let ProviderMetadataCacheState {
+            option_cache: provider_option_cache,
+            raw_option_audit: provider_raw_option_audit,
+        } = provider_metadata_cache_repository
+            .load_state()
+            .unwrap_or_default();
+        let (provider_option_cache, provider_option_cache_recanonicalized) = {
+            let registry_ref = &registry;
+            let mut normalized_store = ProviderOptionCacheStore::default();
+            let mut changed = false;
+            for (provider_id, entry) in provider_option_cache.entries {
+                if let Ok(manifest) = registry_ref.manifest(&provider_id) {
+                    let original_options = entry.options.clone();
+                    let normalized_options =
+                        normalize_loaded_provider_options(&manifest, entry.options);
+                    let original_serialized = serde_json::to_string(&original_options).ok();
+                    let normalized_serialized = serde_json::to_string(&normalized_options).ok();
+                    changed |= original_serialized != normalized_serialized;
+                    normalized_store.entries.insert(
+                        provider_id.clone(),
+                        ProviderOptionCacheEntry {
+                            options: normalized_options,
+                            ..entry
+                        },
+                    );
+                } else {
+                    normalized_store.entries.insert(provider_id, entry);
+                }
+            }
+            (normalized_store, changed)
+        };
+        if provider_option_cache_recanonicalized {
+            let _ = provider_metadata_cache_repository.apply_batch(&ProviderMetadataCacheBatch {
+                option_cache: Some(provider_option_cache.clone()),
+                ..ProviderMetadataCacheBatch::default()
+            });
+        }
+        let runtime_state = runtime_state_repository.load_state().unwrap_or_default();
+        let routing_plans_path = routing_plans_path.or_else(|| {
+            runtime_settings_path.as_ref().and_then(|path| {
+                path.parent()
+                    .map(|parent| parent.join(ROUTING_PLANS_FILE_NAME))
+            })
+        });
+        let (routing_plans, routing_plans_recanonicalized) = routing_plans_path
+            .as_ref()
+            .and_then(|path| load_routing_plans(path).ok())
+            .map(normalize_loaded_routing_plans)
+            .unwrap_or_else(|| (RoutingPlanStore::default(), false));
+        if routing_plans_recanonicalized {
+            if let Some(path) = &routing_plans_path {
+                let _ = save_routing_plans(path, &routing_plans);
+            }
+        }
+        let RuntimeStateStore {
+            tickets,
+            logs,
+            activity,
+            provider_balance_cache,
+            reuse_pool,
+            openai_sms_regions_cache,
+        } = runtime_state;
+        let (runtime_tickets, reuse_pool, runtime_state_recanonicalized) =
+            normalize_runtime_state(tickets, reuse_pool);
+        let runtime_logs = normalize_runtime_logs(logs, log_buffer);
+        let runtime_activity = normalize_runtime_activity(activity, DEFAULT_ACTIVITY_BUFFER);
+        let runtime_balances = provider_balance_cache
+            .into_iter()
+            .map(|entry| (entry.provider.clone(), entry))
+            .collect::<BTreeMap<_, _>>();
+        if runtime_state_recanonicalized {
+            let _ = runtime_state_repository.replace_state(&RuntimeStateStore {
+                tickets: runtime_tickets.values().cloned().collect(),
+                logs: runtime_logs.iter().cloned().collect(),
+                activity: runtime_activity.iter().cloned().collect(),
+                provider_balance_cache: runtime_balances.values().cloned().collect(),
+                reuse_pool: reuse_pool.clone(),
+                openai_sms_regions_cache: openai_sms_regions_cache.clone(),
+            });
+        }
+
+        Self {
+            registry: Arc::new(RwLock::new(registry)),
+            tickets: RwLock::new(runtime_tickets),
+            logs: RwLock::new(runtime_logs),
+            activity: RwLock::new(runtime_activity),
+            runtime_settings: RwLock::new(runtime_settings),
+            runtime_settings_path,
+            runtime_state_repository,
+            release_coordination_repository,
+            provider_metadata_cache_repository,
+            routing_plans_path,
+            routing_plans: RwLock::new(routing_plans),
+            provider_option_cache: RwLock::new(provider_option_cache),
+            provider_raw_option_audit: RwLock::new(provider_raw_option_audit),
+            provider_balance_cache: RwLock::new(runtime_balances),
+            reuse_pool: RwLock::new(reuse_pool),
+            openai_sms_regions_cache: RwLock::new(openai_sms_regions_cache),
+            callback_subscriptions: RwLock::new(BTreeMap::new()),
+            callback_client: Client::builder()
+                .timeout(std::time::Duration::from_secs(10))
+                .build()
+                .unwrap_or_else(|_| Client::new()),
+            log_buffer,
+            ticket_buffer: DEFAULT_TICKET_BUFFER,
+            activity_buffer: DEFAULT_ACTIVITY_BUFFER,
+        }
+    }
+
     fn log_entry(
         &self,
         scope: impl Into<String>,
@@ -239,35 +473,6 @@ impl SmsService {
         }
     }
 
-    fn push_ticket_activity(
-        &self,
-        kind: ActivityKind,
-        level: ActivityLevel,
-        title: String,
-        detail: Option<String>,
-        ticket: &TicketRecord,
-    ) {
-        self.push_activity(self.ticket_activity_entry(kind, level, title, detail, ticket));
-    }
-
-    fn push_routing_activity(
-        &self,
-        level: ActivityLevel,
-        title: String,
-        detail: Option<String>,
-        provider: Option<String>,
-        service: Option<String>,
-        country: Option<String>,
-        plan: &RoutingPlan,
-        item: &RoutingPlanItem,
-        round: u32,
-        ticket_id: Option<String>,
-    ) {
-        self.push_activity(self.routing_activity_entry(
-            level, title, detail, provider, service, country, plan, item, round, ticket_id,
-        ));
-    }
-
     pub fn new(registry: ProviderRegistry, log_buffer: usize) -> Self {
         Self::with_persistence_paths(registry, log_buffer, None, None, None, None, None)
     }
@@ -297,144 +502,30 @@ impl SmsService {
         provider_options_raw_path: Option<PathBuf>,
         routing_plans_path: Option<PathBuf>,
     ) -> Self {
-        let runtime_settings = runtime_settings_path
-            .as_ref()
-            .and_then(|path| load_runtime_settings(path).ok())
-            .unwrap_or_else(|| RuntimeSettings {
-                routing_strategy: "ordered_priority".to_string(),
-                auto_fallback: true,
-                option_cache_enabled: true,
-                option_cache_poll_interval_minutes: 30,
-                only_show_openai_sms_countries: false,
-                check_updates_on_launch: true,
-                http_port: 7822,
-                http_secret: generate_runtime_secret(),
-            });
-        let mut runtime_settings = runtime_settings;
-        if runtime_settings.http_secret.trim().is_empty() {
-            runtime_settings.http_secret = generate_runtime_secret();
-            if let Some(path) = &runtime_settings_path {
-                let _ = save_runtime_settings(path, &runtime_settings);
-            }
-        }
-        let provider_option_cache = provider_options_path
-            .as_ref()
-            .and_then(|path| load_option_cache_store(path).ok())
-            .unwrap_or_default();
-        let (provider_option_cache, provider_option_cache_recanonicalized) = {
-            let registry_ref = &registry;
-            let mut normalized_store = ProviderOptionCacheStore::default();
-            let mut changed = false;
-            for (provider_id, entry) in provider_option_cache.entries {
-                if let Ok(manifest) = registry_ref.manifest(&provider_id) {
-                    let original_options = entry.options.clone();
-                    let normalized_options =
-                        normalize_loaded_provider_options(&manifest, entry.options);
-                    let original_serialized = serde_json::to_string(&original_options).ok();
-                    let normalized_serialized = serde_json::to_string(&normalized_options).ok();
-                    changed |= original_serialized != normalized_serialized;
-                    normalized_store.entries.insert(
-                        provider_id.clone(),
-                        ProviderOptionCacheEntry {
-                            options: normalized_options,
-                            ..entry
-                        },
-                    );
-                } else {
-                    normalized_store.entries.insert(provider_id, entry);
-                }
-            }
-            (normalized_store, changed)
-        };
-        if provider_option_cache_recanonicalized {
-            if let Some(path) = &provider_options_path {
-                let _ = save_option_cache_store(path, &provider_option_cache);
-            }
-        }
-        let provider_raw_option_audit = provider_options_raw_path
-            .as_ref()
-            .and_then(|path| load_raw_option_audit_store(path).ok())
-            .unwrap_or_default();
         let runtime_db_path = runtime_db_path.or_else(|| {
             runtime_settings_path.as_ref().and_then(|path| {
                 path.parent()
                     .map(|parent| parent.join(RUNTIME_DB_FILE_NAME))
             })
         });
-        let runtime_store = runtime_db_path
+        let runtime_repositories = runtime_db_path
             .as_ref()
             .and_then(|path| RuntimeStore::open(path).ok())
-            .unwrap_or_else(RuntimeStore::in_memory);
-        let runtime_state = runtime_store.load_state().unwrap_or_default();
-        let routing_plans_path = routing_plans_path.or_else(|| {
-            runtime_settings_path.as_ref().and_then(|path| {
-                path.parent()
-                    .map(|parent| parent.join(ROUTING_PLANS_FILE_NAME))
-            })
-        });
-        let (routing_plans, routing_plans_recanonicalized) = routing_plans_path
-            .as_ref()
-            .and_then(|path| load_routing_plans(path).ok())
-            .map(normalize_loaded_routing_plans)
-            .unwrap_or_else(|| (RoutingPlanStore::default(), false));
-        if routing_plans_recanonicalized {
-            if let Some(path) = &routing_plans_path {
-                let _ = save_routing_plans(path, &routing_plans);
-            }
-        }
-        let RuntimeStateStore {
-            tickets,
-            logs,
-            activity,
-            provider_balance_cache,
-            reuse_pool,
-            openai_sms_regions_cache,
-        } = runtime_state;
-        let (runtime_tickets, reuse_pool, runtime_state_recanonicalized) =
-            normalize_runtime_state(tickets, reuse_pool);
-        let runtime_logs = normalize_runtime_logs(logs, log_buffer);
-        let runtime_activity = normalize_runtime_activity(activity, DEFAULT_ACTIVITY_BUFFER);
-        let runtime_balances = provider_balance_cache
-            .into_iter()
-            .map(|entry| (entry.provider.clone(), entry))
-            .collect::<BTreeMap<_, _>>();
-        if runtime_state_recanonicalized {
-            let _ = runtime_store.replace_state(&RuntimeStateStore {
-                tickets: runtime_tickets.values().cloned().collect(),
-                logs: runtime_logs.iter().cloned().collect(),
-                activity: runtime_activity.iter().cloned().collect(),
-                provider_balance_cache: runtime_balances.values().cloned().collect(),
-                reuse_pool: reuse_pool.clone(),
-                openai_sms_regions_cache: openai_sms_regions_cache.clone(),
-            });
-        }
-
-        Self {
-            registry: Arc::new(RwLock::new(registry)),
-            tickets: RwLock::new(runtime_tickets),
-            logs: RwLock::new(runtime_logs),
-            activity: RwLock::new(runtime_activity),
-            runtime_settings: RwLock::new(runtime_settings),
-            runtime_settings_path,
-            runtime_store,
-            provider_options_path,
-            provider_options_raw_path,
-            routing_plans_path,
-            routing_plans: RwLock::new(routing_plans),
-            provider_option_cache: RwLock::new(provider_option_cache),
-            provider_raw_option_audit: RwLock::new(provider_raw_option_audit),
-            provider_balance_cache: RwLock::new(runtime_balances),
-            reuse_pool: RwLock::new(reuse_pool),
-            openai_sms_regions_cache: RwLock::new(openai_sms_regions_cache),
-            callback_subscriptions: RwLock::new(BTreeMap::new()),
-            callback_client: Client::builder()
-                .timeout(std::time::Duration::from_secs(5))
-                .build()
-                .expect("callback client should build"),
+            .unwrap_or_else(RuntimeStore::in_memory)
+            .repositories();
+        let provider_metadata_cache_repository =
+            Arc::new(FileProviderMetadataCacheRepository::new(
+                provider_options_path,
+                provider_options_raw_path,
+            ));
+        Self::with_runtime_repositories(
+            registry,
             log_buffer,
-            ticket_buffer: DEFAULT_TICKET_BUFFER,
-            activity_buffer: DEFAULT_ACTIVITY_BUFFER,
-        }
+            runtime_settings_path,
+            runtime_repositories,
+            provider_metadata_cache_repository,
+            routing_plans_path,
+        )
     }
 
     pub fn ensure_runtime_settings_persisted(&self) {
@@ -470,7 +561,7 @@ impl SmsService {
         if batch.is_empty() {
             return;
         }
-        let _ = self.runtime_store.apply_batch(
+        let _ = self.runtime_state_repository.apply_batch(
             &batch,
             RuntimeStoreApplyOptions {
                 log_limit: self.log_buffer,
@@ -479,25 +570,184 @@ impl SmsService {
         );
     }
 
-    fn persist_reuse_bucket_quietly(&self, provider_bucket: &str) {
-        let entries = self
-            .reuse_pool
-            .read()
-            .get(provider_bucket)
-            .cloned()
-            .unwrap_or_default();
-        self.persist_runtime_batch(RuntimeStoreBatch {
-            reuse_bucket: Some((provider_bucket.to_string(), entries)),
-            ..RuntimeStoreBatch::default()
-        });
+    fn persist_provider_metadata_cache_batch(&self, batch: ProviderMetadataCacheBatch) {
+        if batch.is_empty() {
+            return;
+        }
+        let _ = self.provider_metadata_cache_repository.apply_batch(&batch);
     }
 
-    fn persist_tickets_trimmed_quietly(&self, ticket: &TicketRecord, deleted_ids: Vec<String>) {
-        self.persist_runtime_batch(RuntimeStoreBatch {
-            upsert_ticket: Some(ticket.clone()),
-            delete_ticket_ids: deleted_ids,
-            ..RuntimeStoreBatch::default()
-        });
+    fn commit_runtime_uow(&self, uow: RuntimeUnitOfWork) {
+        self.persist_runtime_batch(uow.batch);
+    }
+
+    fn append_log_to_uow(&self, uow: &mut RuntimeUnitOfWork, entry: LogEntry) {
+        self.push_log_entry_in_memory(entry.clone());
+        uow.batch.log_entries.push(entry);
+    }
+
+    fn append_activity_to_uow(&self, uow: &mut RuntimeUnitOfWork, entry: ActivityEntry) {
+        self.push_activity_entry_in_memory(entry.clone());
+        uow.batch.activity_entries.push(entry);
+    }
+
+    fn upsert_ticket_into_uow(&self, uow: &mut RuntimeUnitOfWork, ticket: TicketRecord) {
+        let mut tickets = self.tickets.write();
+        tickets.insert(ticket.id.clone(), ticket.clone());
+        let deleted_ids = self.trim_tickets(&mut tickets);
+        drop(tickets);
+        uow.batch.upsert_ticket = Some(ticket);
+        uow.batch.delete_ticket_ids.extend(deleted_ids);
+    }
+
+    fn queue_ticket_persistence_into_uow(&self, uow: &mut RuntimeUnitOfWork, ticket: TicketRecord) {
+        if let Some(current) = uow.batch.upsert_ticket.as_ref()
+            && current.id == ticket.id
+        {
+            uow.batch.upsert_ticket = Some(ticket);
+            return;
+        }
+        if let Some(existing) = uow
+            .batch
+            .upsert_tickets
+            .iter_mut()
+            .find(|current| current.id == ticket.id)
+        {
+            *existing = ticket;
+            return;
+        }
+        uow.batch.upsert_tickets.push(ticket);
+    }
+
+    fn merge_runtime_uow(&self, target: &mut RuntimeUnitOfWork, source: RuntimeUnitOfWork) {
+        if let Some(ticket) = source.batch.upsert_ticket {
+            self.queue_ticket_persistence_into_uow(target, ticket);
+        }
+        for ticket in source.batch.upsert_tickets {
+            self.queue_ticket_persistence_into_uow(target, ticket);
+        }
+        target
+            .batch
+            .delete_ticket_ids
+            .extend(source.batch.delete_ticket_ids);
+        target.batch.log_entries.extend(source.batch.log_entries);
+        target
+            .batch
+            .activity_entries
+            .extend(source.batch.activity_entries);
+        if source.batch.reuse_bucket.is_some() {
+            target.batch.reuse_bucket = source.batch.reuse_bucket;
+        }
+        if source.batch.provider_balance.is_some() {
+            target.batch.provider_balance = source.batch.provider_balance;
+        }
+        if source.batch.openai_regions.is_some() {
+            target.batch.openai_regions = source.batch.openai_regions;
+        }
+        target.batch.clear_logs |= source.batch.clear_logs;
+    }
+
+    fn replace_reuse_bucket_in_uow(
+        &self,
+        uow: &mut RuntimeUnitOfWork,
+        provider_bucket: String,
+        entries: Vec<ReusePoolEntry>,
+    ) {
+        uow.batch.reuse_bucket = Some((provider_bucket, entries));
+    }
+
+    fn log_into_uow(
+        &self,
+        uow: &mut RuntimeUnitOfWork,
+        scope: impl Into<String>,
+        level: impl Into<String>,
+        message: impl Into<String>,
+    ) {
+        let entry = self.log_entry(scope, level, message);
+        self.append_log_to_uow(uow, entry);
+    }
+
+    fn log_upstream_request_into_uow(
+        &self,
+        uow: &mut RuntimeUnitOfWork,
+        provider: impl Into<String>,
+        action: impl Into<String>,
+        details: impl Into<String>,
+    ) {
+        let provider = provider.into();
+        let action = action.into();
+        let details = details.into();
+        self.log_into_uow(
+            uow,
+            format!("upstream:{provider}"),
+            "info",
+            format!("{action} {details}"),
+        );
+    }
+
+    fn log_upstream_response_into_uow(
+        &self,
+        uow: &mut RuntimeUnitOfWork,
+        provider: impl Into<String>,
+        action: impl Into<String>,
+        status: impl Into<String>,
+        details: impl Into<String>,
+    ) {
+        let provider = provider.into();
+        let action = action.into();
+        let status = status.into();
+        let details = details.into();
+        self.log_into_uow(
+            uow,
+            format!("upstream:{provider}"),
+            if status.starts_with('2') {
+                "info"
+            } else {
+                "warn"
+            },
+            format!("{action} -> {status} {details}"),
+        );
+    }
+
+    fn push_activity_into_uow(&self, uow: &mut RuntimeUnitOfWork, entry: ActivityEntry) {
+        self.append_activity_to_uow(uow, entry);
+    }
+
+    fn push_ticket_activity_into_uow(
+        &self,
+        uow: &mut RuntimeUnitOfWork,
+        kind: ActivityKind,
+        level: ActivityLevel,
+        title: String,
+        detail: Option<String>,
+        ticket: &TicketRecord,
+    ) {
+        self.push_activity_into_uow(
+            uow,
+            self.ticket_activity_entry(kind, level, title, detail, ticket),
+        );
+    }
+
+    fn push_routing_activity_into_uow(
+        &self,
+        uow: &mut RuntimeUnitOfWork,
+        level: ActivityLevel,
+        title: String,
+        detail: Option<String>,
+        provider: Option<String>,
+        service: Option<String>,
+        country: Option<String>,
+        plan: &RoutingPlan,
+        item: &RoutingPlanItem,
+        round: u32,
+        ticket_id: Option<String>,
+    ) {
+        self.push_activity_into_uow(
+            uow,
+            self.routing_activity_entry(
+                level, title, detail, provider, service, country, plan, item, round, ticket_id,
+            ),
+        );
     }
 
     fn should_refresh_openai_sms_regions(&self) -> bool {
@@ -575,11 +825,15 @@ impl SmsService {
             fetched_at: Some(Utc::now()),
         };
         *self.openai_sms_regions_cache.write() = next.clone();
-        self.persist_runtime_batch(RuntimeStoreBatch {
-            openai_regions: Some(next.clone()),
-            ..RuntimeStoreBatch::default()
-        });
-        self.log("config", "info", "openai sms region cache refreshed");
+        let mut uow = RuntimeUnitOfWork::default();
+        uow.batch.openai_regions = Some(next.clone());
+        self.log_into_uow(
+            &mut uow,
+            "config",
+            "info",
+            "openai sms region cache refreshed",
+        );
+        self.commit_runtime_uow(uow);
         Ok(next)
     }
 
@@ -588,26 +842,20 @@ impl SmsService {
         provider: &str,
         service: &str,
         country: &str,
-    ) -> Option<ReusePoolEntry> {
+    ) -> (Option<ReusePoolEntry>, Option<Vec<ReusePoolEntry>>) {
         let now = Utc::now();
         let mut pool = self.reuse_pool.write();
-        let entries = pool.get_mut(provider)?;
+        let Some(entries) = pool.get_mut(provider) else {
+            return (None, None);
+        };
         let before_len = entries.len();
         entries.retain(|e| e.expires_at > now && e.reuse_count < e.max_reuse);
         let candidate = entries
             .iter()
             .find(|e| e.service == service && e.country == country)
             .cloned();
-        let should_persist = entries.len() != before_len;
-        let snapshot = should_persist.then(|| entries.clone());
-        drop(pool);
-        if let Some(snapshot) = snapshot {
-            self.persist_runtime_batch(RuntimeStoreBatch {
-                reuse_bucket: Some((provider.to_string(), snapshot)),
-                ..RuntimeStoreBatch::default()
-            });
-        }
-        candidate
+        let snapshot = (entries.len() != before_len).then(|| entries.clone());
+        (candidate, snapshot)
     }
 
     fn record_exact_reuse_candidate_in_memory(
@@ -680,7 +928,7 @@ impl SmsService {
         Some((ticket.provider.clone(), entries))
     }
 
-    fn prepare_reuse_request(&self, request: &mut AcquireCodeRequest) -> Option<ReusePoolEntry> {
+    fn prepare_reuse_request(&self, request: &mut AcquireCodeRequest) -> PreparedReuseRequest {
         let reuse_enabled = request
             .reuse_phone
             .or_else(|| {
@@ -692,34 +940,37 @@ impl SmsService {
             })
             .unwrap_or(true);
         if !reuse_enabled {
-            return None;
+            return PreparedReuseRequest::default();
         }
         let matrix = ProviderCapabilityMatrix::new();
         let service = request.service.as_deref().unwrap_or_default();
         let country = request.country.as_deref().unwrap_or_default();
-        if matrix.supports(&request.provider, ReuseCapability::ExactNumberReuse)
-            && let Some(candidate) =
-                self.peek_exact_reuse_from_pool(&request.provider, service, country)
-        {
-            request.reuse_phone = Some(true);
-            request.reuse_key = candidate
-                .reuse_key
-                .clone()
-                .or_else(|| Some(candidate.phone_number.clone()));
-            self.log(
-                "reuse_pool",
-                "info",
-                format!(
-                    "reuse_pool: candidate found provider={} service={} phone={}",
-                    request.provider, service, candidate.phone_number
-                ),
-            );
-            return Some(candidate);
+        if matrix.supports(&request.provider, ReuseCapability::ExactNumberReuse) {
+            let (candidate, cleaned_bucket) =
+                self.peek_exact_reuse_from_pool(&request.provider, service, country);
+            if let Some(candidate) = candidate {
+                request.reuse_phone = Some(true);
+                request.reuse_key = candidate
+                    .reuse_key
+                    .clone()
+                    .or_else(|| Some(candidate.phone_number.clone()));
+                return PreparedReuseRequest {
+                    exact_candidate: Some(candidate),
+                    cleaned_bucket: cleaned_bucket
+                        .map(|entries| (request.provider.clone(), entries)),
+                };
+            }
+            if let Some(entries) = cleaned_bucket {
+                return PreparedReuseRequest {
+                    exact_candidate: None,
+                    cleaned_bucket: Some((request.provider.clone(), entries)),
+                };
+            }
         }
         if matrix.supports(&request.provider, ReuseCapability::IntentReuse) {
             request.reuse_phone = Some(true);
         }
-        None
+        PreparedReuseRequest::default()
     }
 
     fn normalize_acquire_request(mut request: AcquireCodeRequest) -> AcquireCodeRequest {
@@ -742,11 +993,11 @@ impl SmsService {
         request
     }
 
-    async fn try_same_activation_retry_acquire(
+    async fn try_same_activation_retry_acquire_effect(
         &self,
         provider_id: &str,
         request: &AcquireCodeRequest,
-    ) -> Result<Option<AcquireCodeResponse>, SmsError> {
+    ) -> Result<SameActivationRetryRuntimeEffect, SameActivationRetryRuntimeError> {
         let reuse_enabled = request
             .reuse_phone
             .or_else(|| {
@@ -758,32 +1009,33 @@ impl SmsService {
             })
             .unwrap_or(true);
         if !reuse_enabled {
-            return Ok(None);
+            return Ok(SameActivationRetryRuntimeEffect {
+                response: None,
+                uow: RuntimeUnitOfWork::default(),
+            });
         }
         let matrix = ProviderCapabilityMatrix::new();
         if !matrix.supports(provider_id, ReuseCapability::SameActivationRetry) {
-            return Ok(None);
+            return Ok(SameActivationRetryRuntimeEffect {
+                response: None,
+                uow: RuntimeUnitOfWork::default(),
+            });
         }
         let Some(candidate) = self.try_same_activation_retry_candidate(
             provider_id,
             request.service.as_deref().unwrap_or_default(),
             request.country.as_deref().unwrap_or_default(),
         ) else {
-            return Ok(None);
+            return Ok(SameActivationRetryRuntimeEffect {
+                response: None,
+                uow: RuntimeUnitOfWork::default(),
+            });
         };
-        self.log(
-            "reuse_pool",
-            "info",
-            format!(
-                "reuse_pool: retry candidate found provider={} service={} phone={}",
-                provider_id,
-                request.service.as_deref().unwrap_or_default(),
-                candidate.phone_number
-            ),
-        );
         let provider = {
             let registry = self.registry.read();
-            registry.get(provider_id)?
+            registry
+                .get(provider_id)
+                .map_err(|error| SameActivationRetryRuntimeError { error, uow: None })?
         };
         let retry_result = provider
             .release(&candidate, crate::models::ReleaseAction::Retry)
@@ -794,7 +1046,10 @@ impl SmsService {
                 let updated = {
                     let mut tickets = self.tickets.write();
                     let Some(ticket) = tickets.get_mut(&candidate.id) else {
-                        return Ok(None);
+                        return Ok(SameActivationRetryRuntimeEffect {
+                            response: None,
+                            uow: RuntimeUnitOfWork::default(),
+                        });
                     };
                     ticket.updated_at = now;
                     ticket.status = TicketStatus::WaitingCode;
@@ -804,23 +1059,38 @@ impl SmsService {
                     ticket.reuse_count += 1;
                     ticket.clone()
                 };
-                self.persist_tickets_trimmed_quietly(&updated, Vec::new());
-                Ok(Some(AcquireCodeResponse {
-                    ticket_id: updated.id.clone(),
-                    provider: updated.provider.clone(),
-                    service: updated.service.clone(),
-                    country: updated.country.clone(),
-                    phone_number: updated.phone_number.clone(),
-                    upstream_id: updated.upstream_id.clone(),
-                    price: updated.price,
-                    status: updated.status.clone(),
-                    created_at: updated.created_at,
-                    acquire_path: updated.acquire_path,
-                    routing_plan_id: updated.routing_plan_id.clone(),
-                    routing_plan_name: updated.routing_plan_name.clone(),
-                    routing_item_id: updated.routing_item_id.clone(),
-                    routing_item_index: updated.routing_item_index,
-                }))
+                let mut uow = RuntimeUnitOfWork::default();
+                self.log_into_uow(
+                    &mut uow,
+                    "reuse_pool",
+                    "info",
+                    format!(
+                        "reuse_pool: retry candidate found provider={} service={} phone={}",
+                        provider_id,
+                        request.service.as_deref().unwrap_or_default(),
+                        candidate.phone_number
+                    ),
+                );
+                uow.batch.upsert_ticket = Some(updated.clone());
+                Ok(SameActivationRetryRuntimeEffect {
+                    response: Some(AcquireCodeResponse {
+                        ticket_id: updated.id.clone(),
+                        provider: updated.provider.clone(),
+                        service: updated.service.clone(),
+                        country: updated.country.clone(),
+                        phone_number: updated.phone_number.clone(),
+                        upstream_id: updated.upstream_id.clone(),
+                        price: updated.price,
+                        status: updated.status.clone(),
+                        created_at: updated.created_at,
+                        acquire_path: updated.acquire_path,
+                        routing_plan_id: updated.routing_plan_id.clone(),
+                        routing_plan_name: updated.routing_plan_name.clone(),
+                        routing_item_id: updated.routing_item_id.clone(),
+                        routing_item_index: updated.routing_item_index,
+                    }),
+                    uow,
+                })
             }
             Err(error) => {
                 {
@@ -832,26 +1102,35 @@ impl SmsService {
                     }
                 }
                 if let Ok(updated) = self.ticket(&candidate.id) {
-                    self.persist_tickets_trimmed_quietly(&updated, Vec::new());
+                    let mut uow = RuntimeUnitOfWork::default();
+                    uow.batch.upsert_ticket = Some(updated);
+                    self.log_into_uow(
+                        &mut uow,
+                        "reuse_pool",
+                        "warn",
+                        format!(
+                            "reuse_pool: retry candidate invalidated provider={} ticket={} error={}",
+                            provider_id, candidate.id, error
+                        ),
+                    );
+                    return Ok(SameActivationRetryRuntimeEffect {
+                        response: None,
+                        uow,
+                    });
                 }
-                self.log(
-                    "reuse_pool",
-                    "warn",
-                    format!(
-                        "reuse_pool: retry candidate invalidated provider={} ticket={} error={}",
-                        provider_id, candidate.id, error
-                    ),
-                );
-                Ok(None)
+                Ok(SameActivationRetryRuntimeEffect {
+                    response: None,
+                    uow: RuntimeUnitOfWork::default(),
+                })
             }
         }
     }
 
-    async fn acquire_ticket_for_provider(
+    async fn acquire_ticket_for_provider_effect(
         &self,
         provider_id: &str,
         request: &AcquireCodeRequest,
-    ) -> Result<TicketRecord, SmsError> {
+    ) -> Result<AcquireTicketRuntimeEffect, AcquireTicketRuntimeError> {
         let cached_options = self
             .provider_option_cache
             .read()
@@ -860,19 +1139,20 @@ impl SmsService {
             .cloned();
         let provider = {
             let registry = self.registry.read();
-            registry.get(provider_id)?
+            registry
+                .get(provider_id)
+                .map_err(|error| AcquireTicketRuntimeError { error, uow: None })?
         };
         if !provider.manifest().enabled {
-            return Err(SmsError::ProviderDisabled(provider_id.to_string()));
+            return Err(AcquireTicketRuntimeError {
+                error: SmsError::ProviderDisabled(provider_id.to_string()),
+                uow: None,
+            });
         }
-        self.log_upstream_request(
-            provider_id,
-            "acquire",
-            format!(
-                "service={} country={}",
-                request.service.clone().unwrap_or_default(),
-                request.country.clone().unwrap_or_default()
-            ),
+        let acquire_details = format!(
+            "service={} country={}",
+            request.service.clone().unwrap_or_default(),
+            request.country.clone().unwrap_or_default()
         );
         let ticket = match provider
             .acquire(&self.translate_acquire_request(
@@ -882,13 +1162,26 @@ impl SmsService {
             ))
             .await
         {
-            Ok(ticket) => {
-                self.log_upstream_response(provider_id, "acquire", "200", "ticket acquired");
-                ticket
-            }
+            Ok(ticket) => ticket,
             Err(error) => {
-                self.log_upstream_response(provider_id, "acquire", "error", error.to_string());
-                return Err(error);
+                let mut uow = RuntimeUnitOfWork::default();
+                self.log_upstream_request_into_uow(
+                    &mut uow,
+                    provider_id,
+                    "acquire",
+                    acquire_details.clone(),
+                );
+                self.log_upstream_response_into_uow(
+                    &mut uow,
+                    provider_id,
+                    "acquire",
+                    "error",
+                    error.to_string(),
+                );
+                return Err(AcquireTicketRuntimeError {
+                    error,
+                    uow: Some(uow),
+                });
             }
         };
         let mut ticket = normalize_ticket_record(
@@ -923,7 +1216,16 @@ impl SmsService {
         } else {
             AcquirePath::FreshAcquire
         };
-        Ok(ticket)
+        let mut uow = RuntimeUnitOfWork::default();
+        self.log_upstream_request_into_uow(&mut uow, provider_id, "acquire", acquire_details);
+        self.log_upstream_response_into_uow(
+            &mut uow,
+            provider_id,
+            "acquire",
+            "200",
+            "ticket acquired",
+        );
+        Ok(AcquireTicketRuntimeEffect { ticket, uow })
     }
 
     fn trim_tickets(&self, tickets: &mut BTreeMap<String, TicketRecord>) -> Vec<String> {
@@ -949,30 +1251,18 @@ impl SmsService {
         deleted_ids
     }
 
+    #[cfg(test)]
     fn upsert_ticket(&self, ticket: TicketRecord) {
-        let mut tickets = self.tickets.write();
-        tickets.insert(ticket.id.clone(), ticket.clone());
-        let deleted_ids = self.trim_tickets(&mut tickets);
-        drop(tickets);
-        self.persist_tickets_trimmed_quietly(&ticket, deleted_ids);
+        let mut uow = RuntimeUnitOfWork::default();
+        self.upsert_ticket_into_uow(&mut uow, ticket);
+        self.commit_runtime_uow(uow);
     }
 
-    fn update_ticket(
-        &self,
-        ticket_id: &str,
-        updater: impl FnOnce(&mut TicketRecord),
-    ) -> Result<(), SmsError> {
-        let updated = self.update_ticket_in_memory(ticket_id, updater)?;
-        self.persist_tickets_trimmed_quietly(&updated, Vec::new());
-        Ok(())
-    }
-
+    #[cfg(test)]
     fn push_activity(&self, entry: ActivityEntry) {
-        self.push_activity_entry_in_memory(entry.clone());
-        self.persist_runtime_batch(RuntimeStoreBatch {
-            activity_entries: vec![entry],
-            ..RuntimeStoreBatch::default()
-        });
+        let mut uow = RuntimeUnitOfWork::default();
+        self.push_activity_into_uow(&mut uow, entry);
+        self.commit_runtime_uow(uow);
     }
 
     fn should_include_in_notification_feed(entry: &LogEntry) -> bool {
@@ -1049,23 +1339,77 @@ impl SmsService {
         self.acquire_code_for_provider(request).await
     }
 
-    async fn acquire_code_for_provider(
+    async fn acquire_code_for_provider_effect(
         &self,
         mut request: AcquireCodeRequest,
-    ) -> Result<AcquireCodeResponse, SmsError> {
-        if let Some(response) = self
-            .try_same_activation_retry_acquire(&request.provider, &request)
-            .await?
-        {
-            return Ok(response);
+    ) -> Result<AcquireCodeRuntimeEffect, AcquireCodeRuntimeError> {
+        let same_activation_retry_effect = self
+            .try_same_activation_retry_acquire_effect(&request.provider, &request)
+            .await
+            .map_err(|error| AcquireCodeRuntimeError {
+                error: error.error,
+                uow: error.uow,
+            })?;
+        if let Some(response) = same_activation_retry_effect.response {
+            return Ok(AcquireCodeRuntimeEffect {
+                response,
+                uow: same_activation_retry_effect.uow,
+            });
         }
-        let exact_reuse_candidate = self.prepare_reuse_request(&mut request);
-        let mut ticket = self
-            .acquire_ticket_for_provider(&request.provider, &request)
-            .await?;
-        if let Some(candidate) = exact_reuse_candidate.as_ref() {
+        let same_activation_retry_uow = same_activation_retry_effect.uow;
+        let prepared_reuse = self.prepare_reuse_request(&mut request);
+        let mut effect = match self
+            .acquire_ticket_for_provider_effect(&request.provider, &request)
+            .await
+        {
+            Ok(mut effect) => {
+                self.merge_runtime_uow(&mut effect.uow, same_activation_retry_uow);
+                effect
+            }
+            Err(error) => {
+                let mut uow = same_activation_retry_uow;
+                if let Some(current) = error.uow {
+                    self.merge_runtime_uow(&mut uow, current);
+                }
+                if let Some((provider_bucket, entries)) = prepared_reuse.cleaned_bucket.as_ref() {
+                    self.replace_reuse_bucket_in_uow(
+                        &mut uow,
+                        provider_bucket.clone(),
+                        entries.clone(),
+                    );
+                }
+                return Err(AcquireCodeRuntimeError {
+                    error: error.error,
+                    uow: Some(uow),
+                });
+            }
+        };
+        let mut ticket = effect.ticket;
+        if let Some((provider_bucket, entries)) = prepared_reuse.cleaned_bucket.as_ref() {
+            self.replace_reuse_bucket_in_uow(
+                &mut effect.uow,
+                provider_bucket.clone(),
+                entries.clone(),
+            );
+        }
+        if let Some(candidate) = prepared_reuse.exact_candidate.as_ref() {
             self.consume_exact_reuse_candidate(&ticket.provider, candidate);
-            self.persist_reuse_bucket_quietly(&ticket.provider);
+            let entries = self
+                .reuse_pool
+                .read()
+                .get(&ticket.provider)
+                .cloned()
+                .unwrap_or_default();
+            self.replace_reuse_bucket_in_uow(&mut effect.uow, ticket.provider.clone(), entries);
+            self.log_into_uow(
+                &mut effect.uow,
+                "reuse_pool",
+                "info",
+                format!(
+                    "reuse_pool: candidate found provider={} service={} phone={}",
+                    ticket.provider, ticket.service, candidate.phone_number
+                ),
+            );
             ticket.reuse_count = candidate.reuse_count + 1;
         }
         let response = AcquireCodeResponse {
@@ -1084,12 +1428,14 @@ impl SmsService {
             routing_item_id: ticket.routing_item_id.clone(),
             routing_item_index: ticket.routing_item_index,
         };
-        self.log(
+        self.log_into_uow(
+            &mut effect.uow,
             "system",
             "info",
             format!("ticket {} acquired by {}", ticket.id, ticket.provider),
         );
-        self.push_ticket_activity(
+        self.push_ticket_activity_into_uow(
+            &mut effect.uow,
             ActivityKind::TicketEvent,
             ActivityLevel::Info,
             format!("工单 {} 获取成功", ticket.id),
@@ -1099,8 +1445,28 @@ impl SmsService {
             )),
             &ticket,
         );
-        self.upsert_ticket(ticket);
-        Ok(response)
+        self.upsert_ticket_into_uow(&mut effect.uow, ticket);
+        Ok(AcquireCodeRuntimeEffect {
+            response,
+            uow: effect.uow,
+        })
+    }
+
+    async fn acquire_code_for_provider(
+        &self,
+        request: AcquireCodeRequest,
+    ) -> Result<AcquireCodeResponse, SmsError> {
+        let effect = self
+            .acquire_code_for_provider_effect(request)
+            .await
+            .map_err(|error| {
+                if let Some(uow) = error.uow {
+                    self.commit_runtime_uow(uow);
+                }
+                error.error
+            })?;
+        self.commit_runtime_uow(effect.uow);
+        Ok(effect.response)
     }
 
     async fn acquire_code_by_auto_provider(
@@ -1138,39 +1504,48 @@ impl SmsService {
         for provider_id in providers {
             let mut routed = request.clone();
             routed.provider = provider_id.clone();
-            match self.acquire_code_for_provider(routed).await {
-                Ok(response) => return Ok(response),
+            match self.acquire_code_for_provider_effect(routed).await {
+                Ok(effect) => {
+                    self.commit_runtime_uow(effect.uow);
+                    return Ok(effect.response);
+                }
                 Err(error) => {
-                    self.log(
+                    let mut uow = error.uow.unwrap_or_default();
+                    self.log_into_uow(
+                        &mut uow,
                         "router",
                         "warn",
                         format!(
                             "auto provider {} skipped for service {}: {}",
                             provider_id,
                             request.service.as_deref().unwrap_or_default(),
-                            error
+                            error.error
                         ),
                     );
-                    self.push_activity(ActivityEntry {
-                        id: Uuid::now_v7().to_string(),
-                        timestamp: Utc::now(),
-                        kind: ActivityKind::RoutingEvent,
-                        level: ActivityLevel::Warn,
-                        title: format!("自动服务商 {} 被跳过", provider_id),
-                        detail: Some(format!(
-                            "service={}",
-                            request.service.as_deref().unwrap_or_default()
-                        )),
-                        provider: Some(provider_id.clone()),
-                        service: request.service.clone(),
-                        country: request.country.clone(),
-                        routing_plan_id: None,
-                        routing_plan_name: None,
-                        routing_item_id: None,
-                        routing_round: None,
-                        ticket_id: None,
-                    });
-                    last_error = error;
+                    self.push_activity_into_uow(
+                        &mut uow,
+                        ActivityEntry {
+                            id: Uuid::now_v7().to_string(),
+                            timestamp: Utc::now(),
+                            kind: ActivityKind::RoutingEvent,
+                            level: ActivityLevel::Warn,
+                            title: format!("自动服务商 {} 被跳过", provider_id),
+                            detail: Some(format!(
+                                "service={}",
+                                request.service.as_deref().unwrap_or_default()
+                            )),
+                            provider: Some(provider_id.clone()),
+                            service: request.service.clone(),
+                            country: request.country.clone(),
+                            routing_plan_id: None,
+                            routing_plan_name: None,
+                            routing_item_id: None,
+                            routing_round: None,
+                            ticket_id: None,
+                        },
+                    );
+                    self.commit_runtime_uow(uow);
+                    last_error = error.error;
                 }
             }
         }
@@ -1197,7 +1572,7 @@ impl SmsService {
             let item_order = self.routing_attempts_for_round(&plan, round, attempt_index_offset);
             for entry in item_order {
                 let response = self
-                    .try_acquire_from_routing_item(
+                    .try_acquire_from_routing_item_effect(
                         &request,
                         &plan,
                         entry.item,
@@ -1207,7 +1582,10 @@ impl SmsService {
                     )
                     .await;
                 match response {
-                    Ok(ticket) => return Ok(ticket),
+                    Ok(effect) => {
+                        self.commit_runtime_uow(effect.uow);
+                        return Ok(effect.response);
+                    }
                     Err(error) => {
                         let title =
                             format!("路由候选 {} 在第 {} 轮被跳过", entry.item.id, entry.round);
@@ -1223,15 +1601,18 @@ impl SmsService {
                         };
                         let detail =
                             Some(format!("{} / {}：候选被跳过", item_provider, item_country));
-                        self.log(
+                        let mut uow = error.uow.unwrap_or_default();
+                        self.log_into_uow(
+                            &mut uow,
                             "router",
                             "warn",
                             format!(
                                 "routing plan {} skipped item {} at round {}: {}",
-                                plan.id, entry.item.id, entry.round, error
+                                plan.id, entry.item.id, entry.round, error.error
                             ),
                         );
-                        self.push_routing_activity(
+                        self.push_routing_activity_into_uow(
+                            &mut uow,
                             ActivityLevel::Warn,
                             title,
                             detail,
@@ -1245,7 +1626,8 @@ impl SmsService {
                             entry.round,
                             None,
                         );
-                        last_error = error;
+                        self.commit_runtime_uow(uow);
+                        last_error = error.error;
                     }
                 }
             }
@@ -1258,7 +1640,7 @@ impl SmsService {
         Err(last_error)
     }
 
-    async fn try_acquire_from_routing_item(
+    async fn try_acquire_from_routing_item_effect(
         &self,
         request: &AcquireCodeRequest,
         plan: &RoutingPlan,
@@ -1266,8 +1648,10 @@ impl SmsService {
         attempt_index: usize,
         round: u32,
         candidate_item_ids: &[String],
-    ) -> Result<AcquireCodeResponse, SmsError> {
-        let provider_ids = self.expand_routing_item_providers(item)?;
+    ) -> Result<RoutingAcquireRuntimeEffect, RoutingAcquireRuntimeError> {
+        let provider_ids = self
+            .expand_routing_item_providers(item)
+            .map_err(|error| RoutingAcquireRuntimeError { error, uow: None })?;
         let mut last_error = None;
 
         for provider_id in provider_ids {
@@ -1300,31 +1684,60 @@ impl SmsService {
                 }
             }
 
-            if let Some(response) = self
-                .try_same_activation_retry_acquire(&provider_id, &routed)
-                .await?
-            {
-                return Ok(response);
+            let same_activation_retry_effect = self
+                .try_same_activation_retry_acquire_effect(&provider_id, &routed)
+                .await
+                .map_err(|error| RoutingAcquireRuntimeError {
+                    error: error.error,
+                    uow: error.uow,
+                })?;
+            if let Some(response) = same_activation_retry_effect.response {
+                return Ok(RoutingAcquireRuntimeEffect {
+                    response,
+                    uow: same_activation_retry_effect.uow,
+                });
             }
-            self.prepare_reuse_request(&mut routed);
-            let mut ticket = match self
-                .acquire_ticket_for_provider(&provider_id, &routed)
+            let same_activation_retry_uow = same_activation_retry_effect.uow;
+            let prepared_reuse = self.prepare_reuse_request(&mut routed);
+            let mut effect = match self
+                .acquire_ticket_for_provider_effect(&provider_id, &routed)
                 .await
             {
-                Ok(ticket) => ticket,
+                Ok(mut effect) => {
+                    self.merge_runtime_uow(&mut effect.uow, same_activation_retry_uow);
+                    effect
+                }
                 Err(error) => {
-                    self.maybe_disable_provider_for_low_balance(&provider_id, &error);
+                    let mut uow = same_activation_retry_uow;
+                    if let Some(current) = error.uow {
+                        self.merge_runtime_uow(&mut uow, current);
+                    }
+                    if let Some((provider_bucket, entries)) = prepared_reuse.cleaned_bucket.as_ref()
+                    {
+                        self.replace_reuse_bucket_in_uow(
+                            &mut uow,
+                            provider_bucket.clone(),
+                            entries.clone(),
+                        );
+                    }
+                    let auto_disable_log =
+                        self.maybe_disable_provider_for_low_balance(&provider_id, &error.error);
                     let detail =
                         format!("provider={} item={} round={}", provider_id, item.id, round);
-                    self.log(
+                    if let Some(message) = auto_disable_log {
+                        self.log_into_uow(&mut uow, "balance", "warn", message);
+                    }
+                    self.log_into_uow(
+                        &mut uow,
                         "router",
                         "warn",
                         format!(
                             "routing provider {} failed for item {} at round {}: {}",
-                            provider_id, item.id, round, error
+                            provider_id, item.id, round, error.error
                         ),
                     );
-                    self.push_routing_activity(
+                    self.push_routing_activity_into_uow(
+                        &mut uow,
                         ActivityLevel::Warn,
                         format!("路由候选 {} 的服务商 {} 不可用", item.id, provider_id),
                         Some(detail),
@@ -1336,10 +1749,41 @@ impl SmsService {
                         round,
                         None,
                     );
-                    last_error = Some(error);
+                    last_error = Some(RoutingAcquireRuntimeError {
+                        error: error.error,
+                        uow: Some(uow),
+                    });
                     continue;
                 }
             };
+            if let Some((provider_bucket, entries)) = prepared_reuse.cleaned_bucket.as_ref() {
+                self.replace_reuse_bucket_in_uow(
+                    &mut effect.uow,
+                    provider_bucket.clone(),
+                    entries.clone(),
+                );
+            }
+            let mut ticket = effect.ticket;
+            if let Some(candidate) = prepared_reuse.exact_candidate.as_ref() {
+                self.consume_exact_reuse_candidate(&ticket.provider, candidate);
+                let entries = self
+                    .reuse_pool
+                    .read()
+                    .get(&ticket.provider)
+                    .cloned()
+                    .unwrap_or_default();
+                self.replace_reuse_bucket_in_uow(&mut effect.uow, ticket.provider.clone(), entries);
+                self.log_into_uow(
+                    &mut effect.uow,
+                    "reuse_pool",
+                    "info",
+                    format!(
+                        "reuse_pool: candidate found provider={} service={} phone={}",
+                        ticket.provider, ticket.service, candidate.phone_number
+                    ),
+                );
+                ticket.reuse_count = candidate.reuse_count + 1;
+            }
             ticket.routing_plan_id = Some(plan.id.clone());
             ticket.routing_plan_name = Some(plan.name.clone());
             ticket.routing_item_id = Some(item.id.clone());
@@ -1366,7 +1810,8 @@ impl SmsService {
                 routing_item_id: ticket.routing_item_id.clone(),
                 routing_item_index: ticket.routing_item_index,
             };
-            self.log(
+            self.log_into_uow(
+                &mut effect.uow,
                 "router",
                 "info",
                 format!(
@@ -1374,7 +1819,8 @@ impl SmsService {
                     plan.id, item.id, ticket.provider
                 ),
             );
-            self.push_routing_activity(
+            self.push_routing_activity_into_uow(
+                &mut effect.uow,
                 ActivityLevel::Info,
                 format!("路由候选 {} 命中服务商 {}", item.id, ticket.provider),
                 Some(format!("plan={} round={}", plan.name, round)),
@@ -1386,15 +1832,19 @@ impl SmsService {
                 round,
                 Some(ticket.id.clone()),
             );
-            self.upsert_ticket(ticket);
-            return Ok(response);
+            self.upsert_ticket_into_uow(&mut effect.uow, ticket);
+            return Ok(RoutingAcquireRuntimeEffect {
+                response,
+                uow: effect.uow,
+            });
         }
 
-        Err(last_error.unwrap_or_else(|| {
-            SmsError::InvalidRequest(format!(
+        Err(last_error.unwrap_or_else(|| RoutingAcquireRuntimeError {
+            error: SmsError::InvalidRequest(format!(
                 "routing item `{}` has no available providers",
                 item.id
-            ))
+            )),
+            uow: None,
         }))
     }
 
@@ -1411,27 +1861,29 @@ impl SmsService {
             let registry = self.registry.read();
             registry.get(&current.provider)?
         };
-        self.log_upstream_request(
-            &current.provider,
-            "poll",
-            format!("ticket_id={}", current.id),
-        );
+        let poll_details = format!("ticket_id={}", current.id);
         let response = match provider.poll_code(&current).await {
-            Ok(response) => {
-                self.log_upstream_response(
+            Ok(response) => response,
+            Err(error) => {
+                let mut uow = RuntimeUnitOfWork::default();
+                self.log_upstream_request_into_uow(
+                    &mut uow,
                     &current.provider,
                     "poll",
-                    "200",
-                    format!("status={:?}", response.status),
+                    poll_details.clone(),
                 );
-                response
-            }
-            Err(error) => {
-                self.log_upstream_response(&current.provider, "poll", "error", error.to_string());
+                self.log_upstream_response_into_uow(
+                    &mut uow,
+                    &current.provider,
+                    "poll",
+                    "error",
+                    error.to_string(),
+                );
+                self.commit_runtime_uow(uow);
                 return Err(error);
             }
         };
-        self.update_ticket(&current.id, |ticket| {
+        let updated = self.update_ticket_in_memory(&current.id, |ticket| {
             ticket.updated_at = Utc::now();
             ticket.status = response.status.clone();
             if response.code.is_some() {
@@ -1441,12 +1893,22 @@ impl SmsService {
                 ticket.message = response.message.clone();
             }
         })?;
-        let updated = self.ticket(&current.id)?;
+        let mut uow = RuntimeUnitOfWork::default();
+        uow.batch.upsert_ticket = Some(updated.clone());
+        self.log_upstream_request_into_uow(&mut uow, &current.provider, "poll", poll_details);
+        self.log_upstream_response_into_uow(
+            &mut uow,
+            &current.provider,
+            "poll",
+            "200",
+            format!("status={:?}", response.status),
+        );
         if matches!(
             updated.status,
             TicketStatus::CodeReceived | TicketStatus::Cancelled | TicketStatus::Failed
         ) {
-            self.push_ticket_activity(
+            self.push_ticket_activity_into_uow(
+                &mut uow,
                 ActivityKind::TicketEvent,
                 if updated.status == TicketStatus::CodeReceived {
                     ActivityLevel::Info
@@ -1458,41 +1920,46 @@ impl SmsService {
                 &updated,
             );
         }
+        self.commit_runtime_uow(uow);
         Ok(response)
     }
 
-    pub async fn release_code(
+    async fn release_code_runtime_effect(
         &self,
         request: ReleaseCodeRequest,
-    ) -> Result<ReleaseCodeResponse, SmsError> {
+    ) -> Result<ReleaseRuntimeEffect, ReleaseRuntimeError> {
         let current = self
             .tickets
             .read()
             .get(&request.ticket_id)
             .cloned()
-            .ok_or_else(|| {
-                SmsError::InvalidRequest(format!("unknown ticket {}", request.ticket_id))
+            .ok_or_else(|| ReleaseRuntimeError {
+                error: SmsError::InvalidRequest(format!("unknown ticket {}", request.ticket_id)),
+                uow: None,
             })?;
         let provider = {
             let registry = self.registry.read();
-            registry.get(&current.provider)?
+            registry
+                .get(&current.provider)
+                .map_err(|error| ReleaseRuntimeError { error, uow: None })?
         };
-        self.log_upstream_request(
-            &current.provider,
-            "release",
-            format!("ticket_id={}", current.id),
-        );
+        let release_details = format!("ticket_id={}", current.id);
         let is_cancel_like = matches!(
             request.action,
             crate::models::ReleaseAction::Cancel | crate::models::ReleaseAction::Ban
         );
         let message = match provider.release(&current, request.action.clone()).await {
-            Ok(message) => {
-                self.log_upstream_response(&current.provider, "release", "200", message.clone());
-                message
-            }
+            Ok(message) => message,
             Err(error) => {
-                self.log_upstream_response(
+                let mut uow = RuntimeUnitOfWork::default();
+                self.log_upstream_request_into_uow(
+                    &mut uow,
+                    &current.provider,
+                    "release",
+                    release_details.clone(),
+                );
+                self.log_upstream_response_into_uow(
+                    &mut uow,
                     &current.provider,
                     "release",
                     "error",
@@ -1535,18 +2002,20 @@ impl SmsService {
                             auto_release_at.to_rfc3339()
                         )
                     };
-                    let updated = self.update_ticket_in_memory(&current.id, |ticket| {
-                        ticket.updated_at = now;
-                        ticket.status = TicketStatus::CancelPending;
-                        ticket.message = Some(message.clone());
-                        ticket.pending_release_action = Some(request.action.clone());
-                        ticket.auto_release_at = Some(auto_release_at);
-                        ticket.next_release_attempt_at = Some(next_release_attempt_at);
-                        ticket.release_retry_deadline_at = Some(retry_deadline_at);
-                        ticket.release_retry_count = next_retry_count;
-                        ticket.same_activation_retry_supported = false;
-                        ticket.same_activation_retry_expires_at = Some(ticket.updated_at);
-                    })?;
+                    let updated = self
+                        .update_ticket_in_memory(&current.id, |ticket| {
+                            ticket.updated_at = now;
+                            ticket.status = TicketStatus::CancelPending;
+                            ticket.message = Some(message.clone());
+                            ticket.pending_release_action = Some(request.action.clone());
+                            ticket.auto_release_at = Some(auto_release_at);
+                            ticket.next_release_attempt_at = Some(next_release_attempt_at);
+                            ticket.release_retry_deadline_at = Some(retry_deadline_at);
+                            ticket.release_retry_count = next_retry_count;
+                            ticket.same_activation_retry_supported = false;
+                            ticket.same_activation_retry_expires_at = Some(ticket.updated_at);
+                        })
+                        .map_err(|error| ReleaseRuntimeError { error, uow: None })?;
                     let log_entry = self.log_entry(
                         "system",
                         if retrying { "warn" } else { "info" },
@@ -1567,23 +2036,37 @@ impl SmsService {
                         Some("等待冷却结束后自动执行取消".to_string()),
                         &updated,
                     );
-                    self.push_log_entry_in_memory(log_entry.clone());
-                    self.push_activity_entry_in_memory(activity_entry.clone());
-                    self.persist_runtime_batch(RuntimeStoreBatch {
-                        upsert_ticket: Some(updated),
-                        delete_ticket_ids: Vec::new(),
-                        log_entries: vec![log_entry],
-                        activity_entries: vec![activity_entry],
-                        ..RuntimeStoreBatch::default()
-                    });
-                    return Ok(ReleaseCodeResponse {
-                        ticket_id: current.id,
-                        provider: current.provider,
-                        status: TicketStatus::CancelPending,
-                        message: Some(message),
+                    let mut uow = RuntimeUnitOfWork::default();
+                    uow.batch.upsert_ticket = Some(updated);
+                    self.log_upstream_request_into_uow(
+                        &mut uow,
+                        &current.provider,
+                        "release",
+                        release_details.clone(),
+                    );
+                    self.log_upstream_response_into_uow(
+                        &mut uow,
+                        &current.provider,
+                        "release",
+                        "error",
+                        error.to_string(),
+                    );
+                    self.append_log_to_uow(&mut uow, log_entry);
+                    self.append_activity_to_uow(&mut uow, activity_entry);
+                    return Ok(ReleaseRuntimeEffect {
+                        response: ReleaseCodeResponse {
+                            ticket_id: current.id,
+                            provider: current.provider,
+                            status: TicketStatus::CancelPending,
+                            message: Some(message),
+                        },
+                        uow,
                     });
                 }
-                return Err(error);
+                return Err(ReleaseRuntimeError {
+                    error,
+                    uow: Some(uow),
+                });
             }
         };
         let next_status = match request.action {
@@ -1594,20 +2077,22 @@ impl SmsService {
             crate::models::ReleaseAction::Retry => TicketStatus::WaitingCode,
         };
         let invalidate_same_activation_retry = is_cancel_like;
-        let updated = self.update_ticket_in_memory(&current.id, |ticket| {
-            ticket.updated_at = Utc::now();
-            ticket.status = next_status.clone();
-            ticket.message = Some(message.clone());
-            ticket.pending_release_action = None;
-            ticket.auto_release_at = None;
-            ticket.next_release_attempt_at = None;
-            ticket.release_retry_deadline_at = None;
-            ticket.release_retry_count = 0;
-            if invalidate_same_activation_retry {
-                ticket.same_activation_retry_supported = false;
-                ticket.same_activation_retry_expires_at = Some(ticket.updated_at);
-            }
-        })?;
+        let updated = self
+            .update_ticket_in_memory(&current.id, |ticket| {
+                ticket.updated_at = Utc::now();
+                ticket.status = next_status.clone();
+                ticket.message = Some(message.clone());
+                ticket.pending_release_action = None;
+                ticket.auto_release_at = None;
+                ticket.next_release_attempt_at = None;
+                ticket.release_retry_deadline_at = None;
+                ticket.release_retry_count = 0;
+                if invalidate_same_activation_retry {
+                    ticket.same_activation_retry_supported = false;
+                    ticket.same_activation_retry_expires_at = Some(ticket.updated_at);
+                }
+            })
+            .map_err(|error| ReleaseRuntimeError { error, uow: None })?;
         let reuse_bucket = if next_status == TicketStatus::Finished {
             let reused_entry = if matches!(current.acquire_path, AcquirePath::ExactReuse)
                 && current.reuse_count > 0
@@ -1632,7 +2117,16 @@ impl SmsService {
             Some(format!("status={:?}", next_status)),
             &updated,
         );
-        self.push_activity_entry_in_memory(activity_entry.clone());
+        let mut uow = RuntimeUnitOfWork::default();
+        self.append_activity_to_uow(&mut uow, activity_entry);
+        self.log_upstream_request_into_uow(&mut uow, &current.provider, "release", release_details);
+        self.log_upstream_response_into_uow(
+            &mut uow,
+            &current.provider,
+            "release",
+            "200",
+            &message,
+        );
         let reuse_log_entry = reuse_bucket.as_ref().map(|_| {
             self.log_entry(
                 "reuse_pool",
@@ -1644,22 +2138,36 @@ impl SmsService {
             )
         });
         if let Some(entry) = reuse_log_entry.as_ref() {
-            self.push_log_entry_in_memory(entry.clone());
+            self.append_log_to_uow(&mut uow, entry.clone());
         }
-        self.persist_runtime_batch(RuntimeStoreBatch {
-            upsert_ticket: Some(updated),
-            delete_ticket_ids: Vec::new(),
-            activity_entries: vec![activity_entry],
-            log_entries: reuse_log_entry.into_iter().collect(),
-            reuse_bucket,
-            ..RuntimeStoreBatch::default()
-        });
-        Ok(ReleaseCodeResponse {
-            ticket_id: current.id,
-            provider: current.provider,
-            status: next_status,
-            message: Some(message),
+        uow.batch.upsert_ticket = Some(updated);
+        uow.batch.reuse_bucket = reuse_bucket;
+        Ok(ReleaseRuntimeEffect {
+            response: ReleaseCodeResponse {
+                ticket_id: current.id,
+                provider: current.provider,
+                status: next_status,
+                message: Some(message),
+            },
+            uow,
         })
+    }
+
+    pub async fn release_code(
+        &self,
+        request: ReleaseCodeRequest,
+    ) -> Result<ReleaseCodeResponse, SmsError> {
+        let effect = self
+            .release_code_runtime_effect(request)
+            .await
+            .map_err(|error| {
+                if let Some(uow) = error.uow {
+                    self.commit_runtime_uow(uow);
+                }
+                error.error
+            })?;
+        self.commit_runtime_uow(effect.uow);
+        Ok(effect.response)
     }
 
     pub async fn failover_routing_attempt(
@@ -1702,17 +2210,6 @@ impl SmsService {
                     && entry.round == current.routing_current_round.unwrap_or(1)
             })
             .or(current.routing_item_index);
-
-        if let Some(reason) = request.reason.as_ref() {
-            self.log(
-                "router",
-                "warn",
-                format!(
-                    "routing failover for ticket {}: {}",
-                    request.ticket_id, reason
-                ),
-            );
-        }
 
         let mut last_error = SmsError::InvalidRequest(format!(
             "routing plan `{}` has no remaining candidate items",
@@ -1762,7 +2259,7 @@ impl SmsService {
                 }
             }
             let response = self
-                .try_acquire_from_routing_item(
+                .try_acquire_from_routing_item_effect(
                     &acquire_request,
                     &plan,
                     item,
@@ -1772,22 +2269,42 @@ impl SmsService {
                 )
                 .await;
             match response {
-                Ok(response) => return Ok(response),
-                Err(error) => {
-                    if let Some(provider_id) =
-                        (!provider_for_disable.is_empty()).then_some(provider_for_disable.clone())
-                    {
-                        self.maybe_disable_provider_for_low_balance(&provider_id, &error);
+                Ok(mut effect) => {
+                    if let Some(reason) = request.reason.as_ref() {
+                        self.log_into_uow(
+                            &mut effect.uow,
+                            "router",
+                            "warn",
+                            format!(
+                                "routing failover for ticket {}: {}",
+                                request.ticket_id, reason
+                            ),
+                        );
                     }
-                    self.log(
+                    self.commit_runtime_uow(effect.uow);
+                    return Ok(effect.response);
+                }
+                Err(error) => {
+                    let auto_disable_log = (!provider_for_disable.is_empty())
+                        .then_some(provider_for_disable.as_str())
+                        .and_then(|provider_id| {
+                            self.maybe_disable_provider_for_low_balance(provider_id, &error.error)
+                        });
+                    let mut uow = error.uow.unwrap_or_default();
+                    if let Some(message) = auto_disable_log {
+                        self.log_into_uow(&mut uow, "balance", "warn", message);
+                    }
+                    self.log_into_uow(
+                        &mut uow,
                         "router",
                         "warn",
                         format!(
                             "routing failover skipped item {} for ticket {} at round {}: {}",
-                            item.id, request.ticket_id, entry.round, error
+                            item.id, request.ticket_id, entry.round, error.error
                         ),
                     );
-                    self.push_routing_activity(
+                    self.push_routing_activity_into_uow(
+                        &mut uow,
                         ActivityLevel::Warn,
                         format!(
                             "Ticket {} 的下一路由候选 {} 被跳过",
@@ -1801,7 +2318,7 @@ impl SmsService {
                                 provider_for_disable.as_str()
                             },
                             entry.round,
-                            error
+                            error.error
                         )),
                         (!provider_for_disable.is_empty()).then_some(provider_for_disable.clone()),
                         Some(plan.service.clone()),
@@ -1811,18 +2328,23 @@ impl SmsService {
                         entry.round,
                         Some(request.ticket_id.clone()),
                     );
-                    last_error = error;
+                    self.commit_runtime_uow(uow);
+                    last_error = error.error;
                 }
             }
         }
         Err(last_error)
     }
 
-    pub async fn get_balance(&self, provider_id: &str) -> Result<ProviderBalance, SmsError> {
-        self.log_upstream_request(provider_id, "get_balance", "");
+    async fn get_balance_runtime_effect(
+        &self,
+        provider_id: &str,
+    ) -> Result<ProviderBalanceRuntimeEffect, ProviderBalanceRuntimeError> {
         let provider = {
             let registry = self.registry.read();
-            registry.get(provider_id)?
+            registry
+                .get(provider_id)
+                .map_err(|error| ProviderBalanceRuntimeError { error, uow: None })?
         };
         match provider.get_balance().await {
             Ok(balance) => {
@@ -1835,38 +2357,64 @@ impl SmsService {
                 self.provider_balance_cache
                     .write()
                     .insert(provider_id.to_string(), cache_entry.clone());
-                self.persist_runtime_batch(RuntimeStoreBatch {
-                    provider_balance: Some(cache_entry),
-                    ..RuntimeStoreBatch::default()
-                });
-                self.log_upstream_response(
-                    provider_id,
-                    "get_balance",
-                    "200",
-                    format!("amount={:.2} {}", balance.amount, balance.currency),
+                let mut uow = RuntimeUnitOfWork::default();
+                uow.batch.provider_balance = Some(cache_entry);
+                self.log_upstream_request_into_uow(&mut uow, provider_id, "get_balance", "");
+                self.log_into_uow(
+                    &mut uow,
+                    format!("upstream:{provider_id}"),
+                    "info",
+                    format!(
+                        "get_balance -> 200 amount={:.2} {}",
+                        balance.amount, balance.currency
+                    ),
                 );
-                Ok(balance)
+                Ok(ProviderBalanceRuntimeEffect {
+                    response: balance,
+                    uow,
+                })
             }
             Err(error) => {
-                self.log_upstream_response(provider_id, "get_balance", "error", error.to_string());
-                Err(error)
+                let mut uow = RuntimeUnitOfWork::default();
+                self.log_upstream_request_into_uow(&mut uow, provider_id, "get_balance", "");
+                self.log_upstream_response_into_uow(
+                    &mut uow,
+                    provider_id,
+                    "get_balance",
+                    "error",
+                    error.to_string(),
+                );
+                Err(ProviderBalanceRuntimeError {
+                    error,
+                    uow: Some(uow),
+                })
             }
         }
     }
 
-    pub async fn get_prices(
+    pub async fn get_balance(&self, provider_id: &str) -> Result<ProviderBalance, SmsError> {
+        let effect = self
+            .get_balance_runtime_effect(provider_id)
+            .await
+            .map_err(|error| {
+                if let Some(uow) = error.uow {
+                    self.commit_runtime_uow(uow);
+                }
+                error.error
+            })?;
+        self.commit_runtime_uow(effect.uow);
+        Ok(effect.response)
+    }
+
+    async fn get_prices_runtime_effect(
         &self,
         query: ProviderPriceQuery,
-    ) -> Result<ProviderPriceResponse, SmsError> {
-        self.log_upstream_request(
-            &query.provider,
-            "get_prices",
-            format!(
-                "service={} country={} operator={}",
-                query.service.clone().unwrap_or_default(),
-                query.country.clone().unwrap_or_default(),
-                query.operator.clone().unwrap_or_default(),
-            ),
+    ) -> Result<ProviderPricesRuntimeEffect, ProviderPricesRuntimeError> {
+        let request_details = format!(
+            "service={} country={} operator={}",
+            query.service.clone().unwrap_or_default(),
+            query.country.clone().unwrap_or_default(),
+            query.operator.clone().unwrap_or_default(),
         );
         let cached_options = self
             .provider_option_cache
@@ -1876,7 +2424,9 @@ impl SmsService {
             .cloned();
         let provider = {
             let registry = self.registry.read();
-            registry.get(&query.provider)?
+            registry
+                .get(&query.provider)
+                .map_err(|error| ProviderPricesRuntimeError { error, uow: None })?
         };
         let canonical_service = query
             .service
@@ -1937,32 +2487,67 @@ impl SmsService {
             })
             .await
         {
-            Ok(items) => {
-                self.log_upstream_response(
+            Ok(items) => items,
+            Err(error) => {
+                let mut uow = RuntimeUnitOfWork::default();
+                self.log_upstream_request_into_uow(
+                    &mut uow,
                     &query.provider,
                     "get_prices",
-                    "200",
-                    format!("service={service} items={}", items.len()),
+                    request_details,
                 );
-                items
-            }
-            Err(error) => {
-                self.log_upstream_response(
+                self.log_upstream_response_into_uow(
+                    &mut uow,
                     &query.provider,
                     "get_prices",
                     "error",
                     error.to_string(),
                 );
-                return Err(error);
+                return Err(ProviderPricesRuntimeError {
+                    error,
+                    uow: Some(uow),
+                });
             }
         };
         let normalized_items =
             normalize_price_items(cached_options.as_ref().map(|entry| &entry.options), items);
-        Ok(ProviderPriceResponse {
-            provider: query.provider,
+        let response = ProviderPriceResponse {
+            provider: query.provider.clone(),
             service: canonical_service.to_string(),
             items: normalized_items,
-        })
+        };
+        let mut uow = RuntimeUnitOfWork::default();
+        self.log_upstream_request_into_uow(
+            &mut uow,
+            &query.provider,
+            "get_prices",
+            request_details,
+        );
+        self.log_upstream_response_into_uow(
+            &mut uow,
+            &query.provider,
+            "get_prices",
+            "200",
+            format!("service={service} items={}", response.items.len()),
+        );
+        Ok(ProviderPricesRuntimeEffect { response, uow })
+    }
+
+    pub async fn get_prices(
+        &self,
+        query: ProviderPriceQuery,
+    ) -> Result<ProviderPriceResponse, SmsError> {
+        let effect = self
+            .get_prices_runtime_effect(query)
+            .await
+            .map_err(|error| {
+                if let Some(uow) = error.uow {
+                    self.commit_runtime_uow(uow);
+                }
+                error.error
+            })?;
+        self.commit_runtime_uow(effect.uow);
+        Ok(effect.response)
     }
 
     pub async fn list_provider_countries(
@@ -2086,19 +2671,27 @@ impl SmsService {
         let items = normalize_operator_options(raw_items.clone());
         if let Some(country_key) = canonical_country_key {
             let fetched_at = Utc::now();
-            let mut store = self.provider_option_cache.write();
-            if let Some(entry) = store.entries.get_mut(provider_id) {
-                entry.options.operators_by_country.insert(
-                    country_key,
-                    crate::models::ProviderCountryOperatorOptions {
-                        raw_operators: raw_items,
-                        operators: items.clone(),
-                        fetched_at: Some(fetched_at),
-                    },
-                );
-                if let Some(path) = &self.provider_options_path {
-                    let _ = save_option_cache_store(path, &store);
+            let persisted_store = {
+                let mut store = self.provider_option_cache.write();
+                let mut persisted_store = None;
+                if let Some(entry) = store.entries.get_mut(provider_id) {
+                    entry.options.operators_by_country.insert(
+                        country_key,
+                        crate::models::ProviderCountryOperatorOptions {
+                            raw_operators: raw_items,
+                            operators: items.clone(),
+                            fetched_at: Some(fetched_at),
+                        },
+                    );
+                    persisted_store = Some(store.clone());
                 }
+                persisted_store
+            };
+            if let Some(store) = persisted_store {
+                self.persist_provider_metadata_cache_batch(ProviderMetadataCacheBatch {
+                    option_cache: Some(store),
+                    ..ProviderMetadataCacheBatch::default()
+                });
             }
         }
         Ok(OptionListResponse {
@@ -2219,6 +2812,7 @@ impl SmsService {
                 .cloned()
                 .unwrap_or_default();
             let mut delivered_ids = Vec::new();
+            let mut uow = RuntimeUnitOfWork::default();
             for callback in &callbacks {
                 let payload = TicketCodeCallbackPayload {
                     ticket_id: latest.id.clone(),
@@ -2239,14 +2833,16 @@ impl SmsService {
                 match result {
                     Ok(response) if response.status().is_success() => {
                         delivered_ids.push(callback.id.clone());
-                        self.log(
+                        self.log_into_uow(
+                            &mut uow,
                             "callback",
                             "info",
                             format!("delivered callback for ticket `{ticket_id}`"),
                         );
                     }
                     Ok(response) => {
-                        self.log(
+                        self.log_into_uow(
+                            &mut uow,
                             "callback",
                             "warn",
                             format!(
@@ -2256,7 +2852,8 @@ impl SmsService {
                         );
                     }
                     Err(error) => {
-                        self.log(
+                        self.log_into_uow(
+                            &mut uow,
                             "callback",
                             "warn",
                             format!("callback delivery error for ticket `{ticket_id}`: {error}"),
@@ -2264,6 +2861,7 @@ impl SmsService {
                     }
                 }
             }
+            self.commit_runtime_uow(uow);
 
             if delivered_ids.is_empty() {
                 continue;
@@ -2287,12 +2885,14 @@ impl SmsService {
         let now = Utc::now();
         let owner_id = format!("{}-{}", std::process::id(), Uuid::now_v7());
         if !self
-            .runtime_store
+            .release_coordination_repository
             .try_acquire_release_owner(&owner_id, now, AUTO_RELEASE_OWNER_LEASE_SEC)
         {
             return;
         }
-        let pending = self.runtime_store.pending_release_claims_or_empty(now);
+        let pending = self
+            .release_coordination_repository
+            .pending_release_claims_or_empty(now);
 
         for claim in pending {
             let ticket_id = claim.ticket_id.clone();
@@ -2324,15 +2924,11 @@ impl SmsService {
                         Some("服务商侧取消未完成，工单恢复为等待短信状态".to_string()),
                         &ticket,
                     );
-                    self.push_log_entry_in_memory(log_entry.clone());
-                    self.push_activity_entry_in_memory(activity_entry.clone());
-                    self.persist_runtime_batch(RuntimeStoreBatch {
-                        upsert_ticket: Some(ticket),
-                        delete_ticket_ids: Vec::new(),
-                        log_entries: vec![log_entry],
-                        activity_entries: vec![activity_entry],
-                        ..RuntimeStoreBatch::default()
-                    });
+                    let mut uow = RuntimeUnitOfWork::default();
+                    uow.batch.upsert_ticket = Some(ticket);
+                    self.append_log_to_uow(&mut uow, log_entry);
+                    self.append_activity_to_uow(&mut uow, activity_entry);
+                    self.commit_runtime_uow(uow);
                 }
                 continue;
             }
@@ -2366,44 +2962,43 @@ impl SmsService {
                             Some("服务商侧取消未完成，工单恢复为等待短信状态".to_string()),
                             &ticket,
                         );
-                        self.push_log_entry_in_memory(log_entry.clone());
-                        self.push_activity_entry_in_memory(activity_entry.clone());
-                        self.persist_runtime_batch(RuntimeStoreBatch {
-                            upsert_ticket: Some(ticket),
-                            delete_ticket_ids: Vec::new(),
-                            log_entries: vec![log_entry],
-                            activity_entries: vec![activity_entry],
-                            ..RuntimeStoreBatch::default()
-                        });
+                        let mut uow = RuntimeUnitOfWork::default();
+                        uow.batch.upsert_ticket = Some(ticket);
+                        self.append_log_to_uow(&mut uow, log_entry);
+                        self.append_activity_to_uow(&mut uow, activity_entry);
+                        self.commit_runtime_uow(uow);
                     }
                     continue;
                 }
             }
 
             match self
-                .release_code(ReleaseCodeRequest {
+                .release_code_runtime_effect(ReleaseCodeRequest {
                     ticket_id: ticket_id.clone(),
                     action,
                 })
                 .await
             {
-                Ok(response) => {
-                    if response.status == TicketStatus::CancelPending {
-                        self.log(
+                Ok(mut effect) => {
+                    if effect.response.status == TicketStatus::CancelPending {
+                        self.log_into_uow(
+                            &mut effect.uow,
                             "system",
                             "warn",
                             format!("ticket {} auto cancel retry scheduled", ticket_id),
                         );
                     } else {
-                        self.log(
+                        self.log_into_uow(
+                            &mut effect.uow,
                             "system",
                             "info",
                             format!("ticket {} auto cancel completed", ticket_id),
                         );
                     }
+                    self.commit_runtime_uow(effect.uow);
                 }
                 Err(error) => {
-                    let message = error.to_string();
+                    let message = error.error.to_string();
                     let updated = self.update_ticket_in_memory(&ticket_id, |ticket| {
                         ticket.updated_at = Utc::now();
                         ticket.status = TicketStatus::CancelPending;
@@ -2416,7 +3011,10 @@ impl SmsService {
                         let log_entry = self.log_entry(
                             "system",
                             "warn",
-                            format!("ticket {} auto cancel retry failed: {}", ticket_id, error),
+                            format!(
+                                "ticket {} auto cancel retry failed: {}",
+                                ticket_id, error.error
+                            ),
                         );
                         let activity_entry = self.ticket_activity_entry(
                             ActivityKind::ReleaseEvent,
@@ -2425,20 +3023,17 @@ impl SmsService {
                             None,
                             &ticket,
                         );
-                        self.push_log_entry_in_memory(log_entry.clone());
-                        self.push_activity_entry_in_memory(activity_entry.clone());
-                        self.persist_runtime_batch(RuntimeStoreBatch {
-                            upsert_ticket: Some(ticket),
-                            delete_ticket_ids: Vec::new(),
-                            log_entries: vec![log_entry],
-                            activity_entries: vec![activity_entry],
-                            ..RuntimeStoreBatch::default()
-                        });
+                        let mut uow = error.uow.unwrap_or_default();
+                        uow.batch.upsert_ticket = Some(ticket);
+                        self.append_log_to_uow(&mut uow, log_entry);
+                        self.append_activity_to_uow(&mut uow, activity_entry);
+                        self.commit_runtime_uow(uow);
                     }
                 }
             }
         }
-        self.runtime_store.release_release_owner_quietly(&owner_id);
+        self.release_coordination_repository
+            .release_release_owner_quietly(&owner_id);
     }
 
     pub fn list_provider_manifests(&self) -> ProviderManifestList {
@@ -2463,20 +3058,22 @@ impl SmsService {
                 return Ok(with_cache_state(entry.options, &settings));
             }
         }
-        self.log_upstream_request(provider_id, "discover_options", "");
-        match self.refresh_provider_options(provider_id).await {
-            Ok(options) => Ok(options),
+        match self
+            .refresh_provider_options_runtime_effect(provider_id)
+            .await
+        {
+            Ok(effect) => {
+                self.commit_runtime_uow(effect.uow);
+                Ok(effect.response)
+            }
             Err(error) => {
-                self.log_upstream_response(
-                    provider_id,
-                    "discover_options",
-                    "error",
-                    error.to_string(),
-                );
+                if let Some(uow) = error.uow {
+                    self.commit_runtime_uow(uow);
+                }
                 if let Some(entry) = cached {
                     Ok(with_cache_state(entry.options, &settings))
                 } else {
-                    Err(error)
+                    Err(error.error)
                 }
             }
         }
@@ -2501,17 +3098,22 @@ impl SmsService {
         Ok(with_cache_state(entry.options, &settings))
     }
 
-    pub async fn refresh_provider_options(
+    async fn refresh_provider_options_runtime_effect(
         &self,
         provider_id: &str,
-    ) -> Result<ProviderDynamicOptions, SmsError> {
+    ) -> Result<ProviderOptionsRuntimeEffect, ProviderOptionsRuntimeError> {
         let manifest = {
             let registry = self.registry.read();
-            registry.manifest(provider_id)?
+            registry
+                .manifest(provider_id)
+                .map_err(|error| ProviderOptionsRuntimeError { error, uow: None })?
         };
-        let raw_options = match self.discover_provider_options(provider_id).await {
+        let mut uow = RuntimeUnitOfWork::default();
+        self.log_upstream_request_into_uow(&mut uow, provider_id, "discover_options", "");
+        let raw_options = match self.discover_provider_options(provider_id, &mut uow).await {
             Ok(options) => {
-                self.log_upstream_response(
+                self.log_upstream_response_into_uow(
+                    &mut uow,
                     provider_id,
                     "discover_options",
                     "200",
@@ -2520,17 +3122,21 @@ impl SmsService {
                 options
             }
             Err(error) => {
-                self.log_upstream_response(
+                self.log_upstream_response_into_uow(
+                    &mut uow,
                     provider_id,
                     "discover_options",
                     "error",
                     error.to_string(),
                 );
-                return Err(error);
+                return Err(ProviderOptionsRuntimeError {
+                    error,
+                    uow: Some(uow),
+                });
             }
         };
         let fetched_at = Utc::now();
-        {
+        let persisted_raw_store = {
             let mut raw_store = self.provider_raw_option_audit.write();
             raw_store.entries.insert(
                 provider_id.to_string(),
@@ -2542,29 +3148,52 @@ impl SmsService {
                     raw_operators: raw_options.operators.clone(),
                 },
             );
-            if let Some(path) = &self.provider_options_raw_path {
-                let _ = save_raw_option_audit_store(path, &raw_store);
-            }
-        }
+            raw_store.clone()
+        };
         let normalized = normalize_provider_options(&manifest, raw_options, fetched_at);
-        let mut store = self.provider_option_cache.write();
-        store.entries.insert(
-            provider_id.to_string(),
-            ProviderOptionCacheEntry {
-                provider: provider_id.to_string(),
-                fetched_at,
-                options: normalized.clone(),
-            },
-        );
-        if let Some(path) = &self.provider_options_path {
-            let _ = save_option_cache_store(path, &store);
-        }
-        Ok(with_cache_state(normalized, &self.runtime_settings()))
+        let persisted_option_store = {
+            let mut store = self.provider_option_cache.write();
+            store.entries.insert(
+                provider_id.to_string(),
+                ProviderOptionCacheEntry {
+                    provider: provider_id.to_string(),
+                    fetched_at,
+                    options: normalized.clone(),
+                },
+            );
+            store.clone()
+        };
+        self.persist_provider_metadata_cache_batch(ProviderMetadataCacheBatch {
+            option_cache: Some(persisted_option_store),
+            raw_option_audit: Some(persisted_raw_store),
+        });
+        Ok(ProviderOptionsRuntimeEffect {
+            response: with_cache_state(normalized, &self.runtime_settings()),
+            uow,
+        })
+    }
+
+    pub async fn refresh_provider_options(
+        &self,
+        provider_id: &str,
+    ) -> Result<ProviderDynamicOptions, SmsError> {
+        let effect = self
+            .refresh_provider_options_runtime_effect(provider_id)
+            .await
+            .map_err(|error| {
+                if let Some(uow) = error.uow {
+                    self.commit_runtime_uow(uow);
+                }
+                error.error
+            })?;
+        self.commit_runtime_uow(effect.uow);
+        Ok(effect.response)
     }
 
     async fn discover_provider_options(
         &self,
         provider_id: &str,
+        uow: &mut RuntimeUnitOfWork,
     ) -> Result<ProviderDynamicOptions, SmsError> {
         let (manifest, provider) = {
             let registry = self.registry.read();
@@ -2613,7 +3242,8 @@ impl SmsService {
                             .await
                         {
                             Ok(mut items) => merged.append(&mut items),
-                            Err(error) => self.log(
+                            Err(error) => self.log_into_uow(
+                                uow,
                                 "cache",
                                 "warn",
                                 format!(
@@ -3051,11 +3681,10 @@ impl SmsService {
                 .map(|entries| entries.len() as u32)
                 .unwrap_or(0)
         };
-        self.persist_runtime_batch(RuntimeStoreBatch {
-            reuse_bucket: Some((provider_id.to_string(), Vec::new())),
-            ..RuntimeStoreBatch::default()
-        });
-        self.log(
+        let mut uow = RuntimeUnitOfWork::default();
+        self.replace_reuse_bucket_in_uow(&mut uow, provider_id.to_string(), Vec::new());
+        self.log_into_uow(
+            &mut uow,
             "reuse_pool",
             "info",
             format!(
@@ -3063,6 +3692,7 @@ impl SmsService {
                 provider_id, removed
             ),
         );
+        self.commit_runtime_uow(uow);
         Ok(crate::models::ReusePoolClearResponse {
             provider: provider_id.to_string(),
             removed,
@@ -3127,17 +3757,32 @@ impl SmsService {
         };
 
         for provider_id in provider_ids {
-            match self.refresh_provider_options(&provider_id).await {
-                Ok(_) => self.log(
-                    "cache",
-                    "info",
-                    format!("provider option cache refreshed for `{provider_id}`"),
-                ),
-                Err(error) => self.log(
-                    "cache",
-                    "warn",
-                    format!("provider option cache refresh failed for `{provider_id}`: {error}"),
-                ),
+            match self
+                .refresh_provider_options_runtime_effect(&provider_id)
+                .await
+            {
+                Ok(mut effect) => {
+                    self.log_into_uow(
+                        &mut effect.uow,
+                        "cache",
+                        "info",
+                        format!("provider option cache refreshed for `{provider_id}`"),
+                    );
+                    self.commit_runtime_uow(effect.uow);
+                }
+                Err(error) => {
+                    let mut uow = error.uow.unwrap_or_default();
+                    self.log_into_uow(
+                        &mut uow,
+                        "cache",
+                        "warn",
+                        format!(
+                            "provider option cache refresh failed for `{provider_id}`: {}",
+                            error.error
+                        ),
+                    );
+                    self.commit_runtime_uow(uow);
+                }
             }
         }
 
@@ -3158,34 +3803,52 @@ impl SmsService {
                 continue;
             }
 
-            match self.get_balance(&manifest.id).await {
-                Ok(_) => self.log(
-                    "balance",
-                    "info",
-                    format!("provider balance refreshed for `{}`", manifest.id),
-                ),
-                Err(error) => self.log(
-                    "balance",
-                    "warn",
-                    format!(
-                        "provider balance refresh failed for `{}`: {error}",
-                        manifest.id
-                    ),
-                ),
+            match self.get_balance_runtime_effect(&manifest.id).await {
+                Ok(mut effect) => {
+                    self.log_into_uow(
+                        &mut effect.uow,
+                        "balance",
+                        "info",
+                        format!("provider balance refreshed for `{}`", manifest.id),
+                    );
+                    self.commit_runtime_uow(effect.uow);
+                }
+                Err(error) => {
+                    let auto_disable_log =
+                        self.maybe_disable_provider_for_low_balance(&manifest.id, &error.error);
+                    let mut uow = error.uow.unwrap_or_default();
+                    if let Some(message) = auto_disable_log {
+                        self.log_into_uow(&mut uow, "balance", "warn", message);
+                    }
+                    self.log_into_uow(
+                        &mut uow,
+                        "balance",
+                        "warn",
+                        format!(
+                            "provider balance refresh failed for `{}`: {}",
+                            manifest.id, error.error
+                        ),
+                    );
+                    self.commit_runtime_uow(uow);
+                }
             }
         }
     }
 
-    fn maybe_disable_provider_for_low_balance(&self, provider_id: &str, error: &SmsError) {
+    fn maybe_disable_provider_for_low_balance(
+        &self,
+        provider_id: &str,
+        error: &SmsError,
+    ) -> Option<String> {
         if !Self::is_low_balance_error(error) {
-            return;
+            return None;
         }
         let manifest = match self.registry.read().manifest(provider_id) {
             Ok(manifest) => manifest,
-            Err(_) => return,
+            Err(_) => return None,
         };
         if !manifest.enabled {
-            return;
+            return None;
         }
 
         let mut next_manifest = manifest.clone();
@@ -3196,12 +3859,11 @@ impl SmsService {
             .save_manifest(provider_id, next_manifest)
             .is_ok()
         {
-            self.log(
-                "balance",
-                "warn",
-                format!("provider `{provider_id}` auto-disabled after low balance error: {error}"),
-            );
+            return Some(format!(
+                "provider `{provider_id}` auto-disabled after low balance error: {error}"
+            ));
         }
+        None
     }
 
     fn is_low_balance_error(error: &SmsError) -> bool {
@@ -3809,8 +4471,9 @@ struct RoutingAttemptEntry<'a> {
 mod tests {
     use super::*;
     use crate::models::{
-        OptionItem, ProviderDynamicOptions, ProviderOptionCacheEntry, RoutingExecutionMode,
-        RoutingFailoverRequest, RoutingPlan, RoutingPlanItem, RoutingPriceMode,
+        OptionItem, ProviderDynamicOptions, ProviderOptionCacheEntry, ReleaseAction,
+        RoutingExecutionMode, RoutingFailoverRequest, RoutingPlan, RoutingPlanItem,
+        RoutingPriceMode,
     };
     use crate::options::ProviderRawOptionAuditStore;
     use crate::registry::ProviderRegistry;
@@ -4370,6 +5033,202 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn routing_plan_exact_reuse_consumes_pool_in_single_commit() {
+        let base =
+            std::env::temp_dir().join(format!("madao-routing-exact-reuse-{}", Uuid::now_v7()));
+        fs::create_dir_all(&base).unwrap();
+        let provider_dir = fixture_provider_dir();
+        fs::write(
+            provider_dir.join("fivesim.toml"),
+            r#"
+id = "fivesim"
+name = "5SIM Mock"
+kind = "mock"
+enabled = true
+priority = 10
+
+[defaults]
+service = "openai"
+country = "US"
+auto_pick_country = false
+verify_on_register = false
+reuse_phone = true
+max_price = 0.0
+min_price = 0.0
+min_balance = 0.0
+max_tries = 1
+poll_timeout_sec = 15
+reuse_max = 2
+reuse_ttl_hours = 24
+
+[mock]
+balance = 100.0
+phone_number = "+15550001234"
+codes = ["123456"]
+"#,
+        )
+        .unwrap();
+        let registry = ProviderRegistry::load_from_dir(provider_dir).unwrap();
+        let service = SmsService::with_persistence_paths(
+            registry,
+            32,
+            Some(base.join("runtime-settings.json")),
+            Some(base.join("runtime.db")),
+            Some(base.join("provider-options-cache.json")),
+            Some(base.join("provider-options-raw.json")),
+            Some(base.join("routing-plans.json")),
+        );
+        let request = AcquireCodeRequest {
+            provider: "fivesim".to_string(),
+            service: Some("openai".to_string()),
+            country: Some("US".to_string()),
+            max_price: None,
+            min_price: None,
+            auto_pick_country: None,
+            reuse_phone: Some(true),
+            reuse_key: None,
+            metadata: BTreeMap::new(),
+            routing_plan_id: None,
+            routing_plan_name: None,
+        };
+        let acquired = service.acquire_code(request).await.unwrap();
+        service
+            .release_code(ReleaseCodeRequest {
+                ticket_id: acquired.ticket_id,
+                action: ReleaseAction::Finish,
+            })
+            .await
+            .unwrap();
+
+        let mut plan = routing_plan();
+        plan.items.truncate(1);
+        plan.items[0].provider = "fivesim".to_string();
+        plan.items[0].country = "US".to_string();
+        service.save_routing_plan(plan).unwrap();
+
+        let reused = service
+            .acquire_code(AcquireCodeRequest {
+                provider: "auto".to_string(),
+                service: None,
+                country: None,
+                max_price: None,
+                min_price: None,
+                auto_pick_country: None,
+                reuse_phone: Some(true),
+                reuse_key: None,
+                metadata: BTreeMap::new(),
+                routing_plan_id: Some("openai-plan".to_string()),
+                routing_plan_name: None,
+            })
+            .await
+            .unwrap();
+
+        assert_eq!(reused.provider, "fivesim");
+        assert_eq!(reused.acquire_path, AcquirePath::ExactReuse);
+        let ticket = service.ticket(&reused.ticket_id).unwrap();
+        assert_eq!(ticket.reuse_count, 1);
+        let persisted = RuntimeStore::open(base.join("runtime.db"))
+            .unwrap()
+            .load_state()
+            .unwrap();
+        assert!(
+            persisted
+                .reuse_pool
+                .get("fivesim")
+                .map(|entries| entries.is_empty())
+                .unwrap_or(true),
+            "exact reuse candidate should be consumed from persisted pool"
+        );
+    }
+
+    #[tokio::test]
+    async fn same_activation_retry_failure_persists_ticket_invalidation_before_fresh_acquire() {
+        async fn handler(Query(query): Query<HashMap<String, String>>) -> String {
+            match query.get("action").map(String::as_str) {
+                Some("reactivate") => "BAD_STATUS".to_string(),
+                Some("getNumberV2") => r#"{"activationId":"fresh-activation","phoneNumber":"79005550000","activationCost":"0.06","canGetAnotherSms":true}"#.to_string(),
+                _ => "ACCESS_OK".to_string(),
+            }
+        }
+
+        let router = Router::new().route("/", get(handler));
+        let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let addr: SocketAddr = listener.local_addr().unwrap();
+        let server = tokio::spawn(async move {
+            let _ = axum::serve(listener, router).await;
+        });
+
+        let base = std::env::temp_dir().join(format!("madao-retry-fallback-{}", Uuid::now_v7()));
+        fs::create_dir_all(&base).unwrap();
+        let provider_dir = fixture_provider_dir();
+        let smsbower_path = provider_dir.join("smsbower.toml");
+        let content = fs::read_to_string(&smsbower_path).unwrap();
+        let mut manifest: ProviderManifest = toml::from_str(&content).unwrap();
+        manifest.handler_api.as_mut().unwrap().base_url = format!("http://{addr}/");
+        manifest.handler_api.as_mut().unwrap().api_key = "test-key".to_string();
+        fs::write(&smsbower_path, toml::to_string_pretty(&manifest).unwrap()).unwrap();
+        let registry = ProviderRegistry::load_from_dir(provider_dir).unwrap();
+
+        let runtime_db = base.join("runtime.db");
+        let service = SmsService::with_persistence_paths(
+            registry,
+            32,
+            Some(base.join("runtime-settings.json")),
+            Some(runtime_db.clone()),
+            Some(base.join("provider-options-cache.json")),
+            Some(base.join("provider-options-raw.json")),
+            Some(base.join("routing-plans.json")),
+        );
+
+        let mut ticket = TicketRecord::new(
+            "smsbower".to_string(),
+            "telegram".to_string(),
+            "RU".to_string(),
+            "+79001234567".to_string(),
+            Some("retry-smsbower-fail".to_string()),
+            Some(0.06),
+        );
+        ticket.status = TicketStatus::WaitingCode;
+        ticket.same_activation_retry_supported = true;
+        ticket.same_activation_retry_expires_at = Some(Utc::now() + Duration::minutes(5));
+        let ticket_id = ticket.id.clone();
+        service.upsert_ticket(ticket);
+
+        let response = service
+            .acquire_code(AcquireCodeRequest {
+                provider: "smsbower".to_string(),
+                service: Some("telegram".to_string()),
+                country: Some("RU".to_string()),
+                max_price: None,
+                min_price: None,
+                auto_pick_country: None,
+                reuse_phone: None,
+                reuse_key: None,
+                metadata: BTreeMap::new(),
+                routing_plan_id: None,
+                routing_plan_name: None,
+            })
+            .await
+            .unwrap();
+
+        assert_ne!(response.ticket_id, ticket_id);
+        assert_eq!(response.acquire_path, AcquirePath::FreshAcquire);
+        let persisted = RuntimeStore::open(runtime_db)
+            .unwrap()
+            .load_state()
+            .unwrap();
+        let original = persisted
+            .tickets
+            .iter()
+            .find(|entry| entry.id == ticket_id)
+            .unwrap();
+        assert!(!original.same_activation_retry_supported);
+        assert!(original.same_activation_retry_expires_at.is_some());
+
+        server.abort();
+    }
+
+    #[tokio::test]
     async fn upstream_actions_are_written_to_logs() {
         let service = make_service();
         let _ = service.get_balance("mock").await.unwrap();
@@ -4662,10 +5521,13 @@ mod tests {
     fn low_balance_error_auto_disables_provider() {
         let service = make_service();
 
-        service.maybe_disable_provider_for_low_balance(
+        let message = service.maybe_disable_provider_for_low_balance(
             "fivesim",
             &SmsError::Upstream("insufficient balance for provider".to_string()),
         );
+        if let Some(message) = message {
+            service.log("balance", "warn", message);
+        }
 
         let manifest = service.provider_manifest("fivesim").unwrap();
         assert!(!manifest.enabled);

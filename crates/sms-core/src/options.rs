@@ -13,7 +13,7 @@ use plugin_sdk::ProviderManifest;
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
 use std::fs;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::sync::OnceLock;
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
@@ -24,6 +24,80 @@ pub struct ProviderOptionCacheStore {
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct ProviderRawOptionAuditStore {
     pub entries: BTreeMap<String, ProviderRawOptionAuditEntry>,
+}
+
+#[derive(Debug, Clone, Default)]
+pub struct ProviderMetadataCacheState {
+    pub option_cache: ProviderOptionCacheStore,
+    pub raw_option_audit: ProviderRawOptionAuditStore,
+}
+
+#[derive(Debug, Clone, Default)]
+pub struct ProviderMetadataCacheBatch {
+    pub option_cache: Option<ProviderOptionCacheStore>,
+    pub raw_option_audit: Option<ProviderRawOptionAuditStore>,
+}
+
+impl ProviderMetadataCacheBatch {
+    pub fn is_empty(&self) -> bool {
+        self.option_cache.is_none() && self.raw_option_audit.is_none()
+    }
+}
+
+pub trait ProviderMetadataCacheRepository: Send + Sync {
+    fn load_state(&self) -> Result<ProviderMetadataCacheState, SmsError>;
+    fn apply_batch(&self, batch: &ProviderMetadataCacheBatch) -> Result<(), SmsError>;
+}
+
+#[derive(Debug, Clone, Default)]
+pub struct FileProviderMetadataCacheRepository {
+    option_cache_path: Option<PathBuf>,
+    raw_option_audit_path: Option<PathBuf>,
+}
+
+impl FileProviderMetadataCacheRepository {
+    pub fn new(option_cache_path: Option<PathBuf>, raw_option_audit_path: Option<PathBuf>) -> Self {
+        Self {
+            option_cache_path,
+            raw_option_audit_path,
+        }
+    }
+}
+
+impl ProviderMetadataCacheRepository for FileProviderMetadataCacheRepository {
+    fn load_state(&self) -> Result<ProviderMetadataCacheState, SmsError> {
+        let option_cache = self
+            .option_cache_path
+            .as_deref()
+            .and_then(|path| load_option_cache_store(path).ok())
+            .unwrap_or_default();
+        let raw_option_audit = self
+            .raw_option_audit_path
+            .as_deref()
+            .and_then(|path| load_raw_option_audit_store(path).ok())
+            .unwrap_or_default();
+        Ok(ProviderMetadataCacheState {
+            option_cache,
+            raw_option_audit,
+        })
+    }
+
+    fn apply_batch(&self, batch: &ProviderMetadataCacheBatch) -> Result<(), SmsError> {
+        if batch.is_empty() {
+            return Ok(());
+        }
+        if let Some(store) = batch.option_cache.as_ref() {
+            if let Some(path) = self.option_cache_path.as_deref() {
+                save_option_cache_store(path, store)?;
+            }
+        }
+        if let Some(store) = batch.raw_option_audit.as_ref() {
+            if let Some(path) = self.raw_option_audit_path.as_deref() {
+                save_raw_option_audit_store(path, store)?;
+            }
+        }
+        Ok(())
+    }
 }
 
 pub fn load_option_cache_store(path: &Path) -> Result<ProviderOptionCacheStore, SmsError> {
@@ -606,11 +680,14 @@ fn canonical_country_value(raw: &str, label: Option<&str>, hint: Option<&str>) -
     let metadata = country_metadata();
 
     let resolve_alias = |signal: &str| {
-        metadata.aliases.get(signal).map(|found| match found.as_str() {
-            "ANY" => "any".to_string(),
-            "LOCAL" => "local".to_string(),
-            _ => found.clone(),
-        })
+        metadata
+            .aliases
+            .get(signal)
+            .map(|found| match found.as_str() {
+                "ANY" => "any".to_string(),
+                "LOCAL" => "local".to_string(),
+                _ => found.clone(),
+            })
     };
 
     let raw_is_numeric = raw_normalized.chars().all(|char| char.is_ascii_digit());
@@ -625,7 +702,11 @@ fn canonical_country_value(raw: &str, label: Option<&str>, hint: Option<&str>) -
         }
     }
 
-    for signal in [raw_normalized.as_str(), label_normalized.as_str(), hint_normalized.as_str()] {
+    for signal in [
+        raw_normalized.as_str(),
+        label_normalized.as_str(),
+        hint_normalized.as_str(),
+    ] {
         if signal.is_empty() {
             continue;
         }
@@ -642,7 +723,11 @@ fn canonical_country_value(raw: &str, label: Option<&str>, hint: Option<&str>) -
         return found;
     }
 
-    if raw_normalized.len() == 2 && raw_normalized.chars().all(|char| char.is_ascii_alphabetic()) {
+    if raw_normalized.len() == 2
+        && raw_normalized
+            .chars()
+            .all(|char| char.is_ascii_alphabetic())
+    {
         return raw_normalized.to_ascii_uppercase();
     }
     if raw_normalized.chars().all(|char| char.is_ascii_digit()) {
@@ -793,12 +878,15 @@ fn title_case_token(input: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::{
+        FileProviderMetadataCacheRepository, ProviderMetadataCacheBatch,
+        ProviderMetadataCacheRepository, ProviderOptionCacheStore, ProviderRawOptionAuditStore,
         canonical_country_value, canonical_service_value, normalize_loaded_provider_options,
         normalize_ticket_record, resolve_provider_operator_value,
     };
     use crate::models::ProviderRawOptionAuditEntry;
     use crate::models::{
-        OptionItem, ProviderCountryOperatorOptions, ProviderDynamicOptions, TicketRecord,
+        OptionCacheState, OptionItem, ProviderCountryOperatorOptions, ProviderDynamicOptions,
+        ProviderOptionCacheEntry, TicketRecord,
     };
     use chrono::Utc;
     use plugin_sdk::{ProviderDefaults, ProviderKind, ProviderManifest};
@@ -806,6 +894,7 @@ mod tests {
     use std::collections::{BTreeMap, BTreeSet};
     use std::fs;
     use std::path::PathBuf;
+    use tempfile::tempdir;
 
     fn test_manifest() -> ProviderManifest {
         ProviderManifest {
@@ -1212,5 +1301,149 @@ mod tests {
             "country audit mismatches: {:?}",
             mismatches.into_iter().take(20).collect::<Vec<_>>()
         );
+    }
+
+    #[test]
+    fn file_provider_metadata_cache_repository_round_trips_batch() {
+        let dir = tempdir().unwrap();
+        let repo = FileProviderMetadataCacheRepository::new(
+            Some(dir.path().join("provider-options-cache.json")),
+            Some(dir.path().join("provider-options-raw.json")),
+        );
+        let fetched_at = Utc::now();
+        let option_cache = ProviderOptionCacheStore {
+            entries: BTreeMap::from([(
+                "mock".to_string(),
+                ProviderOptionCacheEntry {
+                    provider: "mock".to_string(),
+                    fetched_at,
+                    options: ProviderDynamicOptions {
+                        provider: "mock".to_string(),
+                        raw_services: Vec::new(),
+                        raw_countries: Vec::new(),
+                        raw_operators: Vec::new(),
+                        services: vec![OptionItem {
+                            value: "openai".to_string(),
+                            label: "OpenAI".to_string(),
+                            hint: String::new(),
+                            provider_value: Some("dr".to_string()),
+                            icon_url: None,
+                            provider_icon_url: None,
+                        }],
+                        countries: Vec::new(),
+                        operators: Vec::new(),
+                        operators_by_country: BTreeMap::new(),
+                        cache_state: OptionCacheState::Fresh,
+                        fetched_at: Some(fetched_at),
+                    },
+                },
+            )]),
+        };
+        let raw_option_audit = ProviderRawOptionAuditStore {
+            entries: BTreeMap::from([(
+                "mock".to_string(),
+                ProviderRawOptionAuditEntry {
+                    provider: "mock".to_string(),
+                    fetched_at,
+                    raw_services: vec![OptionItem {
+                        value: "dr".to_string(),
+                        label: "OpenAI".to_string(),
+                        hint: String::new(),
+                        provider_value: None,
+                        icon_url: None,
+                        provider_icon_url: None,
+                    }],
+                    raw_countries: Vec::new(),
+                    raw_operators: Vec::new(),
+                },
+            )]),
+        };
+
+        repo.apply_batch(&ProviderMetadataCacheBatch {
+            option_cache: Some(option_cache),
+            raw_option_audit: Some(raw_option_audit),
+        })
+        .unwrap();
+
+        let loaded = repo.load_state().unwrap();
+        assert_eq!(loaded.option_cache.entries["mock"].provider, "mock");
+        assert_eq!(loaded.raw_option_audit.entries["mock"].provider, "mock");
+        assert_eq!(
+            loaded.option_cache.entries["mock"].options.services[0]
+                .provider_value
+                .as_deref(),
+            Some("dr")
+        );
+        assert_eq!(
+            loaded.raw_option_audit.entries["mock"].raw_services[0].value,
+            "dr"
+        );
+    }
+
+    #[test]
+    fn file_provider_metadata_cache_repository_isolates_corrupt_cache_files() {
+        let dir = tempdir().unwrap();
+        let option_path = dir.path().join("provider-options-cache.json");
+        let raw_path = dir.path().join("provider-options-raw.json");
+        let repo = FileProviderMetadataCacheRepository::new(
+            Some(option_path.clone()),
+            Some(raw_path.clone()),
+        );
+        let fetched_at = Utc::now().to_rfc3339();
+
+        fs::write(&option_path, "{not-json").unwrap();
+        fs::write(
+            &raw_path,
+            format!(
+                r#"{{
+  "entries": {{
+    "mock": {{
+      "provider": "mock",
+      "fetched_at": "{fetched_at}",
+      "raw_services": [],
+      "raw_countries": [],
+      "raw_operators": []
+    }}
+  }}
+}}"#
+            ),
+        )
+        .unwrap();
+
+        let loaded = repo.load_state().unwrap();
+        assert!(loaded.option_cache.entries.is_empty());
+        assert!(loaded.raw_option_audit.entries.contains_key("mock"));
+
+        fs::write(
+            &option_path,
+            format!(
+                r#"{{
+  "entries": {{
+    "mock": {{
+      "provider": "mock",
+      "fetched_at": "{fetched_at}",
+      "options": {{
+        "provider": "mock",
+        "raw_services": [],
+        "raw_countries": [],
+        "raw_operators": [],
+        "services": [],
+        "countries": [],
+        "operators": [],
+        "operators_by_country": {{}},
+        "cache_state": "fresh",
+        "fetched_at": "{fetched_at}"
+      }}
+    }}
+  }}
+}}"#
+            ),
+        )
+        .unwrap();
+        fs::write(&raw_path, "{not-json").unwrap();
+
+        let loaded = repo.load_state().unwrap();
+        assert!(loaded.option_cache.entries.contains_key("mock"));
+        assert!(loaded.raw_option_audit.entries.is_empty());
     }
 }

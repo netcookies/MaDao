@@ -38,6 +38,7 @@ struct RuntimeStoreTx<'backend, 'conn> {
 #[derive(Debug, Default)]
 pub struct RuntimeStoreBatch {
     pub upsert_ticket: Option<TicketRecord>,
+    pub upsert_tickets: Vec<TicketRecord>,
     pub delete_ticket_ids: Vec<String>,
     pub log_entries: Vec<LogEntry>,
     pub activity_entries: Vec<ActivityEntry>,
@@ -50,6 +51,7 @@ pub struct RuntimeStoreBatch {
 impl RuntimeStoreBatch {
     pub fn is_empty(&self) -> bool {
         self.upsert_ticket.is_none()
+            && self.upsert_tickets.is_empty()
             && self.delete_ticket_ids.is_empty()
             && self.log_entries.is_empty()
             && self.activity_entries.is_empty()
@@ -81,6 +83,58 @@ pub struct ReleaseOwnerLease {
     pub expires_at: DateTime<Utc>,
 }
 
+pub trait RuntimeStateRepository: Send + Sync {
+    fn load_state(&self) -> Result<RuntimeStateStore, SmsError>;
+    fn replace_state(&self, state: &RuntimeStateStore) -> Result<(), SmsError>;
+    fn apply_batch(
+        &self,
+        batch: &RuntimeStoreBatch,
+        options: RuntimeStoreApplyOptions,
+    ) -> Result<(), SmsError>;
+}
+
+pub trait ReleaseCoordinationRepository: Send + Sync {
+    fn replace_release_owner(&self, lease: Option<&ReleaseOwnerLease>) -> Result<(), SmsError>;
+    fn current_release_owner(&self) -> Result<Option<ReleaseOwnerLease>, SmsError>;
+    fn claim_pending_releases(&self, now: DateTime<Utc>) -> Result<Vec<ReleaseClaim>, SmsError>;
+    fn acquire_release_owner(
+        &self,
+        lease: &ReleaseOwnerLease,
+        now: DateTime<Utc>,
+    ) -> Result<bool, SmsError>;
+    fn release_release_owner(&self, owner_id: &str) -> Result<(), SmsError>;
+
+    fn pending_release_claims_or_empty(&self, now: DateTime<Utc>) -> Vec<ReleaseClaim> {
+        self.claim_pending_releases(now).unwrap_or_default()
+    }
+
+    fn try_acquire_release_owner(
+        &self,
+        owner_id: &str,
+        now: DateTime<Utc>,
+        lease_seconds: i64,
+    ) -> bool {
+        self.acquire_release_owner(
+            &ReleaseOwnerLease {
+                owner_id: owner_id.to_string(),
+                expires_at: now + chrono::Duration::seconds(lease_seconds),
+            },
+            now,
+        )
+        .unwrap_or(false)
+    }
+
+    fn release_release_owner_quietly(&self, owner_id: &str) {
+        let _ = self.release_release_owner(owner_id);
+    }
+}
+
+#[derive(Clone)]
+pub struct RuntimeRepositories {
+    pub state: Arc<dyn RuntimeStateRepository>,
+    pub release_coordination: Arc<dyn ReleaseCoordinationRepository>,
+}
+
 impl RuntimeStore {
     pub fn open(path: impl Into<PathBuf>) -> Result<Self, SmsError> {
         let store = Self {
@@ -97,6 +151,14 @@ impl RuntimeStore {
                 state: Mutex::new(RuntimeStateStore::default()),
                 release_owner: Mutex::new(None),
             }),
+        }
+    }
+
+    pub fn repositories(self) -> RuntimeRepositories {
+        let store = Arc::new(self);
+        RuntimeRepositories {
+            state: store.clone(),
+            release_coordination: store,
         }
     }
 
@@ -369,7 +431,9 @@ impl RuntimeStore {
             let conn = Connection::open_in_memory()
                 .map_err(|err| SmsError::Io(format!("open in-memory sqlite failed: {err}")))?;
             conn.execute_batch("PRAGMA foreign_keys=ON;")
-                .map_err(|err| SmsError::Io(format!("configure in-memory runtime store failed: {err}")))?;
+                .map_err(|err| {
+                    SmsError::Io(format!("configure in-memory runtime store failed: {err}"))
+                })?;
             return Ok(conn);
         };
         let conn = Connection::open(path)
@@ -591,42 +655,85 @@ impl RuntimeStore {
             .transpose()
             .map(|value| value.unwrap_or_default())
     }
+}
 
+impl RuntimeStateRepository for RuntimeStore {
+    fn load_state(&self) -> Result<RuntimeStateStore, SmsError> {
+        RuntimeStore::load_state(self)
+    }
+
+    fn replace_state(&self, state: &RuntimeStateStore) -> Result<(), SmsError> {
+        RuntimeStore::replace_state(self, state)
+    }
+
+    fn apply_batch(
+        &self,
+        batch: &RuntimeStoreBatch,
+        options: RuntimeStoreApplyOptions,
+    ) -> Result<(), SmsError> {
+        RuntimeStore::apply_batch(self, batch, options)
+    }
+}
+
+impl ReleaseCoordinationRepository for RuntimeStore {
+    fn replace_release_owner(&self, lease: Option<&ReleaseOwnerLease>) -> Result<(), SmsError> {
+        RuntimeStore::replace_release_owner(self, lease)
+    }
+
+    fn current_release_owner(&self) -> Result<Option<ReleaseOwnerLease>, SmsError> {
+        RuntimeStore::current_release_owner(self)
+    }
+
+    fn claim_pending_releases(&self, now: DateTime<Utc>) -> Result<Vec<ReleaseClaim>, SmsError> {
+        RuntimeStore::claim_pending_releases(self, now)
+    }
+
+    fn acquire_release_owner(
+        &self,
+        lease: &ReleaseOwnerLease,
+        now: DateTime<Utc>,
+    ) -> Result<bool, SmsError> {
+        RuntimeStore::acquire_release_owner(self, lease, now)
+    }
+
+    fn release_release_owner(&self, owner_id: &str) -> Result<(), SmsError> {
+        RuntimeStore::release_release_owner(self, owner_id)
+    }
 }
 
 fn insert_tickets(tx: &Transaction<'_>, tickets: &[TicketRecord]) -> Result<(), SmsError> {
-        let mut stmt = tx
+    let mut stmt = tx
             .prepare(
                 "INSERT INTO tickets (
                     id, payload_json, status, updated_at, next_release_attempt_at, pending_release_action
                  ) VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
             )
             .map_err(|err| SmsError::Io(format!("prepare ticket insert failed: {err}")))?;
-        for ticket in tickets {
-            let payload = serde_json::to_string(ticket)
-                .map_err(|err| SmsError::Config(format!("serialize ticket failed: {err}")))?;
-            stmt.execute(params![
-                ticket.id,
-                payload,
-                encode_ticket_status(&ticket.status),
-                ticket.updated_at.to_rfc3339(),
-                ticket
-                    .next_release_attempt_at
-                    .map(|value| value.to_rfc3339()),
-                ticket
-                    .pending_release_action
-                    .as_ref()
-                    .map(encode_release_action),
-            ])
-            .map_err(|err| SmsError::Io(format!("insert ticket failed: {err}")))?;
-        }
-        Ok(())
-    }
-
-fn upsert_ticket_tx(tx: &Transaction<'_>, ticket: &TicketRecord) -> Result<(), SmsError> {
+    for ticket in tickets {
         let payload = serde_json::to_string(ticket)
             .map_err(|err| SmsError::Config(format!("serialize ticket failed: {err}")))?;
-        tx.execute(
+        stmt.execute(params![
+            ticket.id,
+            payload,
+            encode_ticket_status(&ticket.status),
+            ticket.updated_at.to_rfc3339(),
+            ticket
+                .next_release_attempt_at
+                .map(|value| value.to_rfc3339()),
+            ticket
+                .pending_release_action
+                .as_ref()
+                .map(encode_release_action),
+        ])
+        .map_err(|err| SmsError::Io(format!("insert ticket failed: {err}")))?;
+    }
+    Ok(())
+}
+
+fn upsert_ticket_tx(tx: &Transaction<'_>, ticket: &TicketRecord) -> Result<(), SmsError> {
+    let payload = serde_json::to_string(ticket)
+        .map_err(|err| SmsError::Config(format!("serialize ticket failed: {err}")))?;
+    tx.execute(
             "INSERT INTO tickets (
                 id, payload_json, status, updated_at, next_release_attempt_at, pending_release_action
              ) VALUES (?1, ?2, ?3, ?4, ?5, ?6)
@@ -646,102 +753,74 @@ fn upsert_ticket_tx(tx: &Transaction<'_>, ticket: &TicketRecord) -> Result<(), S
             ],
         )
         .map_err(|err| SmsError::Io(format!("upsert ticket failed: {err}")))?;
-        Ok(())
-    }
+    Ok(())
+}
 
 fn insert_logs(tx: &Transaction<'_>, logs: &[LogEntry]) -> Result<(), SmsError> {
-        let mut stmt = tx
-            .prepare("INSERT INTO logs (timestamp, scope, level, message) VALUES (?1, ?2, ?3, ?4)")
-            .map_err(|err| SmsError::Io(format!("prepare log insert failed: {err}")))?;
-        for entry in logs {
-            stmt.execute(params![
-                entry.timestamp.to_rfc3339(),
-                entry.scope,
-                entry.level,
-                entry.message,
-            ])
-            .map_err(|err| SmsError::Io(format!("insert log failed: {err}")))?;
-        }
-        Ok(())
+    let mut stmt = tx
+        .prepare("INSERT INTO logs (timestamp, scope, level, message) VALUES (?1, ?2, ?3, ?4)")
+        .map_err(|err| SmsError::Io(format!("prepare log insert failed: {err}")))?;
+    for entry in logs {
+        stmt.execute(params![
+            entry.timestamp.to_rfc3339(),
+            entry.scope,
+            entry.level,
+            entry.message,
+        ])
+        .map_err(|err| SmsError::Io(format!("insert log failed: {err}")))?;
     }
+    Ok(())
+}
 
 fn insert_activity(tx: &Transaction<'_>, activity: &[ActivityEntry]) -> Result<(), SmsError> {
-        let mut stmt = tx
-            .prepare(
-                "INSERT INTO activity (id, timestamp, level, kind, payload_json)
+    let mut stmt = tx
+        .prepare(
+            "INSERT INTO activity (id, timestamp, level, kind, payload_json)
                  VALUES (?1, ?2, ?3, ?4, ?5)",
-            )
-            .map_err(|err| SmsError::Io(format!("prepare activity insert failed: {err}")))?;
-        for entry in activity {
-            let payload = serde_json::to_string(entry)
-                .map_err(|err| SmsError::Config(format!("serialize activity failed: {err}")))?;
-            stmt.execute(params![
-                entry.id,
-                entry.timestamp.to_rfc3339(),
-                encode_activity_level(&entry.level),
-                encode_activity_kind(&entry.kind),
-                payload,
-            ])
-            .map_err(|err| SmsError::Io(format!("insert activity failed: {err}")))?;
-        }
-        Ok(())
+        )
+        .map_err(|err| SmsError::Io(format!("prepare activity insert failed: {err}")))?;
+    for entry in activity {
+        let payload = serde_json::to_string(entry)
+            .map_err(|err| SmsError::Config(format!("serialize activity failed: {err}")))?;
+        stmt.execute(params![
+            entry.id,
+            entry.timestamp.to_rfc3339(),
+            encode_activity_level(&entry.level),
+            encode_activity_kind(&entry.kind),
+            payload,
+        ])
+        .map_err(|err| SmsError::Io(format!("insert activity failed: {err}")))?;
     }
+    Ok(())
+}
 
 fn insert_provider_balances(
     tx: &Transaction<'_>,
     balances: &[ProviderBalanceCacheEntry],
 ) -> Result<(), SmsError> {
-        let mut stmt = tx
-            .prepare("INSERT INTO provider_balance_cache (provider, payload_json) VALUES (?1, ?2)")
-            .map_err(|err| SmsError::Io(format!("prepare balance insert failed: {err}")))?;
-        for entry in balances {
-            let payload = serde_json::to_string(entry)
-                .map_err(|err| SmsError::Config(format!("serialize balance failed: {err}")))?;
-            stmt.execute(params![entry.provider, payload])
-                .map_err(|err| SmsError::Io(format!("insert balance failed: {err}")))?;
-        }
-        Ok(())
+    let mut stmt = tx
+        .prepare("INSERT INTO provider_balance_cache (provider, payload_json) VALUES (?1, ?2)")
+        .map_err(|err| SmsError::Io(format!("prepare balance insert failed: {err}")))?;
+    for entry in balances {
+        let payload = serde_json::to_string(entry)
+            .map_err(|err| SmsError::Config(format!("serialize balance failed: {err}")))?;
+        stmt.execute(params![entry.provider, payload])
+            .map_err(|err| SmsError::Io(format!("insert balance failed: {err}")))?;
     }
+    Ok(())
+}
 
 fn insert_reuse_pool(
     tx: &Transaction<'_>,
     reuse_pool: &HashMap<String, Vec<ReusePoolEntry>>,
 ) -> Result<(), SmsError> {
-        let mut stmt = tx
-            .prepare(
-                "INSERT INTO reuse_pool (provider_bucket, phone_number, service, country, payload_json)
+    let mut stmt = tx
+        .prepare(
+            "INSERT INTO reuse_pool (provider_bucket, phone_number, service, country, payload_json)
                  VALUES (?1, ?2, ?3, ?4, ?5)",
-            )
-            .map_err(|err| SmsError::Io(format!("prepare reuse pool insert failed: {err}")))?;
-        for (provider_bucket, entries) in reuse_pool {
-            for entry in entries {
-                let payload = serde_json::to_string(entry).map_err(|err| {
-                    SmsError::Config(format!("serialize reuse pool entry failed: {err}"))
-                })?;
-                stmt.execute(params![
-                    provider_bucket,
-                    entry.phone_number,
-                    entry.service,
-                    entry.country,
-                    payload,
-                ])
-                .map_err(|err| SmsError::Io(format!("insert reuse pool entry failed: {err}")))?;
-            }
-        }
-        Ok(())
-    }
-
-fn insert_reuse_bucket(
-    tx: &Transaction<'_>,
-    provider_bucket: &str,
-    entries: &[ReusePoolEntry],
-) -> Result<(), SmsError> {
-        let mut stmt = tx
-            .prepare(
-                "INSERT INTO reuse_pool (provider_bucket, phone_number, service, country, payload_json)
-                 VALUES (?1, ?2, ?3, ?4, ?5)",
-            )
-            .map_err(|err| SmsError::Io(format!("prepare reuse bucket insert failed: {err}")))?;
+        )
+        .map_err(|err| SmsError::Io(format!("prepare reuse pool insert failed: {err}")))?;
+    for (provider_bucket, entries) in reuse_pool {
         for entry in entries {
             let payload = serde_json::to_string(entry).map_err(|err| {
                 SmsError::Config(format!("serialize reuse pool entry failed: {err}"))
@@ -753,27 +832,54 @@ fn insert_reuse_bucket(
                 entry.country,
                 payload,
             ])
-            .map_err(|err| SmsError::Io(format!("insert reuse bucket entry failed: {err}")))?;
+            .map_err(|err| SmsError::Io(format!("insert reuse pool entry failed: {err}")))?;
         }
-        Ok(())
     }
+    Ok(())
+}
+
+fn insert_reuse_bucket(
+    tx: &Transaction<'_>,
+    provider_bucket: &str,
+    entries: &[ReusePoolEntry],
+) -> Result<(), SmsError> {
+    let mut stmt = tx
+        .prepare(
+            "INSERT INTO reuse_pool (provider_bucket, phone_number, service, country, payload_json)
+                 VALUES (?1, ?2, ?3, ?4, ?5)",
+        )
+        .map_err(|err| SmsError::Io(format!("prepare reuse bucket insert failed: {err}")))?;
+    for entry in entries {
+        let payload = serde_json::to_string(entry)
+            .map_err(|err| SmsError::Config(format!("serialize reuse pool entry failed: {err}")))?;
+        stmt.execute(params![
+            provider_bucket,
+            entry.phone_number,
+            entry.service,
+            entry.country,
+            payload,
+        ])
+        .map_err(|err| SmsError::Io(format!("insert reuse bucket entry failed: {err}")))?;
+    }
+    Ok(())
+}
 
 fn save_openai_regions_tx(
     tx: &Transaction<'_>,
     cache: &OpenAiSmsRegionsCache,
 ) -> Result<(), SmsError> {
-        let payload = serde_json::to_string(cache)
-            .map_err(|err| SmsError::Config(format!("serialize openai regions failed: {err}")))?;
-        tx.execute(
-            "INSERT INTO runtime_meta (key, value_json, updated_at)
+    let payload = serde_json::to_string(cache)
+        .map_err(|err| SmsError::Config(format!("serialize openai regions failed: {err}")))?;
+    tx.execute(
+        "INSERT INTO runtime_meta (key, value_json, updated_at)
              VALUES ('openai_sms_regions_cache', ?1, ?2)
              ON CONFLICT(key) DO UPDATE SET
                value_json = excluded.value_json,
                updated_at = excluded.updated_at",
-            params![payload, Utc::now().to_rfc3339()],
-        )
-        .map_err(|err| SmsError::Io(format!("save openai regions failed: {err}")))?;
-        Ok(())
+        params![payload, Utc::now().to_rfc3339()],
+    )
+    .map_err(|err| SmsError::Io(format!("save openai regions failed: {err}")))?;
+    Ok(())
 }
 
 impl RuntimeStoreTx<'_, '_> {
@@ -791,8 +897,14 @@ impl RuntimeStoreTx<'_, '_> {
                 state.tickets.retain(|current| current.id != ticket.id);
                 state.tickets.push(ticket.clone());
             }
+            for ticket in &batch.upsert_tickets {
+                state.tickets.retain(|current| current.id != ticket.id);
+                state.tickets.push(ticket.clone());
+            }
             if !batch.delete_ticket_ids.is_empty() {
-                state.tickets.retain(|ticket| !batch.delete_ticket_ids.contains(&ticket.id));
+                state
+                    .tickets
+                    .retain(|ticket| !batch.delete_ticket_ids.contains(&ticket.id));
             }
             state.logs.extend(batch.log_entries.iter().cloned());
             if state.logs.len() > options.log_limit {
@@ -800,7 +912,9 @@ impl RuntimeStoreTx<'_, '_> {
                 let trimmed = state.logs.split_off(start);
                 state.logs = trimmed;
             }
-            state.activity.extend(batch.activity_entries.iter().cloned());
+            state
+                .activity
+                .extend(batch.activity_entries.iter().cloned());
             if state.activity.len() > options.activity_limit {
                 state.activity.sort_by(|left, right| {
                     left.timestamp
@@ -831,6 +945,9 @@ impl RuntimeStoreTx<'_, '_> {
             self.clear_logs()?;
         }
         if let Some(ticket) = batch.upsert_ticket.as_ref() {
+            self.upsert_ticket(ticket)?;
+        }
+        for ticket in &batch.upsert_tickets {
             self.upsert_ticket(ticket)?;
         }
         if !batch.delete_ticket_ids.is_empty() {
