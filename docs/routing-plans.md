@@ -107,6 +107,38 @@ Content-Type: application/json
 
 - 被禁用的 routing plan 不能用于发起 acquire
 
+## Replace 与 Failover 语义
+
+如果调用方想要“换到下一条路由，同时收口当前 ticket”，优先使用：
+
+```http
+POST /api/routing/replace
+Content-Type: application/json
+```
+
+请求体：
+
+```json
+{
+  "ticket_id": "xxx",
+  "failed_item_id": "mock-first",
+  "reason": "sms timeout",
+  "release_action": "cancel"
+}
+```
+
+返回体会同时包含：
+
+- `current_ticket_release`：当前 ticket 的释放结果，可能是 `cancelled`，也可能因为 provider cooldown 进入 `cancel_pending`
+- `next_ticket`：继续沿当前 routing plan 命中的下一条候选 ticket
+
+适用场景：
+
+- 调用方需要“替换号码/候选”，不希望自己手动拼接“先 failover，再 cancel/ban 当前 ticket”的两步流程
+- 调用方需要保留 `cancel` 与 `ban` 的语义差异
+
+如果调用方只想推进到下一条候选，而**不**自动释放当前 ticket，可以继续使用 `failover`。
+
 ## Failover 语义
 
 如果调用方判断当前命中的方案项无法继续使用，可以回调：

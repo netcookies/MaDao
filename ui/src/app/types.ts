@@ -95,6 +95,27 @@ export type ReleaseCodeResponse = {
   message?: string | null;
 };
 
+export type RoutingReplaceResponse = {
+  current_ticket_id: string;
+  current_ticket_release: ReleaseCodeResponse;
+  next_ticket: {
+    ticket_id: string;
+    provider: string;
+    service: string;
+    country: string;
+    phone_number: string;
+    upstream_id?: string | null;
+    price?: number | null;
+    status: string;
+    created_at: string;
+    acquire_path?: 'fresh_acquire' | 'exact_reuse' | 'intent_reuse' | 'same_activation_retry';
+    routing_plan_id?: string | null;
+    routing_plan_name?: string | null;
+    routing_item_id?: string | null;
+    routing_item_index?: number | null;
+  };
+};
+
 export type LogEntry = {
   timestamp: string;
   scope: string;

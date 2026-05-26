@@ -274,7 +274,7 @@ export function App() {
     { id: 'routing', label: t('Routing'), Icon: Shuffle },
     { id: 'messages', label: t('Messages'), Icon: MessageSquare },
     { id: 'settings', label: t('Settings'), Icon: Settings },
-    { id: 'logs', label: t('Logs'), Icon: Terminal },
+    { id: 'logs', label: t('Activity'), Icon: Terminal },
   ];
   const messageFilters: Array<{ id: MessageFilter; label: string }> = [
     { id: 'all', label: t('All') },
@@ -2051,6 +2051,7 @@ export function App() {
                 stats={overviewStats}
                 activity={recentActivity}
                 providers={manifestsById}
+                decorations={ticketDecorations}
                 onViewAll={() => {
                   setLogsViewMode('activity');
                   setLogsFilter('all');
@@ -2288,7 +2289,10 @@ export function App() {
                 <LogsScreen
                   logs={filteredLogs}
                   activity={filteredActivity}
-                  activityMode={logsViewMode === 'activity'}
+                  providers={manifestsById}
+                  decorations={ticketDecorations}
+                  viewMode={logsViewMode}
+                  setViewMode={setLogsViewMode}
                   filter={logsFilter}
                   setFilter={setLogsFilter}
                   filters={logFilters}

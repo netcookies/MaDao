@@ -512,6 +512,31 @@ paths:
           $ref: '#/components/responses/BadRequest'
         '401':
           $ref: '#/components/responses/Unauthorized'
+  /api/routing/replace:
+    post:
+      tags: [routing]
+      summary: Replace current routed ticket with the next routing candidate
+      operationId: replaceRouting
+      security:
+        - bearerAuth: []
+        - sessionCookie: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/RoutingReplaceRequest'
+      responses:
+        '200':
+          description: Replace result
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/RoutingReplaceResponse'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
   /api/providers/{provider}/balance:
     get:
       tags: [providers]
@@ -1035,6 +1060,30 @@ components:
         failed_item_id:
           type: string
       required: [ticket_id]
+    RoutingReplaceRequest:
+      type: object
+      additionalProperties: false
+      properties:
+        ticket_id:
+          type: string
+        reason:
+          type: string
+        failed_item_id:
+          type: string
+        release_action:
+          $ref: '#/components/schemas/ReleaseAction'
+      required: [ticket_id]
+    RoutingReplaceResponse:
+      type: object
+      additionalProperties: false
+      properties:
+        current_ticket_id:
+          type: string
+        current_ticket_release:
+          $ref: '#/components/schemas/ReleaseCodeResponse'
+        next_ticket:
+          $ref: '#/components/schemas/AcquireCodeResponse'
+      required: [current_ticket_id, current_ticket_release, next_ticket]
     ProviderBalance:
       type: object
       additionalProperties: false

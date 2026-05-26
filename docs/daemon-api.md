@@ -90,6 +90,7 @@ provider manifest 的复用配置当前包括：
 - `POST /api/routing-plans`
 - `GET /api/routing-plans/{plan_id}`
 - `DELETE /api/routing-plans/{plan_id}`
+- `POST /api/routing/replace`
 - `POST /api/routing/failover`
 
 ---

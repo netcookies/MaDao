@@ -95,6 +95,17 @@ pub struct RoutingFailoverRequest {
     pub failed_item_id: Option<String>,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct RoutingReplaceRequest {
+    pub ticket_id: String,
+    #[serde(default)]
+    pub reason: Option<String>,
+    #[serde(default)]
+    pub failed_item_id: Option<String>,
+    #[serde(default = "default_release_action_cancel")]
+    pub release_action: ReleaseAction,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "snake_case")]
 pub enum ReleaseAction {
@@ -104,6 +115,10 @@ pub enum ReleaseAction {
     Ban,
 }
 
+fn default_release_action_cancel() -> ReleaseAction {
+    ReleaseAction::Cancel
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ReleaseCodeResponse {
     pub ticket_id: String,
@@ -111,6 +126,13 @@ pub struct ReleaseCodeResponse {
     pub status: TicketStatus,
     #[serde(default)]
     pub message: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct RoutingReplaceResponse {
+    pub current_ticket_id: String,
+    pub current_ticket_release: ReleaseCodeResponse,
+    pub next_ticket: AcquireCodeResponse,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

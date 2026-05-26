@@ -11,6 +11,7 @@ import type {
   ProviderManifestSaveResponse,
   ProviderPriceResponse,
   ReusePoolClearResponse,
+  RoutingReplaceResponse,
   RoutingPlan,
   RoutingPlanList,
   RuntimeAccessInfo,
@@ -180,6 +181,22 @@ export function failoverRoutingTicketViaSocket(
   return socketInvoke('routing_failover', {
     request: {
       ticket_id: ticketId,
+      failed_item_id: failedItemId,
+      reason,
+    },
+  });
+}
+
+export function replaceRoutingTicketViaSocket(
+  ticketId: string,
+  releaseAction: 'cancel' | 'ban',
+  failedItemId?: string,
+  reason?: string,
+) {
+  return socketInvoke<RoutingReplaceResponse>('routing_replace', {
+    request: {
+      ticket_id: ticketId,
+      release_action: releaseAction,
       failed_item_id: failedItemId,
       reason,
     },

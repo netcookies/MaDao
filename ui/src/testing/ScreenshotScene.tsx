@@ -548,7 +548,7 @@ function buildShell(
       fillViewport={false}
       sidebar={(
         <AppSidebar
-          items={NAV_ITEMS.map(({ id, icon }) => ({ id, label: t(id === 'overview' ? 'Overview' : id === 'providers' ? 'Providers' : id === 'routing' ? 'Routing' : id === 'messages' ? 'Messages' : id === 'settings' ? 'Settings' : 'Logs'), icon }))}
+          items={NAV_ITEMS.map(({ id, icon }) => ({ id, label: t(id === 'overview' ? 'Overview' : id === 'providers' ? 'Providers' : id === 'routing' ? 'Routing' : id === 'messages' ? 'Messages' : id === 'settings' ? 'Settings' : 'Activity'), icon }))}
           activeId={screen}
           onToggleCollapsed={noop}
           onSelect={noop}
@@ -583,6 +583,7 @@ function renderPageTarget(target: ScreenshotTarget, t: (key: string, options?: R
         }}
         activity={[]}
         providers={{}}
+        decorations={{}}
         onViewAll={noop}
       />,
     );
@@ -874,9 +875,14 @@ function renderPageTarget(target: ScreenshotTarget, t: (key: string, options?: R
     return buildShell(
       t,
       'logs',
-      t('Logs'),
+      t('Activity'),
       <LogsScreen
         logs={LOGS}
+        activity={ACTIVITY}
+        providers={Object.fromEntries(PROVIDERS.map((provider) => [provider.id, provider]))}
+        decorations={{}}
+        viewMode="activity"
+        setViewMode={noop}
         filter="all"
         setFilter={noop}
         filters={[

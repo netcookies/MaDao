@@ -2,8 +2,8 @@ use crate::error::SmsError;
 use crate::models::{
     AcquireCodeRequest, OpenAiSmsRegionsCache, PollCodeRequest, ProviderManifestList,
     ProviderManifestSaveResponse, ProviderPriceQuery, ReleaseCodeRequest, ReusePoolClearResponse,
-    RoutingFailoverRequest, RoutingPlan, RoutingPlanList, RuntimeAccessInfo, RuntimeSettings,
-    RuntimeSettingsUpdate,
+    RoutingFailoverRequest, RoutingPlan, RoutingPlanList, RoutingReplaceRequest,
+    RuntimeAccessInfo, RuntimeSettings, RuntimeSettingsUpdate,
 };
 use plugin_sdk::ProviderManifest;
 use serde::{Deserialize, Serialize};
@@ -21,6 +21,9 @@ pub enum SocketCommand {
     },
     Release {
         request: ReleaseCodeRequest,
+    },
+    RoutingReplace {
+        request: RoutingReplaceRequest,
     },
     RoutingFailover {
         request: RoutingFailoverRequest,

@@ -9,7 +9,7 @@ import {
 } from '../app/types';
 import { i18n } from '../app/i18n';
 import { formatProviderErrorMessage } from '../app/providerErrors';
-import { acquireActivation, failoverRoutingTicket, pollActivationTicket, releaseActivationTicket } from '../services/runtimeApi';
+import { acquireActivation, pollActivationTicket, releaseActivationTicket, replaceRoutingTicket } from '../services/runtimeApi';
 
 type ActivationUiState = {
   activationForm: ActivationFormState;
@@ -47,6 +47,11 @@ export function useActivationFlow(
       || response.status === 'CancelPending';
   }
 
+  function shouldBanOnRouteReplace(reason: string) {
+    return reason === 'ui route replace rejected'
+      || reason === 'ui route replace code rejected';
+  }
+
   async function pollTicket(ticketId: string, options?: { silent?: boolean }) {
     try {
       ui.setBusyAction(`poll-${ticketId}`);
@@ -68,13 +73,19 @@ export function useActivationFlow(
     try {
       ui.setBusyAction(`${action}-${ticket.id}`);
       if (action === 'retry' && ticket.routing_plan_id) {
-        const nextTicket = await failoverRoutingTicket(ticket.id, ticket.routing_item_id ?? undefined, 'ui retry requested');
+        const reason = 'ui retry requested';
+        const releaseAction = shouldBanOnRouteReplace(reason) ? 'ban' : 'cancel';
+        const replacement = await replaceRoutingTicket(ticket.id, releaseAction, ticket.routing_item_id ?? undefined, reason);
+        const nextTicket = replacement.next_ticket;
         ui.setMessageFilter('all');
-        ui.setStatusMessage(translate('ticket_moved_to_candidate', {
+        const replacedTicketStatus = isCancelPending(replacement.current_ticket_release)
+          ? translate('auto_cancel_scheduled_ticket', { ticket: replacement.current_ticket_id })
+          : translate('ticket_action_complete', { ticket: replacement.current_ticket_id, action: releaseAction });
+        ui.setStatusMessage(`${translate('ticket_moved_to_candidate', {
           ticket: ticket.id,
           provider: nextTicket.provider,
           index: (nextTicket.routing_item_index ?? 0) + 1,
-        }));
+        })} ${replacedTicketStatus}`);
       } else {
         const response = await releaseActivationTicket(ticket.id, action);
         if (action === 'cancel' && isCancelPending(response)) {

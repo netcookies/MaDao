@@ -9,10 +9,10 @@ use crate::models::{
     ProviderRawOptionAuditEntry, ProviderReorderRequest, ProviderServicesQuery, ProviderSummary,
     ReleaseCodeRequest, ReleaseCodeResponse, ReuseCapability, ReusePoolEntry, ReusePoolSummary,
     RoutingExecutionMode, RoutingFailoverRequest, RoutingPlan, RoutingPlanItem, RoutingPlanList,
-    RoutingPlanStore, RuntimeAccessInfo, RuntimeSettings, RuntimeSettingsUpdate, RuntimeSnapshot,
-    RuntimeStateStore, TicketCallbackListResponse, TicketCallbackRegistrationRequest,
-    TicketCallbackSubscription, TicketCodeCallbackPayload, TicketListResponse, TicketRecord,
-    TicketStatus,
+    RoutingPlanStore, RoutingReplaceRequest, RoutingReplaceResponse, RuntimeAccessInfo,
+    RuntimeSettings, RuntimeSettingsUpdate, RuntimeSnapshot, RuntimeStateStore,
+    TicketCallbackListResponse, TicketCallbackRegistrationRequest, TicketCallbackSubscription,
+    TicketCodeCallbackPayload, TicketListResponse, TicketRecord, TicketStatus,
 };
 use crate::options::{
     FileProviderMetadataCacheRepository, OptionKind, ProviderMetadataCacheBatch,
@@ -2370,6 +2370,54 @@ impl SmsService {
             }
         }
         Err(last_error)
+    }
+
+    pub async fn replace_routing_attempt(
+        &self,
+        request: RoutingReplaceRequest,
+    ) -> Result<RoutingReplaceResponse, SmsError> {
+        let current = self
+            .tickets
+            .read()
+            .get(&request.ticket_id)
+            .cloned()
+            .ok_or_else(|| SmsError::InvalidRequest(format!("unknown ticket {}", request.ticket_id)))?;
+        if current.routing_plan_id.is_none() {
+            return Err(SmsError::InvalidRequest(
+                "ticket is not associated with a routing plan".to_string(),
+            ));
+        }
+
+        let next_ticket = self
+            .failover_routing_attempt(RoutingFailoverRequest {
+                ticket_id: request.ticket_id.clone(),
+                reason: request.reason.clone(),
+                failed_item_id: request
+                    .failed_item_id
+                    .clone()
+                    .or(current.routing_item_id.clone()),
+            })
+            .await?;
+
+        if next_ticket.ticket_id == current.id {
+            return Err(SmsError::InvalidRequest(
+                "routing replace resolved to the same ticket; refusing to release current ticket"
+                    .to_string(),
+            ));
+        }
+
+        let current_ticket_release = self
+            .release_code(ReleaseCodeRequest {
+                ticket_id: current.id.clone(),
+                action: request.release_action,
+            })
+            .await?;
+
+        Ok(RoutingReplaceResponse {
+            current_ticket_id: current.id,
+            current_ticket_release,
+            next_ticket,
+        })
     }
 
     async fn get_balance_runtime_effect(
@@ -6451,6 +6499,55 @@ codes = ["123456"]
         );
 
         server.abort();
+    }
+
+    #[tokio::test]
+    async fn routing_replace_failovers_then_cancels_previous_ticket() {
+        let service = make_service();
+        service.save_routing_plan(routing_plan()).unwrap();
+
+        let acquire = service
+            .acquire_code(AcquireCodeRequest {
+                provider: "auto".to_string(),
+                service: None,
+                country: None,
+                max_price: None,
+                min_price: None,
+                auto_pick_country: None,
+                reuse_phone: None,
+                reuse_key: None,
+                metadata: BTreeMap::new(),
+                routing_plan_id: Some("openai-plan".to_string()),
+                routing_plan_name: None,
+            })
+            .await
+            .unwrap();
+
+        let replacement = service
+            .replace_routing_attempt(RoutingReplaceRequest {
+                ticket_id: acquire.ticket_id.clone(),
+                reason: Some("replace route after timeout".to_string()),
+                failed_item_id: acquire.routing_item_id.clone(),
+                release_action: crate::models::ReleaseAction::Cancel,
+            })
+            .await
+            .unwrap();
+
+        assert_eq!(replacement.current_ticket_id, acquire.ticket_id);
+        assert_eq!(
+            replacement.current_ticket_release.status,
+            TicketStatus::Cancelled
+        );
+        assert_eq!(
+            replacement.next_ticket.routing_item_id.as_deref(),
+            Some("mock-second")
+        );
+        assert_ne!(replacement.next_ticket.ticket_id, acquire.ticket_id);
+
+        let previous = service.ticket(&acquire.ticket_id).unwrap();
+        assert_eq!(previous.status, TicketStatus::Cancelled);
+        let next = service.ticket(&replacement.next_ticket.ticket_id).unwrap();
+        assert_eq!(next.routing_item_id.as_deref(), Some("mock-second"));
     }
 
     #[tokio::test]

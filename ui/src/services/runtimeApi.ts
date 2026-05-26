@@ -12,6 +12,7 @@ import type {
   ProviderPriceResponse,
   ReusePoolClearResponse,
   ReleaseCodeResponse,
+  RoutingReplaceResponse,
   RoutingPlan,
   RoutingPlanList,
   RuntimeSettings,
@@ -52,6 +53,7 @@ import {
   fetchRuntimeSettingsViaSocket,
   fetchRuntimeSnapshotViaSocket,
   pollActivationTicketViaSocket,
+  replaceRoutingTicketViaSocket,
   regenerateHttpSecretViaSocket,
   refreshProviderOptionsViaSocket,
   releaseActivationTicketViaSocket,
@@ -356,6 +358,29 @@ export async function failoverRoutingTicket(ticketId: string, failedItemId?: str
   });
   if (!response.ok) throw new Error(await readErrorMessage(response));
   return readJson<ActivationAcquireResponse>(response);
+}
+
+export async function replaceRoutingTicket(
+  ticketId: string,
+  releaseAction: 'cancel' | 'ban',
+  failedItemId?: string,
+  reason?: string,
+): Promise<RoutingReplaceResponse> {
+  if (USE_SOCKET_TRANSPORT) {
+    return replaceRoutingTicketViaSocket(ticketId, releaseAction, failedItemId, reason) as Promise<RoutingReplaceResponse>;
+  }
+  const response = await fetch(`${API_BASE}/api/routing/replace`, {
+    method: 'POST',
+    headers: IS_DESKTOP_RUNTIME ? await buildDesktopHttpHeaders() : { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      ticket_id: ticketId,
+      release_action: releaseAction,
+      failed_item_id: failedItemId,
+      reason,
+    }),
+  });
+  if (!response.ok) throw new Error(await readErrorMessage(response));
+  return readJson<RoutingReplaceResponse>(response);
 }
 
 export async function reorderProviderManifests(order: Array<{ id: string; priority: number }>): Promise<void> {

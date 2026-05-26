@@ -12,8 +12,9 @@ use sms_core::models::{
     OpenAiSmsRegionsCache, OptionCacheOverview, PollCodeRequest, ProviderManifestList,
     ProviderOperatorsQuery, ProviderPriceQuery, ProviderReorderRequest, ProviderServicesQuery,
     ReleaseCodeRequest, ReusePoolClearResponse, RoutingFailoverRequest, RoutingPlan,
-    RoutingPlanList, RuntimeAccessInfo, RuntimeSettings, RuntimeSettingsUpdate, RuntimeSnapshot,
-    TicketCallbackRegistrationRequest, TicketListResponse,
+    RoutingPlanList, RoutingReplaceRequest, RuntimeAccessInfo, RuntimeSettings,
+    RuntimeSettingsUpdate, RuntimeSnapshot, TicketCallbackRegistrationRequest,
+    TicketListResponse,
 };
 use sms_core::service::SmsService;
 #[cfg(unix)]
@@ -84,6 +85,9 @@ async fn handle_socket_command(service: &SmsService, line: &str) -> String {
             SocketCommand::Poll { request } => wrap_socket_result(service.poll_code(request).await),
             SocketCommand::Release { request } => {
                 wrap_socket_result(service.release_code(request).await)
+            }
+            SocketCommand::RoutingReplace { request } => {
+                wrap_socket_result(service.replace_routing_attempt(request).await)
             }
             SocketCommand::RoutingFailover { request } => {
                 wrap_socket_result(service.failover_routing_attempt(request).await)
@@ -294,6 +298,7 @@ pub fn build_router(service: Arc<SmsService>, http_secret: Option<String>) -> Ro
         .route("/api/acquire", post(acquire_code))
         .route("/api/poll", post(poll_code))
         .route("/api/release", post(release_code))
+        .route("/api/routing/replace", post(replace_routing))
         .route("/api/routing/failover", post(failover_routing))
         .route("/api/providers/{provider}/balance", get(get_balance))
         .route("/api/providers/{provider}/prices", post(get_prices))
@@ -858,6 +863,26 @@ async fn failover_routing(
     result
 }
 
+async fn replace_routing(
+    State(state): State<ApiState>,
+    headers: HeaderMap,
+    Json(request): Json<RoutingReplaceRequest>,
+) -> Result<Json<serde_json::Value>, (StatusCode, Json<ApiError>)> {
+    ensure_http_authenticated(&state, &headers)?;
+    let result = state
+        .service
+        .replace_routing_attempt(request)
+        .await
+        .map(|value| Json(serde_json::json!(value)))
+        .map_err(to_api_error);
+    state.service.log_http_access(
+        "POST",
+        "/api/routing/replace",
+        if result.is_ok() { "200" } else { "400" },
+    );
+    result
+}
+
 async fn get_balance(
     State(state): State<ApiState>,
     headers: HeaderMap,
@@ -1381,6 +1406,132 @@ mod tests {
         assert_eq!(
             failover_json
                 .pointer("/routing_item_id")
+                .and_then(serde_json::Value::as_str),
+            Some("mock-second")
+        );
+    }
+
+    #[tokio::test]
+    async fn http_routing_replace_returns_release_and_next_ticket() {
+        let (app, secret) = test_context();
+        let cookie = login_cookie(&app, &secret).await;
+
+        let plan = json!({
+            "id": "openai-plan",
+            "name": "OpenAI Plan",
+            "service": "openai",
+            "enabled": true,
+            "execution_mode": "sequential",
+            "items": [
+                {
+                    "id": "mock-first",
+                    "provider": "mock",
+                    "country": "usa",
+                    "operator": "",
+                    "enabled": true,
+                    "price_mode": "fixed",
+                    "min_price": 0.1,
+                    "max_price": 0.1,
+                    "fixed_price": 0.1
+                },
+                {
+                    "id": "mock-second",
+                    "provider": "mock",
+                    "country": "canada",
+                    "operator": "",
+                    "enabled": true,
+                    "price_mode": "any"
+                }
+            ]
+        });
+        let save_response = app
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .method(Method::POST)
+                    .uri("/api/routing-plans")
+                    .header("cookie", &cookie)
+                    .header("content-type", "application/json")
+                    .body(Body::from(plan.to_string()))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(save_response.status(), StatusCode::OK);
+
+        let acquire_response = app
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .method(Method::POST)
+                    .uri("/api/acquire")
+                    .header("cookie", &cookie)
+                    .header("content-type", "application/json")
+                    .body(Body::from(
+                        json!({
+                            "provider": "auto",
+                            "routing_plan_id": "openai-plan"
+                        })
+                        .to_string(),
+                    ))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(acquire_response.status(), StatusCode::OK);
+        let acquire_body = axum::body::to_bytes(acquire_response.into_body(), usize::MAX)
+            .await
+            .unwrap();
+        let acquire_json: serde_json::Value = serde_json::from_slice(&acquire_body).unwrap();
+        let ticket_id = acquire_json
+            .pointer("/ticket_id")
+            .and_then(serde_json::Value::as_str)
+            .unwrap();
+        let failed_item_id = acquire_json
+            .pointer("/routing_item_id")
+            .and_then(serde_json::Value::as_str)
+            .unwrap();
+
+        let replace_response = app
+            .oneshot(
+                Request::builder()
+                    .method(Method::POST)
+                    .uri("/api/routing/replace")
+                    .header("cookie", &cookie)
+                    .header("content-type", "application/json")
+                    .body(Body::from(
+                        json!({
+                            "ticket_id": ticket_id,
+                            "failed_item_id": failed_item_id,
+                            "reason": "http replace integration test",
+                            "release_action": "cancel"
+                        })
+                        .to_string(),
+                    ))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(replace_response.status(), StatusCode::OK);
+        let replace_body = axum::body::to_bytes(replace_response.into_body(), usize::MAX)
+            .await
+            .unwrap();
+        let replace_json: serde_json::Value = serde_json::from_slice(&replace_body).unwrap();
+        assert_eq!(
+            replace_json
+                .pointer("/current_ticket_id")
+                .and_then(serde_json::Value::as_str),
+            Some(ticket_id)
+        );
+        assert_eq!(
+            replace_json
+                .pointer("/current_ticket_release/status")
+                .and_then(serde_json::Value::as_str),
+            Some("cancelled")
+        );
+        assert_eq!(
+            replace_json
+                .pointer("/next_ticket/routing_item_id")
                 .and_then(serde_json::Value::as_str),
             Some("mock-second")
         );
