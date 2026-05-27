@@ -150,6 +150,13 @@ export function getAutoReleaseRemainingMs(autoReleaseAt: string | undefined | nu
   return Math.max(0, autoReleaseAtMs - now);
 }
 
+export function getNextReleaseAttemptRemainingMs(nextReleaseAttemptAt: string | undefined | null, now = Date.now()) {
+  if (!nextReleaseAttemptAt) return 0;
+  const nextReleaseAttemptAtMs = new Date(nextReleaseAttemptAt).getTime();
+  if (Number.isNaN(nextReleaseAttemptAtMs)) return 0;
+  return Math.max(0, nextReleaseAttemptAtMs - now);
+}
+
 export function formatDurationMmSs(durationMs: number) {
   const totalSeconds = Math.max(0, Math.ceil(durationMs / 1000));
   const minutes = Math.floor(totalSeconds / 60);

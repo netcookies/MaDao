@@ -86,6 +86,11 @@ fn auto_release_retry_limit(min_activation_time_sec: u64) -> u32 {
         .max(1)
 }
 
+fn is_terminal_cancel_status(message: &str) -> bool {
+    let upper = message.trim().to_ascii_uppercase();
+    upper.contains("STATUS_CANCEL") || upper.contains("NO_ACTIVATION")
+}
+
 pub struct SmsService {
     registry: Arc<RwLock<ProviderRegistry>>,
     tickets: RwLock<BTreeMap<String, TicketRecord>>,
@@ -2984,6 +2989,106 @@ impl SmsService {
             let auto_release_at = claim.auto_release_at;
             let retry_deadline_at = claim.retry_deadline_at;
             let retry_count = claim.retry_count;
+            let current = match self.ticket(&ticket_id) {
+                Ok(ticket) => ticket,
+                Err(_) => continue,
+            };
+            let provider = {
+                let registry = self.registry.read();
+                match registry.get(&current.provider) {
+                    Ok(provider) => provider,
+                    Err(_) => continue,
+                }
+            };
+
+            if current.status == TicketStatus::CancelPending
+                && matches!(
+                    action,
+                    crate::models::ReleaseAction::Cancel | crate::models::ReleaseAction::Ban
+                )
+            {
+                let poll_details = format!("ticket_id={ticket_id}");
+                match provider.poll_code(&current).await {
+                    Ok(response)
+                        if response.status == TicketStatus::Failed
+                            && response
+                                .message
+                                .as_deref()
+                                .is_some_and(is_terminal_cancel_status) =>
+                    {
+                        let upstream_message = response.message.unwrap_or_else(|| {
+                            "provider reported activation already cancelled".to_string()
+                        });
+                        let updated = self.update_ticket_in_memory(&ticket_id, |ticket| {
+                            ticket.updated_at = Utc::now();
+                            ticket.status = TicketStatus::Cancelled;
+                            ticket.message = Some(upstream_message.clone());
+                            ticket.pending_release_action = None;
+                            ticket.auto_release_at = None;
+                            ticket.next_release_attempt_at = None;
+                            ticket.release_retry_deadline_at = None;
+                            ticket.release_retry_count = 0;
+                            ticket.same_activation_retry_supported = false;
+                            ticket.same_activation_retry_expires_at = Some(ticket.updated_at);
+                        });
+                        if let Ok(ticket) = updated {
+                            let mut uow = RuntimeUnitOfWork::default();
+                            uow.batch.upsert_ticket = Some(ticket.clone());
+                            self.log_upstream_request_into_uow(
+                                &mut uow,
+                                &current.provider,
+                                "poll",
+                                poll_details,
+                            );
+                            self.log_upstream_response_into_uow(
+                                &mut uow,
+                                &current.provider,
+                                "poll",
+                                "200",
+                                &upstream_message,
+                            );
+                            self.log_into_uow(
+                                &mut uow,
+                                "system",
+                                "info",
+                                format!(
+                                    "ticket {} reconciled to cancelled from provider status",
+                                    ticket_id
+                                ),
+                            );
+                            self.push_ticket_activity_into_uow(
+                                &mut uow,
+                                ActivityKind::ReleaseEvent,
+                                ActivityLevel::Info,
+                                "自动取消已与服务商状态收敛".to_string(),
+                                Some("服务商侧已无激活，工单直接标记为已取消".to_string()),
+                                &ticket,
+                            );
+                            self.commit_runtime_uow(uow);
+                        }
+                        continue;
+                    }
+                    Ok(_) => {}
+                    Err(error) => {
+                        let mut uow = RuntimeUnitOfWork::default();
+                        self.log_upstream_request_into_uow(
+                            &mut uow,
+                            &current.provider,
+                            "poll",
+                            poll_details,
+                        );
+                        self.log_upstream_response_into_uow(
+                            &mut uow,
+                            &current.provider,
+                            "poll",
+                            "error",
+                            error.to_string(),
+                        );
+                        self.commit_runtime_uow(uow);
+                    }
+                }
+            }
+
             if retry_deadline_at.is_some_and(|deadline| now > deadline) {
                 let updated = self.update_ticket_in_memory(&ticket_id, |ticket| {
                     ticket.updated_at = Utc::now();
@@ -6497,6 +6602,77 @@ codes = ["123456"]
             logs.iter()
                 .any(|entry| entry.message.contains("auto cancel retry scheduled"))
         );
+
+        server.abort();
+    }
+
+    #[tokio::test]
+    async fn pending_cancel_reconciles_when_provider_already_cancelled() {
+        async fn handler(Query(query): Query<HashMap<String, String>>) -> String {
+            match query.get("action").map(String::as_str) {
+                Some("setStatus") => {
+                    r#"{"title":"EARLY_CANCEL_DENIED","details":"Activation cannot be cancelled at this time. Minimum activation period must pass.","info":{"minActivationTime":0}}"#.to_string()
+                }
+                Some("getStatus") => "STATUS_CANCEL".to_string(),
+                Some("getNumberV2") => r#"{"activationId":"activation-1","phoneNumber":"79001234567","activationCost":"0.06","canGetAnotherSms":true}"#.to_string(),
+                _ => "ACCESS_OK".to_string(),
+            }
+        }
+
+        let router = Router::new().route("/", get(handler));
+        let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let addr: SocketAddr = listener.local_addr().unwrap();
+        let server = tokio::spawn(async move {
+            let _ = axum::serve(listener, router).await;
+        });
+
+        let service = make_service_with_provider_overrides(&[(
+            "herosms",
+            &|manifest: &mut ProviderManifest| {
+                manifest.handler_api.as_mut().unwrap().base_url = format!("http://{addr}/");
+            },
+        )]);
+
+        let acquire = service
+            .acquire_code(AcquireCodeRequest {
+                provider: "herosms".to_string(),
+                service: Some("telegram".to_string()),
+                country: Some("US".to_string()),
+                max_price: None,
+                min_price: None,
+                auto_pick_country: None,
+                reuse_phone: Some(true),
+                reuse_key: None,
+                metadata: BTreeMap::new(),
+                routing_plan_id: None,
+                routing_plan_name: None,
+            })
+            .await
+            .unwrap();
+
+        let _ = service
+            .release_code(ReleaseCodeRequest {
+                ticket_id: acquire.ticket_id.clone(),
+                action: crate::models::ReleaseAction::Cancel,
+            })
+            .await
+            .unwrap();
+
+        service.maybe_process_pending_releases().await;
+
+        let ticket = service.ticket(&acquire.ticket_id).unwrap();
+        assert_eq!(ticket.status, TicketStatus::Cancelled);
+        assert_eq!(ticket.pending_release_action, None);
+        assert_eq!(ticket.auto_release_at, None);
+        assert_eq!(ticket.next_release_attempt_at, None);
+        assert_eq!(ticket.release_retry_deadline_at, None);
+        assert_eq!(ticket.release_retry_count, 0);
+        assert_eq!(ticket.message.as_deref(), Some("STATUS_CANCEL"));
+        let logs = service.runtime_snapshot().logs;
+        assert!(logs.iter().any(|entry| {
+            entry.message
+                .contains("reconciled to cancelled from provider status")
+        }));
 
         server.abort();
     }

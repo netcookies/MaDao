@@ -5,6 +5,7 @@ import { AppButton, PageHeader, SegmentedControl } from '../ui-bridge';
 import type { LanguageCode, MessageFilter, ProviderManifest, TicketDecoration, TicketRecord } from '../types';
 import {
   getAutoReleaseRemainingMs,
+  getNextReleaseAttemptRemainingMs,
   formatDurationMmSs,
   formatProviderLabel,
   formatServiceLabel,
@@ -67,7 +68,7 @@ export function MessagesScreen(props: MessagesScreenProps) {
         && (
           getCancelRemainingMs(ticket.created_at, cooldownSec, now) > 0
           || getElapsedDurationMs(ticket.created_at, now) >= 0
-          || getAutoReleaseRemainingMs(ticket.auto_release_at, now) > 0
+          || getNextReleaseAttemptRemainingMs(ticket.next_release_attempt_at, now) > 0
         );
     });
     if (!needsLiveTimer) return undefined;
@@ -97,7 +98,9 @@ export function MessagesScreen(props: MessagesScreenProps) {
           const providerManifest = props.providers?.[ticket.provider];
           const cancelCooldownSec = providerManifest?.behavior?.cancel_cooldown_sec;
           const autoReleaseRemainingMs = getAutoReleaseRemainingMs(ticket.auto_release_at, now);
+          const nextReleaseAttemptRemainingMs = getNextReleaseAttemptRemainingMs(ticket.next_release_attempt_at, now);
           const isCancelPending = normalizeTicketStatus(ticket.status) === 'cancel_pending';
+          const hasRetriedCancel = (ticket.release_retry_count ?? 0) > 0;
           const cancelRemainingMs = isWaiting
             ? getCancelRemainingMs(ticket.created_at, cancelCooldownSec, now)
             : 0;
@@ -178,14 +181,19 @@ export function MessagesScreen(props: MessagesScreenProps) {
                   <span className="text-center text-[13px] tracking-[0.08em] text-ds-text-secondary">
                     {formatTicketMessage(ticket.message, t('Check provider dashboard'))}
                   </span>
-                  {isCancelPending && autoReleaseRemainingMs > 0 && (
+                  {isCancelPending && nextReleaseAttemptRemainingMs > 0 && (
                     <span className="rounded-[999px] bg-ds-surface px-3 py-1 text-[12px] font-medium text-ds-text-secondary">
-                      {t('Auto cancel in {{duration}}', { duration: formatDurationMmSs(autoReleaseRemainingMs) })}
+                      {t('Auto cancel in {{duration}}', { duration: formatDurationMmSs(nextReleaseAttemptRemainingMs) })}
                     </span>
                   )}
-                  {isCancelPending && autoReleaseRemainingMs <= 0 && (
+                  {isCancelPending && nextReleaseAttemptRemainingMs <= 0 && hasRetriedCancel && (
                     <span className="rounded-[999px] bg-ds-surface px-3 py-1 text-[12px] font-medium text-ds-text-secondary">
                       {t('Auto cancel retrying...')}
+                    </span>
+                  )}
+                  {isCancelPending && nextReleaseAttemptRemainingMs <= 0 && !hasRetriedCancel && autoReleaseRemainingMs <= 0 && (
+                    <span className="rounded-[999px] bg-ds-surface px-3 py-1 text-[12px] font-medium text-ds-text-secondary">
+                      {t('Auto cancel scheduled')}
                     </span>
                   )}
                   {cancelLocked && (
