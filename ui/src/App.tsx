@@ -94,6 +94,7 @@ import { useConsoleUiState } from './hooks/useConsoleUiState';
 import { useSelectorFlow } from './hooks/useSelectorFlow';
 import {
   API_BASE,
+  fetchRemoteStatsSummaryFromDaemon,
   IS_DESKTOP_RUNTIME,
   IS_WEB_RUNTIME,
   SOCKET_PATH,
@@ -177,6 +178,14 @@ export function App() {
   const [updateCheckBusy, setUpdateCheckBusy] = useState(false);
   const [runtimeSettingsLoaded, setRuntimeSettingsLoaded] = useState(false);
   const [updateCheckResult, setUpdateCheckResult] = useState<UpdateCheckResult | null>(null);
+  const [remoteStatsQuery, setRemoteStatsQuery] = useState({
+    provider: '',
+    service: '',
+    country: '',
+    operator: '',
+    lookbackHours: 24,
+  });
+  const [remoteStatsSummary, setRemoteStatsSummary] = useState<import('./app/types').RemoteStatsSummaryResponse | null>(null);
   const [runtimeAccessInfo, setRuntimeAccessInfo] = useState({
     http_port: 7822,
     http_secret_overridden: false,
@@ -591,6 +600,39 @@ export function App() {
       }));
     } catch (error) {
       pushStatusMessage(translate('failed_sync_stats', { error: formatError(error) }));
+    } finally {
+      setBusyAction('');
+    }
+  }
+
+  function handleRemoteStatsQueryChange(
+    field: 'provider' | 'service' | 'country' | 'operator' | 'lookbackHours',
+    value: string | number,
+  ) {
+    setRemoteStatsQuery((current) => ({
+      ...current,
+      [field]: field === 'lookbackHours' ? Number(value) : String(value),
+    }));
+  }
+
+  async function handleFetchRemoteStatsSummary() {
+    try {
+      setBusyAction('fetch-remote-stats-summary');
+      const response = await fetchRemoteStatsSummaryFromDaemon({
+        provider: remoteStatsQuery.provider.trim() || undefined,
+        service: remoteStatsQuery.service.trim() || undefined,
+        country: remoteStatsQuery.country.trim() || undefined,
+        operator: remoteStatsQuery.operator.trim() || undefined,
+        lookback_hours: Math.max(1, remoteStatsQuery.lookbackHours),
+      });
+      setRemoteStatsSummary(response);
+      pushStatusMessage(translate('remote_stats_summary_loaded', {
+        count: response.items.length,
+        hours: response.lookback_hours,
+      }));
+    } catch (error) {
+      setRemoteStatsSummary(null);
+      pushStatusMessage(translate('failed_fetch_remote_stats_summary', { error: formatError(error) }));
     } finally {
       setBusyAction('');
     }
@@ -2312,6 +2354,11 @@ export function App() {
                   }))}
                 onSyncStatsNow={() => void handleSyncStatsNow()}
                 syncStatsBusy={busyAction === 'sync-ticket-stats'}
+                remoteStatsQuery={remoteStatsQuery}
+                onRemoteStatsQueryChange={handleRemoteStatsQueryChange}
+                onFetchRemoteStatsSummary={() => void handleFetchRemoteStatsSummary()}
+                remoteStatsSummaryBusy={busyAction === 'fetch-remote-stats-summary'}
+                remoteStatsSummary={remoteStatsSummary}
                 onRegenerateHttpSecret={() =>
                   void refreshHttpSecret().then((info) => {
                     if (info) setRuntimeAccessInfo(info);

@@ -3,6 +3,7 @@ import { Minus, Moon, Plus, Sun } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import {
   AppButton,
+  DataTable,
   PageHeader,
   SegmentedControl,
   SettingChoiceRow,
@@ -10,7 +11,11 @@ import {
   ToggleSetting,
   ToggleSwitch,
 } from '../ui-bridge';
-import type { LanguageCode as AppLanguageCode, OptionCacheOverview } from '../types';
+import type {
+  LanguageCode as AppLanguageCode,
+  OptionCacheOverview,
+  RemoteStatsSummaryResponse,
+} from '../types';
 
 export type AppearanceTheme = 'light' | 'dark' | 'system';
 declare const __APP_VERSION__: string;
@@ -53,6 +58,20 @@ export type SettingsScreenProps = {
   onStatsSyncApiTokenChange: (value: string) => void;
   onSyncStatsNow: () => void;
   syncStatsBusy: boolean;
+  remoteStatsQuery: {
+    provider: string;
+    service: string;
+    country: string;
+    operator: string;
+    lookbackHours: number;
+  };
+  onRemoteStatsQueryChange: (
+    field: 'provider' | 'service' | 'country' | 'operator' | 'lookbackHours',
+    value: string | number,
+  ) => void;
+  onFetchRemoteStatsSummary: () => void;
+  remoteStatsSummaryBusy: boolean;
+  remoteStatsSummary?: RemoteStatsSummaryResponse | null;
   onRegenerateHttpSecret: () => void;
   regenerateSecretBusy: boolean;
   onCheckForUpdates: () => void;
@@ -100,6 +119,13 @@ export function SettingsScreen(props: SettingsScreenProps) {
     const parsed = Number.parseInt(trimmed, 10);
     if (!Number.isFinite(parsed)) return;
     props.onHttpPortChange(Math.max(1, Math.min(65535, parsed)));
+  }
+  function handleLookbackHoursInput(rawValue: string) {
+    const trimmed = rawValue.trim();
+    if (!trimmed) return;
+    const parsed = Number.parseInt(trimmed, 10);
+    if (!Number.isFinite(parsed)) return;
+    props.onRemoteStatsQueryChange('lookbackHours', Math.max(1, parsed));
   }
   const statsStatusText = [
     props.statsSyncPendingEvents != null ? `${t('Pending events')}: ${props.statsSyncPendingEvents}` : null,
@@ -309,6 +335,113 @@ export function SettingsScreen(props: SettingsScreenProps) {
               ) : null}
             </div>
           </ServerConfigRow>
+          <div className="grid gap-3 min-[960px]:grid-cols-2">
+            <ServerConfigRow label={t('Lookback hours')}>
+              <TextField
+                type="number"
+                min={1}
+                step={1}
+                value={props.remoteStatsQuery.lookbackHours}
+                onChange={(event) => handleLookbackHoursInput(event.target.value)}
+                compact
+                fullWidth={false}
+                className="w-[110px]"
+                inputClassName="text-center [-moz-appearance:textfield] [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:appearance-none"
+              />
+            </ServerConfigRow>
+            <ServerConfigRow label={t('Summary provider filter')}>
+              <TextField
+                type="text"
+                value={props.remoteStatsQuery.provider}
+                onChange={(event) => props.onRemoteStatsQueryChange('provider', event.target.value)}
+                placeholder={t('Leave empty for all providers')}
+                compact
+                className="min-w-[220px]"
+              />
+            </ServerConfigRow>
+            <ServerConfigRow label={t('Summary service filter')}>
+              <TextField
+                type="text"
+                value={props.remoteStatsQuery.service}
+                onChange={(event) => props.onRemoteStatsQueryChange('service', event.target.value)}
+                placeholder={t('Leave empty for all services')}
+                compact
+                className="min-w-[220px]"
+              />
+            </ServerConfigRow>
+            <ServerConfigRow label={t('Summary country filter')}>
+              <TextField
+                type="text"
+                value={props.remoteStatsQuery.country}
+                onChange={(event) => props.onRemoteStatsQueryChange('country', event.target.value)}
+                placeholder={t('Leave empty for all countries')}
+                compact
+                className="min-w-[220px]"
+              />
+            </ServerConfigRow>
+            <ServerConfigRow label={t('Summary operator filter')}>
+              <TextField
+                type="text"
+                value={props.remoteStatsQuery.operator}
+                onChange={(event) => props.onRemoteStatsQueryChange('operator', event.target.value)}
+                placeholder={t('Leave empty for all operators')}
+                compact
+                className="min-w-[220px]"
+              />
+            </ServerConfigRow>
+          </div>
+          <ServerConfigRow
+            label={t('Remote summary')}
+            note={t('Use daemon proxy to query the current Worker aggregate and inspect recent provider quality by route dimensions.')}
+          >
+            <AppButton variant="outline" size="utility" onClick={props.onFetchRemoteStatsSummary} disabled={props.remoteStatsSummaryBusy}>
+              {props.remoteStatsSummaryBusy ? t('Loading summary…') : t('Load summary')}
+            </AppButton>
+          </ServerConfigRow>
+          <div className="overflow-x-auto rounded-xs border border-ds-border bg-ds-surface-subtle">
+            <DataTable
+              className="min-w-[1060px]"
+              headerClassName="grid grid-cols-[minmax(0,1.3fr)_minmax(0,1.1fr)_minmax(0,0.9fr)_minmax(0,1fr)_72px_86px_86px_86px_72px_72px] items-center gap-3 border-b border-solid border-ds-border border-x-0 border-t-0 px-4 py-2.5 text-[12px] font-medium uppercase tracking-[0.08em] text-ds-text-secondary"
+              header={(
+                <>
+                  <span>{t('Provider')}</span>
+                  <span>{t('Service')}</span>
+                  <span>{t('Country')}</span>
+                  <span>{t('Operator')}</span>
+                  <span>{t('Success')}</span>
+                  <span>{t('Success count')}</span>
+                  <span>{t('Total')}</span>
+                  <span>{t('Cancelled')}</span>
+                  <span>{t('Banned')}</span>
+                  <span>{t('Failed')}</span>
+                </>
+              )}
+            >
+              {props.remoteStatsSummary?.items?.length ? props.remoteStatsSummary.items.map((item, index) => (
+                <div
+                  className="grid grid-cols-[minmax(0,1.3fr)_minmax(0,1.1fr)_minmax(0,0.9fr)_minmax(0,1fr)_72px_86px_86px_86px_72px_72px] items-center gap-3 border-b border-solid border-ds-border border-x-0 border-t-0 px-4 py-2.5 text-[13px] text-ds-text-primary last:border-b-0"
+                  key={`${item.provider}-${item.service}-${item.country}-${item.operator}-${index}`}
+                >
+                  <span className="truncate">{item.provider}</span>
+                  <span className="truncate">{item.service}</span>
+                  <span className="truncate">{item.country}</span>
+                  <span className="truncate">{item.operator}</span>
+                  <span>{(item.success_rate * 100).toFixed(1)}%</span>
+                  <span>{item.success_count}</span>
+                  <span>{item.total}</span>
+                  <span>{item.cancelled_count}</span>
+                  <span>{item.banned_count}</span>
+                  <span>{item.failed_count}</span>
+                </div>
+              )) : (
+                <div className="px-5 py-7 text-center text-utility tracking-[var(--ds-type-utility-tracking)] text-ds-text-secondary">
+                  {props.remoteStatsSummary
+                    ? t('No summary data matched the current filters.')
+                    : t('Load the remote summary to inspect recent route quality by provider, service, country, and operator.')}
+                </div>
+              )}
+            </DataTable>
+          </div>
         </div>
       </div>
     </div>
