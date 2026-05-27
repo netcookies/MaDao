@@ -36,11 +36,23 @@ export type SettingsScreenProps = {
   httpPort: number;
   httpSecret: string;
   httpSecretOverridden: boolean;
+  statsSyncEnabled: boolean;
+  statsSyncBaseUrl: string;
+  statsSyncApiToken: string;
+  statsSyncPendingEvents?: number;
+  statsSyncLastAttemptAt?: string | null;
+  statsSyncLastSuccessAt?: string | null;
+  statsSyncLastError?: string | null;
   onOptionCacheEnabledChange: (enabled: boolean) => void;
   onOptionCachePollIntervalChange: (minutes: number) => void;
   onOnlyShowOpenAiSmsCountriesChange: (enabled: boolean) => void;
   onCheckUpdatesOnLaunchChange: (enabled: boolean) => void;
   onHttpPortChange: (port: number) => void;
+  onStatsSyncEnabledChange: (enabled: boolean) => void;
+  onStatsSyncBaseUrlChange: (value: string) => void;
+  onStatsSyncApiTokenChange: (value: string) => void;
+  onSyncStatsNow: () => void;
+  syncStatsBusy: boolean;
   onRegenerateHttpSecret: () => void;
   regenerateSecretBusy: boolean;
   onCheckForUpdates: () => void;
@@ -89,6 +101,11 @@ export function SettingsScreen(props: SettingsScreenProps) {
     if (!Number.isFinite(parsed)) return;
     props.onHttpPortChange(Math.max(1, Math.min(65535, parsed)));
   }
+  const statsStatusText = [
+    props.statsSyncPendingEvents != null ? `${t('Pending events')}: ${props.statsSyncPendingEvents}` : null,
+    props.statsSyncLastSuccessAt ? `${t('Last success')}: ${props.statsSyncLastSuccessAt}` : null,
+    props.statsSyncLastAttemptAt ? `${t('Last attempt')}: ${props.statsSyncLastAttemptAt}` : null,
+  ].filter(Boolean).join(' · ');
 
   return (
     <div className="flex flex-col gap-8">
@@ -245,6 +262,52 @@ export function SettingsScreen(props: SettingsScreenProps) {
             <AppButton variant="outline" size="utility" onClick={props.onCheckForUpdates} disabled={props.updateCheckBusy}>
               {props.updateCheckBusy ? t('Checking…') : t('Check now')}
             </AppButton>
+          </ServerConfigRow>
+        </div>
+
+        <div className="flex flex-col gap-3 border-solid border-ds-border border-b-0 border-x-0 border-t px-6 py-4">
+          <div className="flex flex-col gap-1.5">
+            <h3 className="m-0 text-section-title font-semibold tracking-[var(--ds-type-section-title-tracking)] text-ds-text-primary">{t('Stats Sync')}</h3>
+            <p className="m-0 text-[12px] leading-[1.45] text-ds-text-secondary">
+              {t('Upload local ticket outcome events to the shared Cloudflare Worker and keep summary queries consistent across devices.')}
+            </p>
+          </div>
+          <ServerConfigRow label={t('Enable stats sync')}>
+            <ToggleSwitch checked={props.statsSyncEnabled} onChange={props.onStatsSyncEnabledChange} ariaLabel={t('Toggle stats sync')} />
+          </ServerConfigRow>
+          <ServerConfigRow
+            label={t('Worker Base URL')}
+            note={t('Example: https://madao-stats.example.workers.dev')}
+          >
+            <TextField
+              type="text"
+              value={props.statsSyncBaseUrl}
+              onChange={(event) => props.onStatsSyncBaseUrlChange(event.target.value)}
+              compact
+              className="min-w-[280px] max-w-[420px]"
+            />
+          </ServerConfigRow>
+          <ServerConfigRow label={t('Worker API Token')}>
+            <TextField
+              type="password"
+              value={props.statsSyncApiToken}
+              onChange={(event) => props.onStatsSyncApiTokenChange(event.target.value)}
+              compact
+              className="min-w-[280px] max-w-[420px]"
+            />
+          </ServerConfigRow>
+          <ServerConfigRow label={t('Sync status')}>
+            <div className="flex flex-col items-start gap-2">
+              <AppButton variant="outline" size="utility" onClick={props.onSyncStatsNow} disabled={props.syncStatsBusy}>
+                {props.syncStatsBusy ? t('Syncing…') : t('Sync now')}
+              </AppButton>
+              {statsStatusText ? (
+                <span className="text-[12px] leading-[1.45] text-ds-text-secondary">{statsStatusText}</span>
+              ) : null}
+              {props.statsSyncLastError ? (
+                <span className="text-[12px] leading-[1.45] text-ds-danger">{props.statsSyncLastError}</span>
+              ) : null}
+            </div>
           </ServerConfigRow>
         </div>
       </div>

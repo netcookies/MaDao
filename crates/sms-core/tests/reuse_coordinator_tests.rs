@@ -93,6 +93,8 @@ fn setup_service_with_state(tickets: Vec<TicketRecord>) -> (SmsService, TempDir)
         provider_balance_cache: vec![],
         reuse_pool: HashMap::new(),
         openai_sms_regions_cache: Default::default(),
+        ticket_stats_events: vec![],
+        stats_sync_status: Default::default(),
     };
     RuntimeStore::open(&state_path)
         .unwrap()
@@ -523,6 +525,8 @@ async fn test_stale_eviction_ttl() {
         provider_balance_cache: vec![],
         reuse_pool: pool,
         openai_sms_regions_cache: Default::default(),
+        ticket_stats_events: vec![],
+        stats_sync_status: Default::default(),
     };
     let state_path = dir.path().join("runtime.db");
     RuntimeStore::open(&state_path)
@@ -586,6 +590,8 @@ async fn test_stale_eviction_max_count() {
         provider_balance_cache: vec![],
         reuse_pool: pool,
         openai_sms_regions_cache: Default::default(),
+        ticket_stats_events: vec![],
+        stats_sync_status: Default::default(),
     };
     let state_path = dir.path().join("runtime.db");
     RuntimeStore::open(&state_path)
@@ -654,6 +660,74 @@ async fn test_pool_persistence() {
     let entries = state.reuse_pool.get("fivesim").unwrap();
     assert_eq!(entries.len(), 1);
     assert_eq!(entries[0].phone_number, "+79001234567");
+}
+
+#[test]
+fn test_pending_release_claims_round_trip_in_sqlite_schema() {
+    let dir = TempDir::new().unwrap();
+    let state_path = dir.path().join("runtime.db");
+    let store = RuntimeStore::open(&state_path).unwrap();
+    let now = Utc::now();
+
+    let mut ticket = TicketRecord::new(
+        "herosms".to_string(),
+        "openai".to_string(),
+        "ID".to_string(),
+        "+6283836073107".to_string(),
+        Some("422955082".to_string()),
+        Some(0.045),
+    );
+    ticket.status = TicketStatus::CancelPending;
+    ticket.operator = Some("any".to_string());
+    ticket.pending_release_action = Some(ReleaseAction::Cancel);
+    ticket.auto_release_at = Some(now - Duration::seconds(60));
+    ticket.next_release_attempt_at = Some(now - Duration::seconds(30));
+    ticket.release_retry_deadline_at = Some(now + Duration::seconds(60));
+    ticket.release_retry_count = 2;
+
+    let state = RuntimeStateStore {
+        tickets: vec![ticket.clone()],
+        logs: vec![],
+        activity: vec![],
+        provider_balance_cache: vec![],
+        reuse_pool: HashMap::new(),
+        openai_sms_regions_cache: Default::default(),
+        ticket_stats_events: vec![],
+        stats_sync_status: Default::default(),
+    };
+    store.replace_state(&state).unwrap();
+
+    let claims = store.claim_pending_releases(now).unwrap();
+    assert_eq!(claims.len(), 1);
+    assert_eq!(claims[0].ticket_id, ticket.id);
+    assert_eq!(claims[0].action, ReleaseAction::Cancel);
+    assert_eq!(claims[0].auto_release_at, ticket.auto_release_at);
+    assert_eq!(claims[0].retry_deadline_at, ticket.release_retry_deadline_at);
+    assert_eq!(claims[0].retry_count, 2);
+}
+
+#[tokio::test]
+async fn test_operator_is_persisted_on_acquire() {
+    let (service, dir) = setup_service();
+    let response = service
+        .acquire_code(AcquireCodeRequest {
+            provider: "herosms".to_string(),
+            service: Some("telegram".to_string()),
+            country: Some("RU".to_string()),
+            metadata: BTreeMap::from([("operator".to_string(), "any".to_string())]),
+            ..default_request()
+        })
+        .await
+        .unwrap();
+
+    let state_path = dir.path().join("runtime.db");
+    let state = RuntimeStore::open(&state_path).unwrap().load_state().unwrap();
+    let ticket = state
+        .tickets
+        .into_iter()
+        .find(|ticket| ticket.id == response.ticket_id)
+        .expect("ticket should persist");
+    assert_eq!(ticket.operator.as_deref(), Some("any"));
 }
 
 fn default_request() -> AcquireCodeRequest {

@@ -17,8 +17,10 @@ import type {
   RuntimeAccessInfo,
   RuntimeSettings,
   RuntimeSettingsUpdate,
+  RemoteStatsSummaryResponse,
   ReleaseCodeResponse,
   Snapshot,
+  StatsSyncStatus,
 } from '../app/types';
 
 type SocketEnvelope<T> = {
@@ -133,6 +135,26 @@ export function regenerateHttpSecretViaSocket(): Promise<RuntimeSettings> {
 
 export function fetchRuntimeAccessInfoViaSocket(): Promise<RuntimeAccessInfo> {
   return socketInvoke<RuntimeAccessInfo>('runtime_access_info');
+}
+
+export function syncTicketStatsViaSocket(): Promise<{
+  uploaded: number;
+  remaining: number;
+  status: StatsSyncStatus;
+}> {
+  return socketInvoke('sync_ticket_stats');
+}
+
+export function fetchRemoteStatsSummaryViaSocket(query?: {
+  provider?: string;
+  service?: string;
+  country?: string;
+  operator?: string;
+  lookback_hours?: number;
+}): Promise<RemoteStatsSummaryResponse> {
+  return socketInvoke('remote_stats_summary', {
+    query: query ?? {},
+  });
 }
 
 export function fetchOpenAiSmsRegionsViaSocket(): Promise<OpenAiSmsRegionsCache> {

@@ -423,6 +423,36 @@ pub fn normalize_ticket_record(
         ticket.country = canonical_country_value(&raw_country, Some(&raw_country), None);
     }
 
+    if let Some(raw_operator) = ticket.operator.clone() {
+        if let Some(mapped) = operator_items_for_country(options, Some(&ticket.country))
+            .into_iter()
+            .flatten()
+            .chain(
+                options
+                    .map(|entry| entry.operators.iter())
+                    .into_iter()
+                    .flatten(),
+            )
+            .find(|item| {
+                item.provider_value
+                    .as_ref()
+                    .map(|provider_value| {
+                        normalize_token(provider_value) == normalize_token(&raw_operator)
+                    })
+                    .unwrap_or(false)
+            })
+        {
+            ticket.operator = Some(mapped.value.clone());
+        } else {
+            let canonical = canonical_operator_value(&raw_operator, Some(&raw_operator));
+            ticket.operator = if canonical.is_empty() {
+                None
+            } else {
+                Some(canonical)
+            };
+        }
+    }
+
     ticket
 }
 

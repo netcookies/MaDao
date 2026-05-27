@@ -146,6 +146,7 @@ export type Snapshot = {
   logs: LogEntry[];
   reuse_pool: ReusePoolSummary[];
   activity?: ActivityEntry[];
+  stats_sync_status?: StatsSyncStatus | null;
 };
 
 export type TicketDecoration = {
@@ -252,6 +253,12 @@ export type SelectorState = {
   resourceKind?: ResourceKind;
 };
 export type NotificationFeed = { items: LogEntry[] };
+export type StatsSyncStatus = {
+  pending_events: number;
+  last_attempt_at?: string | null;
+  last_success_at?: string | null;
+  last_error?: string | null;
+};
 export type RuntimeSettings = {
   routing_strategy: RoutingStrategy;
   auto_fallback: boolean;
@@ -261,6 +268,10 @@ export type RuntimeSettings = {
   check_updates_on_launch: boolean;
   http_port: number;
   http_secret: string;
+  stats_sync_instance_id: string;
+  stats_sync_enabled: boolean;
+  stats_sync_base_url: string;
+  stats_sync_api_token: string;
 };
 export type RuntimeSettingsUpdate = {
   routing_strategy: RoutingStrategy;
@@ -270,6 +281,26 @@ export type RuntimeSettingsUpdate = {
   only_show_openai_sms_countries: boolean;
   check_updates_on_launch: boolean;
   http_port: number;
+  stats_sync_instance_id?: string;
+  stats_sync_enabled: boolean;
+  stats_sync_base_url: string;
+  stats_sync_api_token: string;
+};
+
+export type RemoteStatsSummaryResponse = {
+  lookback_hours: number;
+  items: Array<{
+    provider: string;
+    service: string;
+    country: string;
+    operator: string;
+    total: number;
+    success_count: number;
+    success_rate: number;
+    cancelled_count: number;
+    banned_count: number;
+    failed_count: number;
+  }>;
 };
 
 export type OpenAiSmsRegionsCache = {

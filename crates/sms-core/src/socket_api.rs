@@ -2,8 +2,9 @@ use crate::error::SmsError;
 use crate::models::{
     AcquireCodeRequest, OpenAiSmsRegionsCache, PollCodeRequest, ProviderManifestList,
     ProviderManifestSaveResponse, ProviderPriceQuery, ReleaseCodeRequest, ReusePoolClearResponse,
-    RoutingFailoverRequest, RoutingPlan, RoutingPlanList, RoutingReplaceRequest,
-    RuntimeAccessInfo, RuntimeSettings, RuntimeSettingsUpdate,
+    RemoteStatsSummaryQuery, RemoteStatsSummaryResponse, RoutingFailoverRequest, RoutingPlan,
+    RoutingPlanList, RoutingReplaceRequest, RuntimeAccessInfo, RuntimeSettings,
+    RuntimeSettingsUpdate, StatsSyncResult,
 };
 use plugin_sdk::ProviderManifest;
 use serde::{Deserialize, Serialize};
@@ -59,6 +60,10 @@ pub enum SocketCommand {
     },
     RegenerateHttpSecret,
     RuntimeAccessInfo,
+    SyncTicketStats,
+    RemoteStatsSummary {
+        query: RemoteStatsSummaryQuery,
+    },
     OpenAiSmsRegions,
     OptionCacheOverview,
     Notifications,
@@ -120,3 +125,5 @@ pub type SocketReusePoolClear = ReusePoolClearResponse;
 pub type SocketRuntimeSettings = RuntimeSettings;
 pub type SocketRuntimeAccessInfo = RuntimeAccessInfo;
 pub type SocketOpenAiSmsRegions = OpenAiSmsRegionsCache;
+pub type SocketStatsSyncResult = StatsSyncResult;
+pub type SocketRemoteStatsSummary = RemoteStatsSummaryResponse;

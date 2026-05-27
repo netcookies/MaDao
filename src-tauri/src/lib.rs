@@ -751,6 +751,16 @@ fn socket_command_from_payload(
         }),
         "regenerate_http_secret" => Ok(SocketCommand::RegenerateHttpSecret),
         "runtime_access_info" => Ok(SocketCommand::RuntimeAccessInfo),
+        "sync_ticket_stats" => Ok(SocketCommand::SyncTicketStats),
+        "remote_stats_summary" => Ok(SocketCommand::RemoteStatsSummary {
+            query: serde_json::from_value(
+                payload
+                    .get("query")
+                    .cloned()
+                    .unwrap_or_else(|| serde_json::json!({})),
+            )
+            .map_err(|err| err.to_string())?,
+        }),
         "open_ai_sms_regions" => Ok(SocketCommand::OpenAiSmsRegions),
         "option_cache_overview" => Ok(SocketCommand::OptionCacheOverview),
         "balance" => Ok(SocketCommand::Balance {

@@ -124,6 +124,10 @@ pub fn default_runtime_settings() -> RuntimeSettings {
         check_updates_on_launch: true,
         http_port: 7822,
         http_secret: generate_runtime_secret(),
+        stats_sync_instance_id: Uuid::now_v7().to_string(),
+        stats_sync_enabled: false,
+        stats_sync_base_url: String::new(),
+        stats_sync_api_token: String::new(),
     }
 }
 

@@ -31,6 +31,10 @@ export function useConsoleDataState() {
     check_updates_on_launch: true,
     http_port: 7822,
     http_secret: '',
+    stats_sync_instance_id: '',
+    stats_sync_enabled: false,
+    stats_sync_base_url: '',
+    stats_sync_api_token: '',
   });
   const [openAiSmsRegions, setOpenAiSmsRegions] = useState<OpenAiSmsRegionsCache>({
     sms_regions: [],

@@ -486,6 +486,14 @@ pub struct RuntimeSettings {
     pub http_port: u16,
     #[serde(default = "default_http_secret")]
     pub http_secret: String,
+    #[serde(default = "default_stats_sync_instance_id")]
+    pub stats_sync_instance_id: String,
+    #[serde(default)]
+    pub stats_sync_enabled: bool,
+    #[serde(default)]
+    pub stats_sync_base_url: String,
+    #[serde(default)]
+    pub stats_sync_api_token: String,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -497,6 +505,12 @@ pub struct RuntimeSettingsUpdate {
     pub only_show_openai_sms_countries: bool,
     pub check_updates_on_launch: bool,
     pub http_port: u16,
+    #[serde(default)]
+    pub stats_sync_enabled: bool,
+    #[serde(default)]
+    pub stats_sync_base_url: String,
+    #[serde(default)]
+    pub stats_sync_api_token: String,
 }
 
 fn default_only_show_openai_sms_countries() -> bool {
@@ -515,11 +529,56 @@ fn default_http_secret() -> String {
     String::new()
 }
 
+fn default_stats_sync_instance_id() -> String {
+    String::new()
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct RuntimeAccessInfo {
     pub http_port: u16,
     pub http_secret_overridden: bool,
     pub requires_http_login: bool,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct StatsSyncResult {
+    pub uploaded: u32,
+    pub remaining: u32,
+    pub status: StatsSyncStatus,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+pub struct RemoteStatsSummaryQuery {
+    #[serde(default)]
+    pub provider: Option<String>,
+    #[serde(default)]
+    pub service: Option<String>,
+    #[serde(default)]
+    pub country: Option<String>,
+    #[serde(default)]
+    pub operator: Option<String>,
+    #[serde(default)]
+    pub lookback_hours: Option<u32>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct RemoteStatsSummaryItem {
+    pub provider: String,
+    pub service: String,
+    pub country: String,
+    pub operator: String,
+    pub total: u32,
+    pub success_count: u32,
+    pub success_rate: f64,
+    pub cancelled_count: u32,
+    pub banned_count: u32,
+    pub failed_count: u32,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct RemoteStatsSummaryResponse {
+    pub lookback_hours: u32,
+    pub items: Vec<RemoteStatsSummaryItem>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -557,6 +616,8 @@ pub struct RuntimeSnapshot {
     pub reuse_pool: Vec<ReusePoolSummary>,
     #[serde(default)]
     pub activity: Vec<ActivityEntry>,
+    #[serde(default)]
+    pub stats_sync_status: Option<StatsSyncStatus>,
 }
 
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, Default)]
@@ -575,6 +636,8 @@ pub struct TicketRecord {
     pub provider: String,
     pub service: String,
     pub country: String,
+    #[serde(default)]
+    pub operator: Option<String>,
     pub phone_number: String,
     #[serde(default)]
     pub upstream_id: Option<String>,
@@ -625,6 +688,53 @@ pub struct TicketRecord {
     pub reuse_count: u32,
 }
 
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum TicketStatsOutcome {
+    Acquired,
+    CodeReceived,
+    Finished,
+    Cancelled,
+    CancelPending,
+    Failed,
+    Banned,
+    RetryRequested,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct TicketStatsEvent {
+    pub id: String,
+    pub ticket_id: String,
+    pub provider: String,
+    pub service: String,
+    pub country: String,
+    #[serde(default)]
+    pub operator: Option<String>,
+    pub outcome: TicketStatsOutcome,
+    pub status: TicketStatus,
+    pub occurred_at: DateTime<Utc>,
+    #[serde(default)]
+    pub routing_plan_id: Option<String>,
+    #[serde(default)]
+    pub routing_item_id: Option<String>,
+    #[serde(default)]
+    pub message: Option<String>,
+    #[serde(default)]
+    pub synced_at: Option<DateTime<Utc>>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+pub struct StatsSyncStatus {
+    #[serde(default)]
+    pub pending_events: u32,
+    #[serde(default)]
+    pub last_attempt_at: Option<DateTime<Utc>>,
+    #[serde(default)]
+    pub last_success_at: Option<DateTime<Utc>>,
+    #[serde(default)]
+    pub last_error: Option<String>,
+}
+
 impl TicketRecord {
     pub fn new(
         provider: String,
@@ -640,6 +750,7 @@ impl TicketRecord {
             provider,
             service,
             country,
+            operator: None,
             phone_number,
             upstream_id,
             price,
@@ -763,6 +874,10 @@ pub struct RuntimeStateStore {
     pub reuse_pool: HashMap<String, Vec<ReusePoolEntry>>,
     #[serde(default)]
     pub openai_sms_regions_cache: OpenAiSmsRegionsCache,
+    #[serde(default)]
+    pub ticket_stats_events: Vec<TicketStatsEvent>,
+    #[serde(default)]
+    pub stats_sync_status: StatsSyncStatus,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]

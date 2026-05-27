@@ -1,0 +1,15 @@
+{
+  "name": "madao-stats-worker",
+  "main": "src/index.ts",
+  "compatibility_date": "2026-05-27",
+  "d1_databases": [
+    {
+      "binding": "DB",
+      "database_name": "madao-stats",
+      "database_id": "replace-me"
+    }
+  ],
+  "vars": {
+    "API_TOKEN": "replace-me"
+  }
+}

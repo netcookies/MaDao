@@ -20,6 +20,7 @@ import type {
   Snapshot,
   UpdateCheckResult,
   RuntimeAccessInfo,
+  RemoteStatsSummaryResponse,
 } from '../app/types';
 import { API_BASE, SOCKET_PATH } from './runtimeEnv';
 export {
@@ -48,6 +49,7 @@ import {
   fetchProviderOptionsCacheViaSocket,
   fetchProviderPricesViaSocket,
   fetchProviderServicesViaSocket,
+  fetchRemoteStatsSummaryViaSocket,
   fetchRoutingPlansViaSocket,
   fetchRuntimeAccessInfoViaSocket,
   fetchRuntimeSettingsViaSocket,
@@ -62,6 +64,7 @@ import {
   saveProviderManifestViaSocket,
   saveRoutingPlanViaSocket,
   saveRuntimeSettingsViaSocket,
+  syncTicketStatsViaSocket,
 } from './socketClientApi';
 import { invoke } from '@tauri-apps/api/core';
 import { IS_DESKTOP_RUNTIME, USE_SOCKET_TRANSPORT } from './runtimeEnv';
@@ -417,6 +420,56 @@ export async function fetchRuntimeAccessInfo(): Promise<RuntimeAccessInfo> {
     return invoke<RuntimeAccessInfo>('desktop_http_access_info');
   }
   return readJson<RuntimeAccessInfo>(await fetch(`${API_BASE}/api/access-info`));
+}
+
+export async function fetchRemoteStatsSummary(query?: {
+  baseUrl: string;
+  service?: string;
+  country?: string;
+  operator?: string;
+  provider?: string;
+  lookbackHours?: number;
+}): Promise<RemoteStatsSummaryResponse> {
+  const rawBaseUrl = query?.baseUrl?.trim();
+  if (!rawBaseUrl) {
+    throw new Error('stats sync base URL is not configured');
+  }
+  const url = new URL('/v1/summary', rawBaseUrl);
+  if (query?.service) url.searchParams.set('service', query.service);
+  if (query?.country) url.searchParams.set('country', query.country);
+  if (query?.operator) url.searchParams.set('operator', query.operator);
+  if (query?.provider) url.searchParams.set('provider', query.provider);
+  if (query?.lookbackHours != null) {
+    url.searchParams.set('lookback_hours', String(query.lookbackHours));
+  }
+  return readJson<RemoteStatsSummaryResponse>(await fetch(url.toString()));
+}
+
+export async function syncTicketStats(): Promise<{
+  uploaded: number;
+  remaining: number;
+  status: import('../app/types').StatsSyncStatus;
+}> {
+  if (USE_SOCKET_TRANSPORT) return syncTicketStatsViaSocket();
+  return readJson(await fetch(`${API_BASE}/api/settings/stats/sync`, {
+    method: 'POST',
+    headers: IS_DESKTOP_RUNTIME ? await buildDesktopHttpHeaders(false) : undefined,
+  }));
+}
+
+export async function fetchRemoteStatsSummaryFromDaemon(query?: {
+  provider?: string;
+  service?: string;
+  country?: string;
+  operator?: string;
+  lookback_hours?: number;
+}): Promise<RemoteStatsSummaryResponse> {
+  if (USE_SOCKET_TRANSPORT) return fetchRemoteStatsSummaryViaSocket(query);
+  return readJson<RemoteStatsSummaryResponse>(await fetch(`${API_BASE}/api/settings/stats/summary`, {
+    method: 'POST',
+    headers: IS_DESKTOP_RUNTIME ? await buildDesktopHttpHeaders() : { 'Content-Type': 'application/json' },
+    body: JSON.stringify(query ?? {}),
+  }));
 }
 
 export async function fetchHttpAuthStatus(): Promise<{ authenticated: boolean }> {

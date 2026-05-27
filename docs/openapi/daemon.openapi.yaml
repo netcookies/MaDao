@@ -374,6 +374,50 @@ paths:
           $ref: '#/components/responses/BadRequest'
         '401':
           $ref: '#/components/responses/Unauthorized'
+  /api/settings/stats/sync:
+    post:
+      tags: [settings]
+      summary: Upload pending ticket stats events to remote worker
+      operationId: syncTicketStats
+      security:
+        - bearerAuth: []
+        - sessionCookie: []
+      responses:
+        '200':
+          description: Stats sync result
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StatsSyncResult'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+  /api/settings/stats/summary:
+    post:
+      tags: [settings]
+      summary: Fetch aggregated remote stats summary from configured worker
+      operationId: getRemoteStatsSummary
+      security:
+        - bearerAuth: []
+        - sessionCookie: []
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/RemoteStatsSummaryQuery'
+      responses:
+        '200':
+          description: Remote stats summary
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/RemoteStatsSummaryResponse'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
   /api/settings/openai-sms-regions:
     get:
       tags: [settings]
@@ -932,6 +976,102 @@ components:
         requires_http_login:
           type: boolean
       required: [http_port, http_secret_overridden, requires_http_login]
+    StatsSyncStatus:
+      type: object
+      additionalProperties: false
+      properties:
+        pending_events:
+          type: integer
+          minimum: 0
+        last_attempt_at:
+          type: string
+          format: date-time
+        last_success_at:
+          type: string
+          format: date-time
+        last_error:
+          type: string
+      required: [pending_events]
+    StatsSyncResult:
+      type: object
+      additionalProperties: false
+      properties:
+        uploaded:
+          type: integer
+          minimum: 0
+        remaining:
+          type: integer
+          minimum: 0
+        status:
+          $ref: '#/components/schemas/StatsSyncStatus'
+      required: [uploaded, remaining, status]
+    RemoteStatsSummaryQuery:
+      type: object
+      additionalProperties: false
+      properties:
+        provider:
+          type: string
+        service:
+          type: string
+        country:
+          type: string
+        operator:
+          type: string
+        lookback_hours:
+          type: integer
+          minimum: 1
+    RemoteStatsSummaryItem:
+      type: object
+      additionalProperties: false
+      properties:
+        provider:
+          type: string
+        service:
+          type: string
+        country:
+          type: string
+        operator:
+          type: string
+        total:
+          type: integer
+          minimum: 0
+        success_count:
+          type: integer
+          minimum: 0
+        success_rate:
+          type: number
+        cancelled_count:
+          type: integer
+          minimum: 0
+        banned_count:
+          type: integer
+          minimum: 0
+        failed_count:
+          type: integer
+          minimum: 0
+      required:
+        - provider
+        - service
+        - country
+        - operator
+        - total
+        - success_count
+        - success_rate
+        - cancelled_count
+        - banned_count
+        - failed_count
+    RemoteStatsSummaryResponse:
+      type: object
+      additionalProperties: false
+      properties:
+        lookback_hours:
+          type: integer
+          minimum: 1
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/RemoteStatsSummaryItem'
+      required: [lookback_hours, items]
     AcquireCodeRequest:
       type: object
       additionalProperties: false

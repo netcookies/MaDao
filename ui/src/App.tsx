@@ -105,6 +105,7 @@ import {
   fetchProviderOperators,
   fetchProviderPrices,
   fetchHttpAuthStatus,
+  syncTicketStats,
   loginHttpAccess,
   logoutHttpAccess,
   saveRoutingPlan,
@@ -367,6 +368,7 @@ export function App() {
   }
 
   const snackbarTone = useMemo(() => getSnackbarTone(statusMessage), [statusMessage]);
+  const statsSyncStatus = snapshot?.stats_sync_status ?? null;
   const {
     visibleProviders,
     manageableProviders,
@@ -574,6 +576,25 @@ export function App() {
     hasAutoCheckedUpdatesRef.current = true;
     void handleCheckForUpdates('startup');
   }, [runtimeSettings.check_updates_on_launch, runtimeSettingsLoaded]);
+
+  async function handleSyncStatsNow() {
+    try {
+      setBusyAction('sync-ticket-stats');
+      const result = await syncTicketStats();
+      setSnapshot((current) => current ? ({
+        ...current,
+        stats_sync_status: result.status,
+      }) : current);
+      pushStatusMessage(translate('stats_sync_completed', {
+        uploaded: result.uploaded,
+        remaining: result.remaining,
+      }));
+    } catch (error) {
+      pushStatusMessage(translate('failed_sync_stats', { error: formatError(error) }));
+    } finally {
+      setBusyAction('');
+    }
+  }
 
   useEffect(() => {
     void getAppConfigDirectory()
@@ -903,6 +924,33 @@ export function App() {
     });
     return next;
   }, [optionCatalog.services]);
+
+  function buildRuntimeSettingsUpdate(overrides: Partial<{
+    routing_strategy: typeof runtimeSettings.routing_strategy;
+    auto_fallback: typeof runtimeSettings.auto_fallback;
+    option_cache_enabled: typeof runtimeSettings.option_cache_enabled;
+    option_cache_poll_interval_minutes: typeof runtimeSettings.option_cache_poll_interval_minutes;
+    only_show_openai_sms_countries: typeof runtimeSettings.only_show_openai_sms_countries;
+    check_updates_on_launch: typeof runtimeSettings.check_updates_on_launch;
+    http_port: typeof runtimeSettings.http_port;
+    stats_sync_enabled: typeof runtimeSettings.stats_sync_enabled;
+    stats_sync_base_url: typeof runtimeSettings.stats_sync_base_url;
+    stats_sync_api_token: typeof runtimeSettings.stats_sync_api_token;
+  }>) {
+    return {
+      routing_strategy: runtimeSettings.routing_strategy,
+      auto_fallback: runtimeSettings.auto_fallback,
+      option_cache_enabled: runtimeSettings.option_cache_enabled,
+      option_cache_poll_interval_minutes: runtimeSettings.option_cache_poll_interval_minutes,
+      only_show_openai_sms_countries: runtimeSettings.only_show_openai_sms_countries,
+      check_updates_on_launch: runtimeSettings.check_updates_on_launch,
+      http_port: runtimeSettings.http_port,
+      stats_sync_enabled: runtimeSettings.stats_sync_enabled,
+      stats_sync_base_url: runtimeSettings.stats_sync_base_url,
+      stats_sync_api_token: runtimeSettings.stats_sync_api_token,
+      ...overrides,
+    };
+  }
 
   const sharedCountryIconUrls = useMemo<Record<string, string>>(() => {
     const next: Record<string, string> = {};
@@ -2223,56 +2271,47 @@ export function App() {
                 httpPort={runtimeSettings.http_port}
                 httpSecret={runtimeSettings.http_secret}
                 httpSecretOverridden={runtimeAccessInfo.http_secret_overridden}
+                statsSyncEnabled={runtimeSettings.stats_sync_enabled}
+                statsSyncBaseUrl={runtimeSettings.stats_sync_base_url}
+                statsSyncApiToken={runtimeSettings.stats_sync_api_token}
+                statsSyncPendingEvents={statsSyncStatus?.pending_events}
+                statsSyncLastAttemptAt={statsSyncStatus?.last_attempt_at ?? null}
+                statsSyncLastSuccessAt={statsSyncStatus?.last_success_at ?? null}
+                statsSyncLastError={statsSyncStatus?.last_error ?? null}
                 onOptionCacheEnabledChange={(enabled) =>
-                  void updateRuntimeSettings({
-                    routing_strategy: runtimeSettings.routing_strategy,
-                    auto_fallback: runtimeSettings.auto_fallback,
+                  void updateRuntimeSettings(buildRuntimeSettingsUpdate({
                     option_cache_enabled: enabled,
-                    option_cache_poll_interval_minutes: runtimeSettings.option_cache_poll_interval_minutes,
-                    only_show_openai_sms_countries: runtimeSettings.only_show_openai_sms_countries,
-                    check_updates_on_launch: runtimeSettings.check_updates_on_launch,
-                    http_port: runtimeSettings.http_port,
-                  })}
+                  }))}
                 onOptionCachePollIntervalChange={(minutes) =>
-                  void updateRuntimeSettings({
-                    routing_strategy: runtimeSettings.routing_strategy,
-                    auto_fallback: runtimeSettings.auto_fallback,
-                    option_cache_enabled: runtimeSettings.option_cache_enabled,
+                  void updateRuntimeSettings(buildRuntimeSettingsUpdate({
                     option_cache_poll_interval_minutes: minutes,
-                    only_show_openai_sms_countries: runtimeSettings.only_show_openai_sms_countries,
-                    check_updates_on_launch: runtimeSettings.check_updates_on_launch,
-                    http_port: runtimeSettings.http_port,
-                  })}
+                  }))}
                 onOnlyShowOpenAiSmsCountriesChange={(enabled) =>
-                  void updateRuntimeSettings({
-                    routing_strategy: runtimeSettings.routing_strategy,
-                    auto_fallback: runtimeSettings.auto_fallback,
-                    option_cache_enabled: runtimeSettings.option_cache_enabled,
-                    option_cache_poll_interval_minutes: runtimeSettings.option_cache_poll_interval_minutes,
+                  void updateRuntimeSettings(buildRuntimeSettingsUpdate({
                     only_show_openai_sms_countries: enabled,
-                    check_updates_on_launch: runtimeSettings.check_updates_on_launch,
-                    http_port: runtimeSettings.http_port,
-                  })}
+                  }))}
                 onCheckUpdatesOnLaunchChange={(enabled) =>
-                  void updateRuntimeSettings({
-                    routing_strategy: runtimeSettings.routing_strategy,
-                    auto_fallback: runtimeSettings.auto_fallback,
-                    option_cache_enabled: runtimeSettings.option_cache_enabled,
-                    option_cache_poll_interval_minutes: runtimeSettings.option_cache_poll_interval_minutes,
-                    only_show_openai_sms_countries: runtimeSettings.only_show_openai_sms_countries,
+                  void updateRuntimeSettings(buildRuntimeSettingsUpdate({
                     check_updates_on_launch: enabled,
-                    http_port: runtimeSettings.http_port,
-                  })}
+                  }))}
                 onHttpPortChange={(port) =>
-                  void updateRuntimeSettings({
-                    routing_strategy: runtimeSettings.routing_strategy,
-                    auto_fallback: runtimeSettings.auto_fallback,
-                    option_cache_enabled: runtimeSettings.option_cache_enabled,
-                    option_cache_poll_interval_minutes: runtimeSettings.option_cache_poll_interval_minutes,
-                    only_show_openai_sms_countries: runtimeSettings.only_show_openai_sms_countries,
-                    check_updates_on_launch: runtimeSettings.check_updates_on_launch,
+                  void updateRuntimeSettings(buildRuntimeSettingsUpdate({
                     http_port: port,
-                  })}
+                  }))}
+                onStatsSyncEnabledChange={(enabled) =>
+                  void updateRuntimeSettings(buildRuntimeSettingsUpdate({
+                    stats_sync_enabled: enabled,
+                  }))}
+                onStatsSyncBaseUrlChange={(value) =>
+                  void updateRuntimeSettings(buildRuntimeSettingsUpdate({
+                    stats_sync_base_url: value,
+                  }))}
+                onStatsSyncApiTokenChange={(value) =>
+                  void updateRuntimeSettings(buildRuntimeSettingsUpdate({
+                    stats_sync_api_token: value,
+                  }))}
+                onSyncStatsNow={() => void handleSyncStatsNow()}
+                syncStatsBusy={busyAction === 'sync-ticket-stats'}
                 onRegenerateHttpSecret={() =>
                   void refreshHttpSecret().then((info) => {
                     if (info) setRuntimeAccessInfo(info);

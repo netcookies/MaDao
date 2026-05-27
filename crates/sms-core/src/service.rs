@@ -8,11 +8,14 @@ use crate::models::{
     ProviderOperatorsQuery, ProviderOptionCacheEntry, ProviderPriceQuery, ProviderPriceResponse,
     ProviderRawOptionAuditEntry, ProviderReorderRequest, ProviderServicesQuery, ProviderSummary,
     ReleaseCodeRequest, ReleaseCodeResponse, ReuseCapability, ReusePoolEntry, ReusePoolSummary,
+    RemoteStatsSummaryQuery, RemoteStatsSummaryResponse,
     RoutingExecutionMode, RoutingFailoverRequest, RoutingPlan, RoutingPlanItem, RoutingPlanList,
     RoutingPlanStore, RoutingReplaceRequest, RoutingReplaceResponse, RuntimeAccessInfo,
-    RuntimeSettings, RuntimeSettingsUpdate, RuntimeSnapshot, RuntimeStateStore,
+    RuntimeSettings, RuntimeSettingsUpdate, RuntimeSnapshot, RuntimeStateStore, StatsSyncStatus,
+    StatsSyncResult,
     TicketCallbackListResponse, TicketCallbackRegistrationRequest, TicketCallbackSubscription,
     TicketCodeCallbackPayload, TicketListResponse, TicketRecord, TicketStatus,
+    TicketStatsEvent, TicketStatsOutcome,
 };
 use crate::options::{
     FileProviderMetadataCacheRepository, OptionKind, ProviderMetadataCacheBatch,
@@ -107,6 +110,8 @@ pub struct SmsService {
     provider_balance_cache: RwLock<BTreeMap<String, ProviderBalanceCacheEntry>>,
     reuse_pool: RwLock<HashMap<String, Vec<ReusePoolEntry>>>,
     openai_sms_regions_cache: RwLock<OpenAiSmsRegionsCache>,
+    ticket_stats_events: RwLock<VecDeque<TicketStatsEvent>>,
+    stats_sync_status: RwLock<StatsSyncStatus>,
     callback_subscriptions: RwLock<BTreeMap<String, Vec<TicketCallbackSubscription>>>,
     callback_client: Client,
     log_buffer: usize,
@@ -162,6 +167,18 @@ struct ReleaseRuntimeEffect {
 struct ReleaseRuntimeError {
     error: SmsError,
     uow: Option<RuntimeUnitOfWork>,
+}
+
+fn stats_outcome_for_status(status: &TicketStatus) -> Option<TicketStatsOutcome> {
+    match status {
+        TicketStatus::Pending => None,
+        TicketStatus::WaitingCode => Some(TicketStatsOutcome::RetryRequested),
+        TicketStatus::CancelPending => Some(TicketStatsOutcome::CancelPending),
+        TicketStatus::CodeReceived => Some(TicketStatsOutcome::CodeReceived),
+        TicketStatus::Finished => Some(TicketStatsOutcome::Finished),
+        TicketStatus::Cancelled => Some(TicketStatsOutcome::Cancelled),
+        TicketStatus::Failed => Some(TicketStatsOutcome::Failed),
+    }
 }
 
 struct ProviderOptionsRuntimeEffect {
@@ -343,6 +360,9 @@ impl SmsService {
             provider_balance_cache,
             reuse_pool,
             openai_sms_regions_cache,
+            ticket_stats_events,
+            stats_sync_status,
+            ..
         } = runtime_state;
         let (runtime_tickets, reuse_pool, runtime_state_recanonicalized) =
             normalize_runtime_state(tickets, reuse_pool);
@@ -360,6 +380,8 @@ impl SmsService {
                 provider_balance_cache: runtime_balances.values().cloned().collect(),
                 reuse_pool: reuse_pool.clone(),
                 openai_sms_regions_cache: openai_sms_regions_cache.clone(),
+                ticket_stats_events: ticket_stats_events.clone(),
+                stats_sync_status: stats_sync_status.clone(),
             });
         }
 
@@ -379,6 +401,8 @@ impl SmsService {
             provider_balance_cache: RwLock::new(runtime_balances),
             reuse_pool: RwLock::new(reuse_pool),
             openai_sms_regions_cache: RwLock::new(openai_sms_regions_cache),
+            ticket_stats_events: RwLock::new(ticket_stats_events.into()),
+            stats_sync_status: RwLock::new(stats_sync_status),
             callback_subscriptions: RwLock::new(BTreeMap::new()),
             callback_client: Client::builder()
                 .timeout(std::time::Duration::from_secs(10))
@@ -630,6 +654,39 @@ impl SmsService {
     fn append_activity_to_uow(&self, uow: &mut RuntimeUnitOfWork, entry: ActivityEntry) {
         self.push_activity_entry_in_memory(entry.clone());
         uow.batch.activity_entries.push(entry);
+    }
+
+    fn push_ticket_stats_event_in_memory(&self, entry: TicketStatsEvent) {
+        self.ticket_stats_events.write().push_back(entry);
+    }
+
+    fn append_ticket_stats_event_to_uow(
+        &self,
+        uow: &mut RuntimeUnitOfWork,
+        ticket: &TicketRecord,
+        outcome: TicketStatsOutcome,
+        message: Option<String>,
+    ) {
+        let event = TicketStatsEvent {
+            id: Uuid::now_v7().to_string(),
+            ticket_id: ticket.id.clone(),
+            provider: ticket.provider.clone(),
+            service: ticket.service.clone(),
+            country: ticket.country.clone(),
+            operator: ticket.operator.clone(),
+            outcome,
+            status: ticket.status.clone(),
+            occurred_at: Utc::now(),
+            routing_plan_id: ticket.routing_plan_id.clone(),
+            routing_item_id: ticket.routing_item_id.clone(),
+            message,
+            synced_at: None,
+        };
+        self.push_ticket_stats_event_in_memory(event.clone());
+        uow.batch.stats_events.push(event);
+        let mut status = self.stats_sync_status.write();
+        status.pending_events = status.pending_events.saturating_add(1);
+        uow.batch.stats_sync_status = Some(status.clone());
     }
 
     fn upsert_ticket_into_uow(&self, uow: &mut RuntimeUnitOfWork, ticket: TicketRecord) {
@@ -1230,6 +1287,17 @@ impl SmsService {
             cached_options.as_ref().map(|entry| &entry.options),
             ticket,
         );
+        if let Some(operator) = request.metadata.get("operator").cloned() {
+            let normalized = normalize_ticket_record(
+                provider.manifest(),
+                cached_options.as_ref().map(|entry| &entry.options),
+                TicketRecord {
+                    operator: Some(operator),
+                    ..ticket.clone()
+                },
+            );
+            ticket.operator = normalized.operator;
+        }
         let capabilities = ProviderCapabilityMatrix::new();
         let reuse_enabled = request
             .reuse_phone
@@ -1485,6 +1553,12 @@ impl SmsService {
                 ticket.provider, ticket.service, ticket.country
             )),
             &ticket,
+        );
+        self.append_ticket_stats_event_to_uow(
+            &mut effect.uow,
+            &ticket,
+            TicketStatsOutcome::Acquired,
+            ticket.message.clone(),
         );
         self.upsert_ticket_into_uow(&mut effect.uow, ticket);
         Ok(AcquireCodeRuntimeEffect {
@@ -1961,6 +2035,14 @@ impl SmsService {
                 &updated,
             );
         }
+        if let Some(outcome) = stats_outcome_for_status(&updated.status) {
+            self.append_ticket_stats_event_to_uow(
+                &mut uow,
+                &updated,
+                outcome,
+                updated.message.clone(),
+            );
+        }
         self.commit_runtime_uow(uow);
         Ok(response)
     }
@@ -2181,6 +2263,17 @@ impl SmsService {
         if let Some(entry) = reuse_log_entry.as_ref() {
             self.append_log_to_uow(&mut uow, entry.clone());
         }
+        self.append_ticket_stats_event_to_uow(
+            &mut uow,
+            &updated,
+            match request.action {
+                crate::models::ReleaseAction::Finish => TicketStatsOutcome::Finished,
+                crate::models::ReleaseAction::Cancel => TicketStatsOutcome::Cancelled,
+                crate::models::ReleaseAction::Ban => TicketStatsOutcome::Banned,
+                crate::models::ReleaseAction::Retry => TicketStatsOutcome::RetryRequested,
+            },
+            updated.message.clone(),
+        );
         uow.batch.upsert_ticket = Some(updated);
         uow.batch.reuse_bucket = reuse_bucket;
         Ok(ReleaseRuntimeEffect {
@@ -3714,6 +3807,9 @@ impl SmsService {
             next.only_show_openai_sms_countries = update.only_show_openai_sms_countries;
             next.check_updates_on_launch = update.check_updates_on_launch;
             next.http_port = update.http_port.max(1);
+            next.stats_sync_enabled = update.stats_sync_enabled;
+            next.stats_sync_base_url = update.stats_sync_base_url.trim().to_string();
+            next.stats_sync_api_token = update.stats_sync_api_token.trim().to_string();
             next
         };
         self.runtime_config_repository.save_settings(&updated)?;
@@ -3839,7 +3935,177 @@ impl SmsService {
             logs,
             reuse_pool,
             activity,
+            stats_sync_status: Some(self.stats_sync_status.read().clone()),
         }
+    }
+
+    pub fn stats_sync_status(&self) -> StatsSyncStatus {
+        self.stats_sync_status.read().clone()
+    }
+
+    pub async fn sync_ticket_stats(&self) -> Result<StatsSyncResult, SmsError> {
+        let settings = self.runtime_settings();
+        if !settings.stats_sync_enabled {
+            return Ok(StatsSyncResult {
+                uploaded: 0,
+                remaining: self.stats_sync_status().pending_events,
+                status: self.stats_sync_status(),
+            });
+        }
+        if settings.stats_sync_base_url.trim().is_empty() {
+            return Err(SmsError::InvalidRequest(
+                "stats sync base URL is not configured".to_string(),
+            ));
+        }
+        if settings.stats_sync_api_token.trim().is_empty() {
+            return Err(SmsError::InvalidRequest(
+                "stats sync API token is not configured".to_string(),
+            ));
+        }
+
+        let events = self
+            .ticket_stats_events
+            .read()
+            .iter()
+            .filter(|event| event.synced_at.is_none())
+            .cloned()
+            .collect::<Vec<_>>();
+        if events.is_empty() {
+            return Ok(StatsSyncResult {
+                uploaded: 0,
+                remaining: 0,
+                status: self.stats_sync_status(),
+            });
+        }
+
+        let base_url = settings.stats_sync_base_url.trim().trim_end_matches('/');
+        let payload = serde_json::json!({
+            "app_instance_id": settings.stats_sync_instance_id,
+            "app_version": env!("CARGO_PKG_VERSION"),
+            "events": events,
+        });
+        let now = Utc::now();
+        let response = self
+            .callback_client
+            .post(format!("{base_url}/v1/events"))
+            .bearer_auth(settings.stats_sync_api_token.trim())
+            .json(&payload)
+            .send()
+            .await
+            .map_err(|err| {
+                let message = format!("stats sync request failed: {err}");
+                let mut status = self.stats_sync_status.write();
+                status.last_attempt_at = Some(now);
+                status.last_error = Some(message.clone());
+                self.persist_runtime_batch(RuntimeStoreBatch {
+                    stats_sync_status: Some(status.clone()),
+                    ..RuntimeStoreBatch::default()
+                });
+                SmsError::Upstream(message)
+            })?;
+        if !response.status().is_success() {
+            let body = response
+                .text()
+                .await
+                .unwrap_or_else(|_| "stats sync failed".to_string());
+            let mut status = self.stats_sync_status.write();
+            status.last_attempt_at = Some(now);
+            status.last_error = Some(body.clone());
+            self.persist_runtime_batch(RuntimeStoreBatch {
+                stats_sync_status: Some(status.clone()),
+                ..RuntimeStoreBatch::default()
+            });
+            return Err(SmsError::Upstream(body));
+        }
+
+        {
+            let mut stored = self.ticket_stats_events.write();
+            for stored_event in stored.iter_mut() {
+                if stored_event.synced_at.is_none() {
+                    stored_event.synced_at = Some(now);
+                }
+            }
+        }
+        let remaining = self
+            .ticket_stats_events
+            .read()
+            .iter()
+            .filter(|event| event.synced_at.is_none())
+            .count() as u32;
+        let status = {
+            let mut status = self.stats_sync_status.write();
+            status.pending_events = remaining;
+            status.last_attempt_at = Some(now);
+            status.last_success_at = Some(now);
+            status.last_error = None;
+            status.clone()
+        };
+        self.persist_runtime_batch(RuntimeStoreBatch {
+            mark_stats_events_synced: events
+                .iter()
+                .map(|event| (event.id.clone(), now))
+                .collect(),
+            stats_sync_status: Some(status.clone()),
+            ..RuntimeStoreBatch::default()
+        });
+        Ok(StatsSyncResult {
+            uploaded: events.len() as u32,
+            remaining,
+            status,
+        })
+    }
+
+    pub async fn fetch_remote_stats_summary(
+        &self,
+        query: RemoteStatsSummaryQuery,
+    ) -> Result<RemoteStatsSummaryResponse, SmsError> {
+        let settings = self.runtime_settings();
+        let base_url = settings.stats_sync_base_url.trim();
+        if base_url.is_empty() {
+            return Err(SmsError::InvalidRequest(
+                "stats sync base URL is not configured".to_string(),
+            ));
+        }
+
+        let mut url = Url::parse(&format!("{}/v1/summary", base_url.trim_end_matches('/')))
+            .map_err(|err| SmsError::Config(format!("invalid stats summary URL: {err}")))?;
+        {
+            let mut params = url.query_pairs_mut();
+            if let Some(provider) = query.provider.as_ref().filter(|value| !value.trim().is_empty()) {
+                params.append_pair("provider", provider);
+            }
+            if let Some(service) = query.service.as_ref().filter(|value| !value.trim().is_empty()) {
+                params.append_pair("service", service);
+            }
+            if let Some(country) = query.country.as_ref().filter(|value| !value.trim().is_empty()) {
+                params.append_pair("country", country);
+            }
+            if let Some(operator) = query.operator.as_ref().filter(|value| !value.trim().is_empty()) {
+                params.append_pair("operator", operator);
+            }
+            if let Some(lookback_hours) = query.lookback_hours {
+                params.append_pair("lookback_hours", &lookback_hours.to_string());
+            }
+        }
+
+        let response = self
+            .callback_client
+            .get(url)
+            .send()
+            .await
+            .map_err(|err| SmsError::Upstream(format!("fetch remote stats failed: {err}")))?;
+        if !response.status().is_success() {
+            return Err(SmsError::Upstream(
+                response
+                    .text()
+                    .await
+                    .unwrap_or_else(|_| "fetch remote stats failed".to_string()),
+            ));
+        }
+        response
+            .json::<RemoteStatsSummaryResponse>()
+            .await
+            .map_err(|err| SmsError::Config(format!("decode remote stats failed: {err}")))
     }
 
     fn try_same_activation_retry_candidate(
@@ -4615,9 +4881,11 @@ mod tests {
     use axum::extract::{Query, State};
     use axum::routing::{get, post};
     use axum::{Json, Router};
+    use parking_lot::Mutex;
+    use serde_json::Value;
     use std::fs;
-    use std::path::Path;
     use std::net::SocketAddr;
+    use std::path::Path;
     use std::path::PathBuf;
     use std::sync::Arc;
     use tokio::net::TcpListener;
@@ -4732,6 +5000,10 @@ mod tests {
             check_updates_on_launch: false,
             http_port: 9900,
             http_secret: "secret-token".to_string(),
+            stats_sync_instance_id: "instance-1".to_string(),
+            stats_sync_enabled: false,
+            stats_sync_base_url: String::new(),
+            stats_sync_api_token: String::new(),
         };
         let plans = RoutingPlanStore {
             plans: vec![routing_plan()],
@@ -4985,6 +5257,9 @@ mod tests {
             only_show_openai_sms_countries: true,
             check_updates_on_launch: false,
             http_port: 9001,
+            stats_sync_enabled: before.stats_sync_enabled,
+            stats_sync_base_url: before.stats_sync_base_url.clone(),
+            stats_sync_api_token: before.stats_sync_api_token.clone(),
         });
 
         assert!(result.is_err());
@@ -5899,6 +6174,7 @@ codes = ["123456"]
                 provider: "mock".to_string(),
                 service: "openai".to_string(),
                 country: "usa".to_string(),
+                operator: None,
                 phone_number: format!("+100100{index:04}"),
                 upstream_id: None,
                 price: None,
@@ -5957,6 +6233,7 @@ codes = ["123456"]
                 provider: "mock".to_string(),
                 service: "openai".to_string(),
                 country: "usa".to_string(),
+                operator: None,
                 phone_number: format!("+100000{index:04}"),
                 upstream_id: None,
                 price: None,
@@ -6060,6 +6337,7 @@ codes = ["123456"]
             provider: "mock".to_string(),
             service: "openai".to_string(),
             country: "usa".to_string(),
+            operator: None,
             phone_number: "+10000000099".to_string(),
             upstream_id: None,
             price: None,
@@ -6301,6 +6579,7 @@ codes = ["123456"]
                 provider: "mock".to_string(),
                 service: "openai".to_string(),
                 country: "usa".to_string(),
+                operator: None,
                 phone_number: "+10000000000".to_string(),
                 status: TicketStatus::Cancelled,
                 created_at: Utc::now(),
@@ -6677,6 +6956,184 @@ codes = ["123456"]
         server.abort();
     }
 
+    #[derive(Clone, Default)]
+    struct StatsUploadState {
+        payloads: Arc<Mutex<Vec<Value>>>,
+    }
+
+    #[tokio::test]
+    async fn sync_ticket_stats_marks_events_synced_and_updates_status() {
+        async fn upload_stats(
+            State(state): State<StatsUploadState>,
+            Json(payload): Json<Value>,
+        ) -> Json<Value> {
+            state.payloads.lock().push(payload);
+            Json(serde_json::json!({ "accepted": 1 }))
+        }
+
+        let upload_state = StatsUploadState::default();
+        let router = Router::new()
+            .route("/v1/events", post(upload_stats))
+            .with_state(upload_state.clone());
+        let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let addr: SocketAddr = listener.local_addr().unwrap();
+        let server = tokio::spawn(async move {
+            let _ = axum::serve(listener, router).await;
+        });
+
+        let base = std::env::temp_dir().join(format!("madao-stats-sync-{}", Uuid::now_v7()));
+        fs::create_dir_all(&base).unwrap();
+        let provider_dir = fixture_provider_dir();
+        let registry = ProviderRegistry::load_from_dir(provider_dir).unwrap();
+        let service = SmsService::with_persistence_paths(
+            registry,
+            32,
+            Some(base.join("runtime-settings.json")),
+            Some(base.join("runtime.db")),
+            Some(base.join("provider-options-cache.json")),
+            Some(base.join("provider-options-raw.json")),
+            Some(base.join("routing-plans.json")),
+        );
+
+        let settings = service
+            .update_runtime_settings(RuntimeSettingsUpdate {
+                routing_strategy: "ordered_priority".to_string(),
+                auto_fallback: true,
+                option_cache_enabled: true,
+                option_cache_poll_interval_minutes: 30,
+                only_show_openai_sms_countries: false,
+                check_updates_on_launch: true,
+                http_port: 7822,
+                stats_sync_enabled: true,
+                stats_sync_base_url: format!("http://{addr}"),
+                stats_sync_api_token: "test-token".to_string(),
+            })
+            .unwrap();
+        assert!(settings.stats_sync_enabled);
+
+        let acquire = service
+            .acquire_code(AcquireCodeRequest {
+                provider: "mock".to_string(),
+                service: Some("openai".to_string()),
+                country: Some("local".to_string()),
+                max_price: None,
+                min_price: None,
+                auto_pick_country: None,
+                reuse_phone: None,
+                reuse_key: None,
+                metadata: BTreeMap::new(),
+                routing_plan_id: None,
+                routing_plan_name: None,
+            })
+            .await
+            .unwrap();
+        service
+            .release_code(ReleaseCodeRequest {
+                ticket_id: acquire.ticket_id.clone(),
+                action: ReleaseAction::Finish,
+            })
+            .await
+            .unwrap();
+
+        let before = service.runtime_snapshot();
+        assert!(
+            before
+                .stats_sync_status
+                .as_ref()
+                .map(|status| status.pending_events >= 2)
+                .unwrap_or(false)
+        );
+
+        let result = service.sync_ticket_stats().await.unwrap();
+        assert!(result.uploaded >= 2);
+        assert_eq!(result.remaining, 0);
+        assert!(result.status.last_success_at.is_some());
+        assert!(result.status.last_error.is_none());
+
+        let state = RuntimeStore::open(base.join("runtime.db"))
+            .unwrap()
+            .load_state()
+            .unwrap();
+        assert!(state.ticket_stats_events.iter().all(|event| event.synced_at.is_some()));
+        assert_eq!(state.stats_sync_status.pending_events, 0);
+        assert!(state.stats_sync_status.last_success_at.is_some());
+
+        let payloads = upload_state.payloads.lock().clone();
+        assert_eq!(payloads.len(), 1);
+        let events = payloads[0]
+            .get("events")
+            .and_then(Value::as_array)
+            .cloned()
+            .unwrap_or_default();
+        assert!(events.len() >= 2);
+
+        server.abort();
+    }
+
+    #[tokio::test]
+    async fn fetch_remote_stats_summary_decodes_worker_response() {
+        async fn summary() -> Json<Value> {
+            Json(serde_json::json!({
+                "lookback_hours": 24,
+                "items": [
+                    {
+                        "provider": "mock",
+                        "service": "openai",
+                        "country": "local",
+                        "operator": "any",
+                        "total": 3,
+                        "success_count": 2,
+                        "success_rate": 0.6666666667,
+                        "cancelled_count": 1,
+                        "banned_count": 0,
+                        "failed_count": 0
+                    }
+                ]
+            }))
+        }
+
+        let router = Router::new().route("/v1/summary", get(summary));
+        let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let addr: SocketAddr = listener.local_addr().unwrap();
+        let server = tokio::spawn(async move {
+            let _ = axum::serve(listener, router).await;
+        });
+
+        let service = make_service();
+        service
+            .update_runtime_settings(RuntimeSettingsUpdate {
+                routing_strategy: "ordered_priority".to_string(),
+                auto_fallback: true,
+                option_cache_enabled: true,
+                option_cache_poll_interval_minutes: 30,
+                only_show_openai_sms_countries: false,
+                check_updates_on_launch: true,
+                http_port: 7822,
+                stats_sync_enabled: true,
+                stats_sync_base_url: format!("http://{addr}"),
+                stats_sync_api_token: "unused".to_string(),
+            })
+            .unwrap();
+
+        let summary = service
+            .fetch_remote_stats_summary(RemoteStatsSummaryQuery {
+                provider: Some("mock".to_string()),
+                service: Some("openai".to_string()),
+                country: Some("local".to_string()),
+                operator: None,
+                lookback_hours: Some(24),
+            })
+            .await
+            .unwrap();
+
+        assert_eq!(summary.lookback_hours, 24);
+        assert_eq!(summary.items.len(), 1);
+        assert_eq!(summary.items[0].provider, "mock");
+        assert_eq!(summary.items[0].success_count, 2);
+
+        server.abort();
+    }
+
     #[tokio::test]
     async fn routing_replace_failovers_then_cancels_previous_ticket() {
         let service = make_service();
@@ -6734,6 +7191,7 @@ codes = ["123456"]
             provider: "herosms".to_string(),
             service: "telegram".to_string(),
             country: "US".to_string(),
+            operator: None,
             phone_number: "79001234567".to_string(),
             upstream_id: Some("activation-1".to_string()),
             price: Some(0.06),
@@ -6791,6 +7249,7 @@ codes = ["123456"]
             provider: "herosms".to_string(),
             service: "telegram".to_string(),
             country: "US".to_string(),
+            operator: None,
             phone_number: "79001234567".to_string(),
             upstream_id: Some("activation-2".to_string()),
             price: Some(0.06),

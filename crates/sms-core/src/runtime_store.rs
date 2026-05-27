@@ -1,7 +1,7 @@
 use crate::error::SmsError;
 use crate::models::{
     ActivityEntry, LogEntry, OpenAiSmsRegionsCache, ProviderBalanceCacheEntry, ReleaseAction,
-    ReusePoolEntry, RuntimeStateStore, TicketRecord,
+    ReusePoolEntry, RuntimeStateStore, StatsSyncStatus, TicketRecord, TicketStatsEvent,
 };
 use chrono::{DateTime, Utc};
 use parking_lot::Mutex;
@@ -11,7 +11,7 @@ use std::error::Error as StdError;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
-const RUNTIME_DB_SCHEMA_VERSION: i64 = 1;
+const RUNTIME_DB_SCHEMA_VERSION: i64 = 2;
 const RELEASE_OWNER_KEY: &str = "release_owner";
 
 #[derive(Debug, Clone)]
@@ -42,6 +42,9 @@ pub struct RuntimeStoreBatch {
     pub delete_ticket_ids: Vec<String>,
     pub log_entries: Vec<LogEntry>,
     pub activity_entries: Vec<ActivityEntry>,
+    pub stats_events: Vec<TicketStatsEvent>,
+    pub mark_stats_events_synced: Vec<(String, DateTime<Utc>)>,
+    pub stats_sync_status: Option<StatsSyncStatus>,
     pub reuse_bucket: Option<(String, Vec<ReusePoolEntry>)>,
     pub provider_balance: Option<ProviderBalanceCacheEntry>,
     pub openai_regions: Option<OpenAiSmsRegionsCache>,
@@ -55,6 +58,9 @@ impl RuntimeStoreBatch {
             && self.delete_ticket_ids.is_empty()
             && self.log_entries.is_empty()
             && self.activity_entries.is_empty()
+            && self.stats_events.is_empty()
+            && self.mark_stats_events_synced.is_empty()
+            && self.stats_sync_status.is_none()
             && self.reuse_bucket.is_none()
             && self.provider_balance.is_none()
             && self.openai_regions.is_none()
@@ -177,9 +183,11 @@ impl RuntimeStore {
         let tickets = self.load_tickets(&conn)?;
         let logs = self.load_logs(&conn)?;
         let activity = self.load_activity(&conn)?;
+        let ticket_stats_events = self.load_ticket_stats_events(&conn)?;
         let provider_balance_cache = self.load_provider_balances(&conn)?;
         let reuse_pool = self.load_reuse_pool(&conn)?;
         let openai_sms_regions_cache = self.load_openai_regions(&conn)?;
+        let stats_sync_status = self.load_stats_sync_status(&conn)?;
         Ok(RuntimeStateStore {
             tickets,
             logs,
@@ -187,6 +195,8 @@ impl RuntimeStore {
             provider_balance_cache,
             reuse_pool,
             openai_sms_regions_cache,
+            ticket_stats_events,
+            stats_sync_status,
         })
     }
 
@@ -319,7 +329,11 @@ impl RuntimeStore {
         let conn = self.connect()?;
         let mut stmt = conn
             .prepare(
-                "SELECT id, pending_release_action, auto_release_at, release_retry_deadline_at, release_retry_count
+                "SELECT id,
+                        pending_release_action,
+                        auto_release_at,
+                        release_retry_deadline_at,
+                        release_retry_count
                  FROM tickets
                  WHERE status = 'cancel_pending'
                    AND pending_release_action IS NOT NULL
@@ -478,6 +492,21 @@ impl RuntimeStore {
               kind TEXT NOT NULL,
               payload_json TEXT NOT NULL
             );
+            CREATE TABLE IF NOT EXISTS ticket_stats_events (
+              id TEXT PRIMARY KEY,
+              ticket_id TEXT NOT NULL,
+              provider TEXT NOT NULL,
+              service TEXT NOT NULL,
+              country TEXT NOT NULL,
+              operator TEXT,
+              outcome TEXT NOT NULL,
+              status TEXT NOT NULL,
+              occurred_at TEXT NOT NULL,
+              routing_plan_id TEXT,
+              routing_item_id TEXT,
+              message TEXT,
+              synced_at TEXT
+            );
             CREATE TABLE IF NOT EXISTS provider_balance_cache (
               provider TEXT PRIMARY KEY,
               payload_json TEXT NOT NULL
@@ -502,6 +531,8 @@ impl RuntimeStore {
               ON logs(timestamp DESC);
             CREATE INDEX IF NOT EXISTS idx_activity_timestamp
               ON activity(timestamp DESC);
+            CREATE INDEX IF NOT EXISTS idx_ticket_stats_events_occurred_at
+              ON ticket_stats_events(occurred_at DESC);
             CREATE INDEX IF NOT EXISTS idx_reuse_pool_bucket
               ON reuse_pool(provider_bucket, service, country);
             ",
@@ -516,6 +547,7 @@ impl RuntimeStore {
             .optional()
             .map_err(|err| SmsError::Io(format!("read sqlite schema version failed: {err}")))?;
         if current.unwrap_or(0) < RUNTIME_DB_SCHEMA_VERSION {
+            self.migrate_schema(conn, current.unwrap_or(0))?;
             conn.execute(
                 "INSERT INTO runtime_meta (key, value_json, updated_at)
                  VALUES ('schema_version', ?1, ?2)
@@ -532,20 +564,100 @@ impl RuntimeStore {
         Ok(())
     }
 
-    fn load_tickets(&self, conn: &Connection) -> Result<Vec<TicketRecord>, SmsError> {
+    fn migrate_schema(&self, conn: &Connection, current_version: i64) -> Result<(), SmsError> {
+        if current_version >= 2 {
+            return Ok(());
+        }
+
+        conn.execute_batch(
+            "
+            ALTER TABLE tickets RENAME TO tickets_legacy;
+            CREATE TABLE tickets (
+              id TEXT PRIMARY KEY,
+              provider TEXT NOT NULL,
+              service TEXT NOT NULL,
+              country TEXT NOT NULL,
+              operator TEXT,
+              phone_number TEXT NOT NULL,
+              upstream_id TEXT,
+              price REAL,
+              status TEXT NOT NULL,
+              created_at TEXT NOT NULL,
+              updated_at TEXT NOT NULL,
+              acquire_path TEXT NOT NULL,
+              code TEXT,
+              message TEXT,
+              same_activation_retry_supported INTEGER NOT NULL,
+              same_activation_retry_expires_at TEXT,
+              pending_release_action TEXT,
+              auto_release_at TEXT,
+              next_release_attempt_at TEXT,
+              release_retry_deadline_at TEXT,
+              release_retry_count INTEGER NOT NULL,
+              routing_plan_id TEXT,
+              routing_plan_name TEXT,
+              routing_item_id TEXT,
+              routing_item_index INTEGER,
+              routing_execution_mode TEXT,
+              routing_execution_rounds INTEGER,
+              routing_current_round INTEGER,
+              routing_candidate_item_ids_json TEXT NOT NULL,
+              routing_attempt_count INTEGER NOT NULL,
+              reuse_count INTEGER NOT NULL
+            );
+            DROP INDEX IF EXISTS idx_tickets_release_ready;
+            CREATE INDEX idx_tickets_release_ready
+              ON tickets(status, next_release_attempt_at);
+            ",
+        )
+        .map_err(|err| SmsError::Io(format!("migrate tickets schema failed: {err}")))?;
+
         let mut stmt = conn
-            .prepare("SELECT payload_json FROM tickets ORDER BY updated_at DESC, id DESC")
-            .map_err(|err| SmsError::Io(format!("prepare ticket load failed: {err}")))?;
+            .prepare("SELECT payload_json FROM tickets_legacy ORDER BY updated_at DESC, id DESC")
+            .map_err(|err| SmsError::Io(format!("prepare legacy ticket load failed: {err}")))?;
         let rows = stmt
             .query_map([], |row| row.get::<_, String>(0))
-            .map_err(|err| SmsError::Io(format!("query ticket load failed: {err}")))?;
-        rows.map(|row| {
+            .map_err(|err| SmsError::Io(format!("query legacy ticket load failed: {err}")))?;
+        let mut tickets = Vec::new();
+        for row in rows {
             let payload =
-                row.map_err(|err| SmsError::Io(format!("read ticket row failed: {err}")))?;
-            serde_json::from_str::<TicketRecord>(&payload)
-                .map_err(|err| SmsError::Config(format!("parse ticket payload failed: {err}")))
-        })
-        .collect()
+                row.map_err(|err| SmsError::Io(format!("read legacy ticket row failed: {err}")))?;
+            let ticket = serde_json::from_str::<TicketRecord>(&payload)
+                .map_err(|err| SmsError::Config(format!("parse legacy ticket payload failed: {err}")))?;
+            tickets.push(ticket);
+        }
+        drop(stmt);
+        let tx = conn
+            .unchecked_transaction()
+            .map_err(|err| SmsError::Io(format!("open migration transaction failed: {err}")))?;
+        insert_tickets(&tx, &tickets)?;
+        tx.commit()
+            .map_err(|err| SmsError::Io(format!("commit migrated tickets failed: {err}")))?;
+        conn.execute("DROP TABLE tickets_legacy", [])
+            .map_err(|err| SmsError::Io(format!("drop legacy tickets table failed: {err}")))?;
+        Ok(())
+    }
+
+    fn load_tickets(&self, conn: &Connection) -> Result<Vec<TicketRecord>, SmsError> {
+        let mut stmt = conn
+            .prepare(
+                "SELECT id, provider, service, country, operator, phone_number, upstream_id, price,
+                        status, created_at, updated_at, acquire_path, code, message,
+                        same_activation_retry_supported, same_activation_retry_expires_at,
+                        pending_release_action, auto_release_at, next_release_attempt_at,
+                        release_retry_deadline_at, release_retry_count,
+                        routing_plan_id, routing_plan_name, routing_item_id, routing_item_index,
+                        routing_execution_mode, routing_execution_rounds, routing_current_round,
+                        routing_candidate_item_ids_json, routing_attempt_count, reuse_count
+                 FROM tickets
+                 ORDER BY updated_at DESC, id DESC",
+            )
+            .map_err(|err| SmsError::Io(format!("prepare ticket load failed: {err}")))?;
+        let rows = stmt
+            .query_map([], |row| decode_ticket_row(row))
+            .map_err(|err| SmsError::Io(format!("query ticket load failed: {err}")))?;
+        rows.collect::<Result<Vec<_>, _>>()
+            .map_err(|err| SmsError::Io(format!("decode tickets failed: {err}")))
     }
 
     fn load_logs(&self, conn: &Connection) -> Result<Vec<LogEntry>, SmsError> {
@@ -586,6 +698,25 @@ impl RuntimeStore {
                 .map_err(|err| SmsError::Config(format!("parse activity payload failed: {err}")))
         })
         .collect()
+    }
+
+    fn load_ticket_stats_events(
+        &self,
+        conn: &Connection,
+    ) -> Result<Vec<TicketStatsEvent>, SmsError> {
+        let mut stmt = conn
+            .prepare(
+                "SELECT id, ticket_id, provider, service, country, operator, outcome, status,
+                        occurred_at, routing_plan_id, routing_item_id, message, synced_at
+                 FROM ticket_stats_events
+                 ORDER BY occurred_at ASC, id ASC",
+            )
+            .map_err(|err| SmsError::Io(format!("prepare stats event load failed: {err}")))?;
+        let rows = stmt
+            .query_map([], |row| decode_ticket_stats_event_row(row))
+            .map_err(|err| SmsError::Io(format!("query stats event load failed: {err}")))?;
+        rows.collect::<Result<Vec<_>, _>>()
+            .map_err(|err| SmsError::Io(format!("decode stats events failed: {err}")))
     }
 
     fn load_provider_balances(
@@ -655,6 +786,25 @@ impl RuntimeStore {
             .transpose()
             .map(|value| value.unwrap_or_default())
     }
+
+    fn load_stats_sync_status(&self, conn: &Connection) -> Result<StatsSyncStatus, SmsError> {
+        let payload: Option<String> = conn
+            .query_row(
+                "SELECT value_json FROM runtime_meta WHERE key = 'stats_sync_status'",
+                [],
+                |row| row.get(0),
+            )
+            .optional()
+            .map_err(|err| SmsError::Io(format!("read stats sync status failed: {err}")))?;
+        payload
+            .map(|value| {
+                serde_json::from_str::<StatsSyncStatus>(&value).map_err(|err| {
+                    SmsError::Config(format!("parse stats sync status failed: {err}"))
+                })
+            })
+            .transpose()
+            .map(|value| value.unwrap_or_default())
+    }
 }
 
 impl RuntimeStateRepository for RuntimeStore {
@@ -705,25 +855,55 @@ fn insert_tickets(tx: &Transaction<'_>, tickets: &[TicketRecord]) -> Result<(), 
     let mut stmt = tx
             .prepare(
                 "INSERT INTO tickets (
-                    id, payload_json, status, updated_at, next_release_attempt_at, pending_release_action
-                 ) VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
+                    id, provider, service, country, operator, phone_number, upstream_id, price,
+                    status, created_at, updated_at, acquire_path, code, message,
+                    same_activation_retry_supported, same_activation_retry_expires_at,
+                    pending_release_action, auto_release_at, next_release_attempt_at,
+                    release_retry_deadline_at, release_retry_count,
+                    routing_plan_id, routing_plan_name, routing_item_id, routing_item_index,
+                    routing_execution_mode, routing_execution_rounds, routing_current_round,
+                    routing_candidate_item_ids_json, routing_attempt_count, reuse_count
+                 ) VALUES (
+                    ?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16,
+                    ?17, ?18, ?19, ?20, ?21, ?22, ?23, ?24, ?25, ?26, ?27, ?28, ?29, ?30, ?31
+                 )",
             )
             .map_err(|err| SmsError::Io(format!("prepare ticket insert failed: {err}")))?;
     for ticket in tickets {
-        let payload = serde_json::to_string(ticket)
-            .map_err(|err| SmsError::Config(format!("serialize ticket failed: {err}")))?;
+        let candidate_ids = serde_json::to_string(&ticket.routing_candidate_item_ids)
+            .map_err(|err| SmsError::Config(format!("serialize ticket candidate ids failed: {err}")))?;
         stmt.execute(params![
             ticket.id,
-            payload,
+            ticket.provider,
+            ticket.service,
+            ticket.country,
+            ticket.operator,
+            ticket.phone_number,
+            ticket.upstream_id,
+            ticket.price,
             encode_ticket_status(&ticket.status),
+            ticket.created_at.to_rfc3339(),
             ticket.updated_at.to_rfc3339(),
-            ticket
-                .next_release_attempt_at
-                .map(|value| value.to_rfc3339()),
-            ticket
-                .pending_release_action
-                .as_ref()
-                .map(encode_release_action),
+            encode_acquire_path(&ticket.acquire_path),
+            ticket.code,
+            ticket.message,
+            ticket.same_activation_retry_supported as i64,
+            ticket.same_activation_retry_expires_at.map(|value| value.to_rfc3339()),
+            ticket.pending_release_action.as_ref().map(encode_release_action),
+            ticket.auto_release_at.map(|value| value.to_rfc3339()),
+            ticket.next_release_attempt_at.map(|value| value.to_rfc3339()),
+            ticket.release_retry_deadline_at.map(|value| value.to_rfc3339()),
+            ticket.release_retry_count,
+            ticket.routing_plan_id,
+            ticket.routing_plan_name,
+            ticket.routing_item_id,
+            ticket.routing_item_index,
+            ticket.routing_execution_mode.map(|value| encode_routing_execution_mode(&value)),
+            ticket.routing_execution_rounds,
+            ticket.routing_current_round,
+            candidate_ids,
+            ticket.routing_attempt_count,
+            ticket.reuse_count,
         ])
         .map_err(|err| SmsError::Io(format!("insert ticket failed: {err}")))?;
     }
@@ -731,29 +911,172 @@ fn insert_tickets(tx: &Transaction<'_>, tickets: &[TicketRecord]) -> Result<(), 
 }
 
 fn upsert_ticket_tx(tx: &Transaction<'_>, ticket: &TicketRecord) -> Result<(), SmsError> {
-    let payload = serde_json::to_string(ticket)
-        .map_err(|err| SmsError::Config(format!("serialize ticket failed: {err}")))?;
+    let candidate_ids = serde_json::to_string(&ticket.routing_candidate_item_ids)
+        .map_err(|err| SmsError::Config(format!("serialize ticket candidate ids failed: {err}")))?;
     tx.execute(
             "INSERT INTO tickets (
-                id, payload_json, status, updated_at, next_release_attempt_at, pending_release_action
-             ) VALUES (?1, ?2, ?3, ?4, ?5, ?6)
+                id, provider, service, country, operator, phone_number, upstream_id, price,
+                status, created_at, updated_at, acquire_path, code, message,
+                same_activation_retry_supported, same_activation_retry_expires_at,
+                pending_release_action, auto_release_at, next_release_attempt_at,
+                release_retry_deadline_at, release_retry_count,
+                routing_plan_id, routing_plan_name, routing_item_id, routing_item_index,
+                routing_execution_mode, routing_execution_rounds, routing_current_round,
+                routing_candidate_item_ids_json, routing_attempt_count, reuse_count
+             ) VALUES (
+                ?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16,
+                ?17, ?18, ?19, ?20, ?21, ?22, ?23, ?24, ?25, ?26, ?27, ?28, ?29, ?30, ?31
+             )
              ON CONFLICT(id) DO UPDATE SET
-                payload_json = excluded.payload_json,
+                provider = excluded.provider,
+                service = excluded.service,
+                country = excluded.country,
+                operator = excluded.operator,
+                phone_number = excluded.phone_number,
+                upstream_id = excluded.upstream_id,
+                price = excluded.price,
                 status = excluded.status,
+                created_at = excluded.created_at,
                 updated_at = excluded.updated_at,
+                acquire_path = excluded.acquire_path,
+                code = excluded.code,
+                message = excluded.message,
+                same_activation_retry_supported = excluded.same_activation_retry_supported,
+                same_activation_retry_expires_at = excluded.same_activation_retry_expires_at,
+                pending_release_action = excluded.pending_release_action,
+                auto_release_at = excluded.auto_release_at,
                 next_release_attempt_at = excluded.next_release_attempt_at,
-                pending_release_action = excluded.pending_release_action",
+                release_retry_deadline_at = excluded.release_retry_deadline_at,
+                release_retry_count = excluded.release_retry_count,
+                routing_plan_id = excluded.routing_plan_id,
+                routing_plan_name = excluded.routing_plan_name,
+                routing_item_id = excluded.routing_item_id,
+                routing_item_index = excluded.routing_item_index,
+                routing_execution_mode = excluded.routing_execution_mode,
+                routing_execution_rounds = excluded.routing_execution_rounds,
+                routing_current_round = excluded.routing_current_round,
+                routing_candidate_item_ids_json = excluded.routing_candidate_item_ids_json,
+                routing_attempt_count = excluded.routing_attempt_count,
+                reuse_count = excluded.reuse_count",
             params![
                 ticket.id,
-                payload,
+                ticket.provider,
+                ticket.service,
+                ticket.country,
+                ticket.operator,
+                ticket.phone_number,
+                ticket.upstream_id,
+                ticket.price,
                 encode_ticket_status(&ticket.status),
+                ticket.created_at.to_rfc3339(),
                 ticket.updated_at.to_rfc3339(),
-                ticket.next_release_attempt_at.map(|value| value.to_rfc3339()),
+                encode_acquire_path(&ticket.acquire_path),
+                ticket.code,
+                ticket.message,
+                ticket.same_activation_retry_supported as i64,
+                ticket.same_activation_retry_expires_at.map(|value| value.to_rfc3339()),
                 ticket.pending_release_action.as_ref().map(encode_release_action),
+                ticket.auto_release_at.map(|value| value.to_rfc3339()),
+                ticket.next_release_attempt_at.map(|value| value.to_rfc3339()),
+                ticket.release_retry_deadline_at.map(|value| value.to_rfc3339()),
+                ticket.release_retry_count,
+                ticket.routing_plan_id,
+                ticket.routing_plan_name,
+                ticket.routing_item_id,
+                ticket.routing_item_index,
+                ticket.routing_execution_mode.map(|value| encode_routing_execution_mode(&value)),
+                ticket.routing_execution_rounds,
+                ticket.routing_current_round,
+                candidate_ids,
+                ticket.routing_attempt_count,
+                ticket.reuse_count,
             ],
         )
         .map_err(|err| SmsError::Io(format!("upsert ticket failed: {err}")))?;
     Ok(())
+}
+
+fn decode_ticket_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<TicketRecord> {
+    let created_at = parse_datetime(row.get::<_, String>(9)?).map_err(to_sqlite_decode_error)?;
+    let updated_at = parse_datetime(row.get::<_, String>(10)?).map_err(to_sqlite_decode_error)?;
+    let same_activation_retry_expires_at =
+        parse_optional_datetime(row.get::<_, Option<String>>(15)?);
+    let auto_release_at = parse_optional_datetime(row.get::<_, Option<String>>(17)?);
+    let next_release_attempt_at = parse_optional_datetime(row.get::<_, Option<String>>(18)?);
+    let release_retry_deadline_at = parse_optional_datetime(row.get::<_, Option<String>>(19)?);
+    let routing_candidate_item_ids_json = row.get::<_, String>(28)?;
+    let routing_candidate_item_ids = serde_json::from_str::<Vec<String>>(
+        &routing_candidate_item_ids_json,
+    )
+    .map_err(|err| {
+        rusqlite::Error::ToSqlConversionFailure(
+            Box::new(err) as Box<dyn StdError + Send + Sync>
+        )
+    })?;
+
+    Ok(TicketRecord {
+        id: row.get(0)?,
+        provider: row.get(1)?,
+        service: row.get(2)?,
+        country: row.get(3)?,
+        operator: row.get(4)?,
+        phone_number: row.get(5)?,
+        upstream_id: row.get(6)?,
+        price: row.get(7)?,
+        status: decode_ticket_status(&row.get::<_, String>(8)?),
+        created_at,
+        updated_at,
+        acquire_path: decode_acquire_path(&row.get::<_, String>(11)?),
+        code: row.get(12)?,
+        message: row.get(13)?,
+        same_activation_retry_supported: row.get::<_, i64>(14)? != 0,
+        same_activation_retry_expires_at,
+        pending_release_action: row
+            .get::<_, Option<String>>(16)?
+            .map(|value| decode_release_action(&value)),
+        auto_release_at,
+        next_release_attempt_at,
+        release_retry_deadline_at,
+        release_retry_count: row.get(20)?,
+        routing_plan_id: row.get(21)?,
+        routing_plan_name: row.get(22)?,
+        routing_item_id: row.get(23)?,
+        routing_item_index: row.get(24)?,
+        routing_execution_mode: row
+            .get::<_, Option<String>>(25)?
+            .map(|value| decode_routing_execution_mode(&value)),
+        routing_execution_rounds: row.get(26)?,
+        routing_current_round: row.get(27)?,
+        routing_candidate_item_ids,
+        routing_attempt_count: row.get(29)?,
+        reuse_count: row.get(30)?,
+    })
+}
+
+fn decode_ticket_stats_event_row(
+    row: &rusqlite::Row<'_>,
+) -> rusqlite::Result<TicketStatsEvent> {
+    let occurred_at = parse_datetime(row.get::<_, String>(8)?).map_err(to_sqlite_decode_error)?;
+    let synced_at = parse_optional_datetime(row.get::<_, Option<String>>(12)?);
+    Ok(TicketStatsEvent {
+        id: row.get(0)?,
+        ticket_id: row.get(1)?,
+        provider: row.get(2)?,
+        service: row.get(3)?,
+        country: row.get(4)?,
+        operator: row.get(5)?,
+        outcome: decode_ticket_stats_outcome(&row.get::<_, String>(6)?),
+        status: decode_ticket_status(&row.get::<_, String>(7)?),
+        occurred_at,
+        routing_plan_id: row.get(9)?,
+        routing_item_id: row.get(10)?,
+        message: row.get(11)?,
+        synced_at,
+    })
+}
+
+fn to_sqlite_decode_error(err: SmsError) -> rusqlite::Error {
+    rusqlite::Error::ToSqlConversionFailure(Box::new(err) as Box<dyn StdError + Send + Sync>)
 }
 
 fn insert_logs(tx: &Transaction<'_>, logs: &[LogEntry]) -> Result<(), SmsError> {
@@ -790,6 +1113,39 @@ fn insert_activity(tx: &Transaction<'_>, activity: &[ActivityEntry]) -> Result<(
             payload,
         ])
         .map_err(|err| SmsError::Io(format!("insert activity failed: {err}")))?;
+    }
+    Ok(())
+}
+
+fn insert_ticket_stats_events(
+    tx: &Transaction<'_>,
+    events: &[TicketStatsEvent],
+) -> Result<(), SmsError> {
+    let mut stmt = tx
+        .prepare(
+            "INSERT INTO ticket_stats_events (
+                id, ticket_id, provider, service, country, operator, outcome, status,
+                occurred_at, routing_plan_id, routing_item_id, message, synced_at
+             ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13)",
+        )
+        .map_err(|err| SmsError::Io(format!("prepare stats event insert failed: {err}")))?;
+    for event in events {
+        stmt.execute(params![
+            event.id,
+            event.ticket_id,
+            event.provider,
+            event.service,
+            event.country,
+            event.operator,
+            encode_ticket_stats_outcome(&event.outcome),
+            encode_ticket_status(&event.status),
+            event.occurred_at.to_rfc3339(),
+            event.routing_plan_id,
+            event.routing_item_id,
+            event.message,
+            event.synced_at.map(|value| value.to_rfc3339()),
+        ])
+        .map_err(|err| SmsError::Io(format!("insert stats event failed: {err}")))?;
     }
     Ok(())
 }
@@ -882,6 +1238,24 @@ fn save_openai_regions_tx(
     Ok(())
 }
 
+fn save_stats_sync_status_tx(
+    tx: &Transaction<'_>,
+    status: &StatsSyncStatus,
+) -> Result<(), SmsError> {
+    let payload = serde_json::to_string(status)
+        .map_err(|err| SmsError::Config(format!("serialize stats sync status failed: {err}")))?;
+    tx.execute(
+        "INSERT INTO runtime_meta (key, value_json, updated_at)
+             VALUES ('stats_sync_status', ?1, ?2)
+             ON CONFLICT(key) DO UPDATE SET
+               value_json = excluded.value_json,
+               updated_at = excluded.updated_at",
+        params![payload, Utc::now().to_rfc3339()],
+    )
+    .map_err(|err| SmsError::Io(format!("save stats sync status failed: {err}")))?;
+    Ok(())
+}
+
 impl RuntimeStoreTx<'_, '_> {
     fn apply_batch(
         &mut self,
@@ -930,6 +1304,21 @@ impl RuntimeStoreTx<'_, '_> {
                     .reuse_pool
                     .insert(provider_bucket.clone(), entries.clone());
             }
+            state.ticket_stats_events.extend(batch.stats_events.iter().cloned());
+            if !batch.mark_stats_events_synced.is_empty() {
+                for (event_id, synced_at) in &batch.mark_stats_events_synced {
+                    if let Some(event) = state
+                        .ticket_stats_events
+                        .iter_mut()
+                        .find(|event| &event.id == event_id)
+                    {
+                        event.synced_at = Some(*synced_at);
+                    }
+                }
+            }
+            if let Some(status) = batch.stats_sync_status.as_ref() {
+                state.stats_sync_status = status.clone();
+            }
             if let Some(balance) = batch.provider_balance.as_ref() {
                 state
                     .provider_balance_cache
@@ -965,6 +1354,22 @@ impl RuntimeStoreTx<'_, '_> {
         if !batch.activity_entries.is_empty() {
             self.trim_activity(options.activity_limit)?;
         }
+        if !batch.stats_events.is_empty() {
+            insert_ticket_stats_events(&self.tx, &batch.stats_events)?;
+        }
+        if !batch.mark_stats_events_synced.is_empty() {
+            for (event_id, synced_at) in &batch.mark_stats_events_synced {
+                self.tx
+                    .execute(
+                        "UPDATE ticket_stats_events SET synced_at = ?2 WHERE id = ?1",
+                        params![event_id, synced_at.to_rfc3339()],
+                    )
+                    .map_err(|err| SmsError::Io(format!("mark stats event synced failed: {err}")))?;
+            }
+        }
+        if let Some(status) = batch.stats_sync_status.as_ref() {
+            save_stats_sync_status_tx(&self.tx, status)?;
+        }
         if let Some((provider_bucket, entries)) = batch.reuse_bucket.as_ref() {
             self.replace_reuse_bucket(provider_bucket, entries)?;
         }
@@ -987,17 +1392,20 @@ impl RuntimeStoreTx<'_, '_> {
                 "DELETE FROM tickets;
                  DELETE FROM logs;
                  DELETE FROM activity;
+                 DELETE FROM ticket_stats_events;
                  DELETE FROM provider_balance_cache;
                  DELETE FROM reuse_pool;
-                 DELETE FROM runtime_meta WHERE key = 'openai_sms_regions_cache';",
+                 DELETE FROM runtime_meta WHERE key IN ('openai_sms_regions_cache', 'stats_sync_status');",
             )
             .map_err(|err| SmsError::Io(format!("clear sqlite runtime state failed: {err}")))?;
         insert_tickets(&self.tx, &state.tickets)?;
         insert_logs(&self.tx, &state.logs)?;
         insert_activity(&self.tx, &state.activity)?;
+        insert_ticket_stats_events(&self.tx, &state.ticket_stats_events)?;
         insert_provider_balances(&self.tx, &state.provider_balance_cache)?;
         insert_reuse_pool(&self.tx, &state.reuse_pool)?;
         save_openai_regions_tx(&self.tx, &state.openai_sms_regions_cache)?;
+        save_stats_sync_status_tx(&self.tx, &state.stats_sync_status)?;
         Ok(())
     }
 
@@ -1174,6 +1582,76 @@ fn encode_release_action(action: &ReleaseAction) -> &'static str {
         ReleaseAction::Cancel => "cancel",
         ReleaseAction::Retry => "retry",
         ReleaseAction::Ban => "ban",
+    }
+}
+
+fn encode_acquire_path(path: &crate::models::AcquirePath) -> &'static str {
+    match path {
+        crate::models::AcquirePath::FreshAcquire => "fresh_acquire",
+        crate::models::AcquirePath::ExactReuse => "exact_reuse",
+        crate::models::AcquirePath::IntentReuse => "intent_reuse",
+        crate::models::AcquirePath::SameActivationRetry => "same_activation_retry",
+    }
+}
+
+fn decode_acquire_path(value: &str) -> crate::models::AcquirePath {
+    match value {
+        "exact_reuse" => crate::models::AcquirePath::ExactReuse,
+        "intent_reuse" => crate::models::AcquirePath::IntentReuse,
+        "same_activation_retry" => crate::models::AcquirePath::SameActivationRetry,
+        _ => crate::models::AcquirePath::FreshAcquire,
+    }
+}
+
+fn decode_ticket_status(value: &str) -> crate::models::TicketStatus {
+    match value {
+        "waiting_code" => crate::models::TicketStatus::WaitingCode,
+        "cancel_pending" => crate::models::TicketStatus::CancelPending,
+        "code_received" => crate::models::TicketStatus::CodeReceived,
+        "finished" => crate::models::TicketStatus::Finished,
+        "cancelled" => crate::models::TicketStatus::Cancelled,
+        "failed" => crate::models::TicketStatus::Failed,
+        _ => crate::models::TicketStatus::Pending,
+    }
+}
+
+fn encode_routing_execution_mode(mode: &crate::models::RoutingExecutionMode) -> &'static str {
+    match mode {
+        crate::models::RoutingExecutionMode::Sequential => "sequential",
+        crate::models::RoutingExecutionMode::Random => "random",
+    }
+}
+
+fn decode_routing_execution_mode(value: &str) -> crate::models::RoutingExecutionMode {
+    match value {
+        "random" => crate::models::RoutingExecutionMode::Random,
+        _ => crate::models::RoutingExecutionMode::Sequential,
+    }
+}
+
+fn encode_ticket_stats_outcome(outcome: &crate::models::TicketStatsOutcome) -> &'static str {
+    match outcome {
+        crate::models::TicketStatsOutcome::Acquired => "acquired",
+        crate::models::TicketStatsOutcome::CodeReceived => "code_received",
+        crate::models::TicketStatsOutcome::Finished => "finished",
+        crate::models::TicketStatsOutcome::Cancelled => "cancelled",
+        crate::models::TicketStatsOutcome::CancelPending => "cancel_pending",
+        crate::models::TicketStatsOutcome::Failed => "failed",
+        crate::models::TicketStatsOutcome::Banned => "banned",
+        crate::models::TicketStatsOutcome::RetryRequested => "retry_requested",
+    }
+}
+
+fn decode_ticket_stats_outcome(value: &str) -> crate::models::TicketStatsOutcome {
+    match value {
+        "code_received" => crate::models::TicketStatsOutcome::CodeReceived,
+        "finished" => crate::models::TicketStatsOutcome::Finished,
+        "cancelled" => crate::models::TicketStatsOutcome::Cancelled,
+        "cancel_pending" => crate::models::TicketStatsOutcome::CancelPending,
+        "failed" => crate::models::TicketStatsOutcome::Failed,
+        "banned" => crate::models::TicketStatsOutcome::Banned,
+        "retry_requested" => crate::models::TicketStatsOutcome::RetryRequested,
+        _ => crate::models::TicketStatsOutcome::Acquired,
     }
 }
 

@@ -11,9 +11,10 @@ use sms_core::models::{
     AcquireCodeRequest, HttpAuthLoginRequest, HttpAuthStatus, NotificationFeed,
     OpenAiSmsRegionsCache, OptionCacheOverview, PollCodeRequest, ProviderManifestList,
     ProviderOperatorsQuery, ProviderPriceQuery, ProviderReorderRequest, ProviderServicesQuery,
-    ReleaseCodeRequest, ReusePoolClearResponse, RoutingFailoverRequest, RoutingPlan,
-    RoutingPlanList, RoutingReplaceRequest, RuntimeAccessInfo, RuntimeSettings,
-    RuntimeSettingsUpdate, RuntimeSnapshot, TicketCallbackRegistrationRequest,
+    ReleaseCodeRequest, RemoteStatsSummaryQuery, RemoteStatsSummaryResponse,
+    ReusePoolClearResponse, RoutingFailoverRequest, RoutingPlan, RoutingPlanList,
+    RoutingReplaceRequest, RuntimeAccessInfo, RuntimeSettings, RuntimeSettingsUpdate,
+    RuntimeSnapshot, StatsSyncResult, TicketCallbackRegistrationRequest,
     TicketListResponse,
 };
 use sms_core::service::SmsService;
@@ -133,6 +134,12 @@ async fn handle_socket_command(service: &SmsService, line: &str) -> String {
             }
             SocketCommand::RuntimeAccessInfo => {
                 wrap_socket_plain_result(Ok(service.runtime_access_info(None)))
+            }
+            SocketCommand::SyncTicketStats => {
+                wrap_socket_result(service.sync_ticket_stats().await)
+            }
+            SocketCommand::RemoteStatsSummary { query } => {
+                wrap_socket_result(service.fetch_remote_stats_summary(query).await)
             }
             SocketCommand::OpenAiSmsRegions => {
                 wrap_socket_result(Ok(service.get_openai_sms_regions_cache().await))
@@ -290,6 +297,8 @@ pub fn build_router(service: Arc<SmsService>, http_secret: Option<String>) -> Ro
             "/api/settings/runtime/regenerate-secret",
             post(regenerate_http_secret),
         )
+        .route("/api/settings/stats/sync", post(sync_ticket_stats))
+        .route("/api/settings/stats/summary", post(get_remote_stats_summary))
         .route(
             "/api/settings/openai-sms-regions",
             get(get_openai_sms_regions),
@@ -744,6 +753,40 @@ async fn get_option_cache_overview(
         .service
         .log_http_access("GET", "/api/settings/option-cache", "200");
     Ok(Json(state.service.option_cache_overview()))
+}
+
+async fn sync_ticket_stats(
+    State(state): State<ApiState>,
+    headers: HeaderMap,
+) -> Result<Json<StatsSyncResult>, (StatusCode, Json<ApiError>)> {
+    ensure_http_authenticated(&state, &headers)?;
+    let result = state.service.sync_ticket_stats().await.map(Json).map_err(to_api_error);
+    state.service.log_http_access(
+        "POST",
+        "/api/settings/stats/sync",
+        if result.is_ok() { "200" } else { "400" },
+    );
+    result
+}
+
+async fn get_remote_stats_summary(
+    State(state): State<ApiState>,
+    headers: HeaderMap,
+    Json(query): Json<RemoteStatsSummaryQuery>,
+) -> Result<Json<RemoteStatsSummaryResponse>, (StatusCode, Json<ApiError>)> {
+    ensure_http_authenticated(&state, &headers)?;
+    let result = state
+        .service
+        .fetch_remote_stats_summary(query)
+        .await
+        .map(Json)
+        .map_err(to_api_error);
+    state.service.log_http_access(
+        "POST",
+        "/api/settings/stats/summary",
+        if result.is_ok() { "200" } else { "400" },
+    );
+    result
 }
 
 async fn reload_provider_manifests(
