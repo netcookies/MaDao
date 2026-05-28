@@ -51,6 +51,123 @@ function json(data: unknown, status = 200) {
   });
 }
 
+function html(body: string, status = 200) {
+  return new Response(body, {
+    status,
+    headers: { 'content-type': 'text/html; charset=utf-8' },
+  });
+}
+
+async function renderDashboard(env: Env) {
+  await ensureSchema(env);
+
+  const usersResult = await env.DB.prepare(`
+    SELECT COUNT(DISTINCT app_instance_id) as total_users,
+           COUNT(DISTINCT CASE WHEN occurred_at > datetime('now', '-24 hours') THEN app_instance_id END) as active_24h,
+           COUNT(DISTINCT CASE WHEN occurred_at > datetime('now', '-7 days') THEN app_instance_id END) as active_7d
+    FROM ticket_stats_events
+  `).first<{ total_users: number; active_24h: number; active_7d: number }>();
+
+  const eventsResult = await env.DB.prepare(`
+    SELECT COUNT(*) as total_events,
+           COUNT(DISTINCT ticket_id) as total_tickets,
+           MIN(occurred_at) as first_event,
+           MAX(occurred_at) as last_event
+    FROM ticket_stats_events
+  `).first<{ total_events: number; total_tickets: number; first_event: string | null; last_event: string | null }>();
+
+  const topProviders = await env.DB.prepare(`
+    SELECT provider, COUNT(DISTINCT ticket_id) as tickets, COUNT(DISTINCT app_instance_id) as users
+    FROM ticket_stats_events
+    WHERE occurred_at > datetime('now', '-7 days')
+    GROUP BY provider ORDER BY tickets DESC LIMIT 5
+  `).all<{ provider: string; tickets: number; users: number }>();
+
+  const topServices = await env.DB.prepare(`
+    SELECT service, COUNT(DISTINCT ticket_id) as tickets
+    FROM ticket_stats_events
+    WHERE occurred_at > datetime('now', '-7 days')
+    GROUP BY service ORDER BY tickets DESC LIMIT 5
+  `).all<{ service: string; tickets: number }>();
+
+  const recentUsers = await env.DB.prepare(`
+    SELECT app_instance_id, app_version, MAX(occurred_at) as last_seen, COUNT(*) as event_count
+    FROM ticket_stats_events
+    GROUP BY app_instance_id
+    ORDER BY last_seen DESC LIMIT 10
+  `).all<{ app_instance_id: string; app_version: string; last_seen: string; event_count: number }>();
+
+  const totalUsers = usersResult?.total_users ?? 0;
+  const active24h = usersResult?.active_24h ?? 0;
+  const active7d = usersResult?.active_7d ?? 0;
+  const totalEvents = eventsResult?.total_events ?? 0;
+  const totalTickets = eventsResult?.total_tickets ?? 0;
+  const firstEvent = eventsResult?.first_event ?? '-';
+  const lastEvent = eventsResult?.last_event ?? '-';
+
+  const providerRows = (topProviders.results ?? [])
+    .map((r) => `<tr><td>${esc(r.provider)}</td><td>${r.tickets}</td><td>${r.users}</td></tr>`)
+    .join('');
+
+  const serviceRows = (topServices.results ?? [])
+    .map((r) => `<tr><td>${esc(r.service)}</td><td>${r.tickets}</td></tr>`)
+    .join('');
+
+  const userRows = (recentUsers.results ?? [])
+    .map((r) => `<tr><td title="${esc(r.app_instance_id)}">${esc(r.app_instance_id.slice(0, 8))}...</td><td>${esc(r.app_version)}</td><td>${esc(r.last_seen)}</td><td>${r.event_count}</td></tr>`)
+    .join('');
+
+  return html(`<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>MaDao Stats</title>
+<style>
+*{margin:0;padding:0;box-sizing:border-box}
+body{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;background:#0d1117;color:#c9d1d9;padding:24px;min-height:100vh}
+h1{font-size:20px;font-weight:600;margin-bottom:24px;color:#f0f6fc}
+.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(160px,1fr));gap:12px;margin-bottom:32px}
+.card{background:#161b22;border:1px solid #30363d;border-radius:8px;padding:16px}
+.card .label{font-size:11px;text-transform:uppercase;letter-spacing:0.5px;color:#8b949e;margin-bottom:6px}
+.card .value{font-size:24px;font-weight:700;color:#f0f6fc}
+.card .sub{font-size:11px;color:#8b949e;margin-top:4px}
+h2{font-size:14px;font-weight:600;color:#f0f6fc;margin:24px 0 12px}
+table{width:100%;border-collapse:collapse;background:#161b22;border:1px solid #30363d;border-radius:8px;overflow:hidden;margin-bottom:24px}
+th,td{padding:10px 14px;text-align:left;font-size:13px;border-bottom:1px solid #21262d}
+th{background:#0d1117;color:#8b949e;font-weight:500;font-size:11px;text-transform:uppercase;letter-spacing:0.3px}
+td{color:#c9d1d9}
+tr:last-child td{border-bottom:none}
+.muted{color:#8b949e}
+</style>
+</head>
+<body>
+<h1>MaDao Stats Dashboard</h1>
+<div class="grid">
+  <div class="card"><div class="label">Total Users</div><div class="value">${totalUsers}</div><div class="sub">All time</div></div>
+  <div class="card"><div class="label">Active (24h)</div><div class="value">${active24h}</div></div>
+  <div class="card"><div class="label">Active (7d)</div><div class="value">${active7d}</div></div>
+  <div class="card"><div class="label">Total Events</div><div class="value">${totalEvents}</div></div>
+  <div class="card"><div class="label">Total Tickets</div><div class="value">${totalTickets}</div></div>
+</div>
+<p class="muted" style="margin-bottom:24px;font-size:12px">First event: ${esc(firstEvent)} · Last event: ${esc(lastEvent)}</p>
+
+<h2>Top Providers (7d)</h2>
+<table><thead><tr><th>Provider</th><th>Tickets</th><th>Users</th></tr></thead><tbody>${providerRows || '<tr><td colspan="3" class="muted">No data</td></tr>'}</tbody></table>
+
+<h2>Top Services (7d)</h2>
+<table><thead><tr><th>Service</th><th>Tickets</th></tr></thead><tbody>${serviceRows || '<tr><td colspan="2" class="muted">No data</td></tr>'}</tbody></table>
+
+<h2>Recent Users</h2>
+<table><thead><tr><th>Instance</th><th>Version</th><th>Last Seen</th><th>Events</th></tr></thead><tbody>${userRows || '<tr><td colspan="4" class="muted">No data</td></tr>'}</tbody></table>
+</body>
+</html>`);
+}
+
+function esc(s: string): string {
+  return s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+}
+
 function isAuthorized(request: Request, env: Env) {
   const header = request.headers.get('authorization') ?? '';
   return header === `Bearer ${env.API_TOKEN}`;
@@ -215,6 +332,9 @@ async function querySummary(request: Request, env: Env) {
 export default {
   async fetch(request: Request, env: Env) {
     const url = new URL(request.url);
+    if (request.method === 'GET' && url.pathname === '/') {
+      return renderDashboard(env);
+    }
     if (request.method === 'POST' && url.pathname === '/v1/events') {
       return uploadEvents(request, env);
     }

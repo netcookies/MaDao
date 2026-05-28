@@ -6,10 +6,9 @@
     {
       "binding": "DB",
       "database_name": "madao-stats",
-      "database_id": "replace-me"
+      "database_id": "16446b23-4cc2-4238-975b-d85dfc56d01b"
     }
   ],
-  "vars": {
-    "API_TOKEN": "replace-me"
-  }
+  // API_TOKEN is set via `npx wrangler secret put API_TOKEN`
+  "vars": {}
 }
