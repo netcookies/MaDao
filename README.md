@@ -115,6 +115,15 @@ cd cloudflare/stats-worker
 npm install
 ```
 
+First-time setup:
+
+```bash
+npx wrangler login
+npx wrangler d1 create madao-stats
+```
+
+Copy the returned `database_id` into `wrangler.jsonc`, and set your `API_TOKEN`. The database schema is auto-created on first request.
+
 Local development:
 
 ```bash
@@ -127,7 +136,7 @@ Deploy to Cloudflare:
 npm run deploy
 ```
 
-Before deploying, update `wrangler.jsonc` with your D1 `database_id` and `API_TOKEN`. See [cloudflare/stats-worker/README.md](./cloudflare/stats-worker/README.md) for details.
+See [cloudflare/stats-worker/README.md](./cloudflare/stats-worker/README.md) for full details.
 
 ## Runtime Notes
 

@@ -106,6 +106,15 @@ cd cloudflare/stats-worker
 npm install
 ```
 
+首次部署前需要登录并创建 D1 数据库：
+
+```bash
+npx wrangler login
+npx wrangler d1 create madao-stats
+```
+
+将返回的 `database_id` 填入 `wrangler.jsonc`，并设置 `API_TOKEN`。数据库表结构由 Worker 首次请求时自动创建。
+
 本地开发：
 
 ```bash
@@ -118,7 +127,7 @@ npm run dev
 npm run deploy
 ```
 
-部署前需要在 `wrangler.jsonc` 中填入真实的 D1 `database_id` 和 `API_TOKEN`。详见 [cloudflare/stats-worker/README.md](../cloudflare/stats-worker/README.md)。
+详见 [cloudflare/stats-worker/README.md](../cloudflare/stats-worker/README.md)。
 
 ## 运行时说明
 
