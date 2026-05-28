@@ -396,7 +396,12 @@ paths:
   /api/settings/stats/summary:
     post:
       tags: [settings]
-      summary: Fetch aggregated remote stats summary from configured worker
+      summary: Fetch remote stats snapshot summary from configured worker
+      description: >
+        Reads the public snapshot-only Worker summary endpoint. Provider, service,
+        country, and operator filters are applied locally by the daemon; custom
+        lookback values outside 24, 72, and 168 hours are rejected instead of
+        falling back to Worker realtime aggregation.
       operationId: getRemoteStatsSummary
       security:
         - bearerAuth: []
@@ -1019,7 +1024,8 @@ components:
           type: string
         lookback_hours:
           type: integer
-          minimum: 1
+          enum: [24, 72, 168]
+          description: Snapshot lookback window in hours. Defaults to 24.
     RemoteStatsSummaryItem:
       type: object
       additionalProperties: false

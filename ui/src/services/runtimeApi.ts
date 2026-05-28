@@ -434,15 +434,11 @@ export async function fetchRemoteStatsSummary(query?: {
   if (!rawBaseUrl) {
     throw new Error('stats sync base URL is not configured');
   }
+  const lookbackHours = normalizeStatsSummarySnapshotLookback(query?.lookbackHours);
   const url = new URL('/v1/summary', rawBaseUrl);
-  if (query?.service) url.searchParams.set('service', query.service);
-  if (query?.country) url.searchParams.set('country', query.country);
-  if (query?.operator) url.searchParams.set('operator', query.operator);
-  if (query?.provider) url.searchParams.set('provider', query.provider);
-  if (query?.lookbackHours != null) {
-    url.searchParams.set('lookback_hours', String(query.lookbackHours));
-  }
-  return readJson<RemoteStatsSummaryResponse>(await fetch(url.toString()));
+  url.searchParams.set('lookback_hours', String(lookbackHours));
+  const snapshot = await readJson<RemoteStatsSummaryResponse>(await fetch(url.toString()));
+  return filterRemoteStatsSummarySnapshot(snapshot, query);
 }
 
 export async function syncTicketStats(): Promise<{
@@ -470,6 +466,39 @@ export async function fetchRemoteStatsSummaryFromDaemon(query?: {
     headers: IS_DESKTOP_RUNTIME ? await buildDesktopHttpHeaders() : { 'Content-Type': 'application/json' },
     body: JSON.stringify(query ?? {}),
   }));
+}
+
+function normalizeStatsSummarySnapshotLookback(lookbackHours?: number): number {
+  const normalized = lookbackHours ?? 24;
+  if (normalized === 24 || normalized === 72 || normalized === 168) {
+    return normalized;
+  }
+  throw new Error('stats summary snapshots only support lookbackHours 24, 72, or 168');
+}
+
+function optionalSummaryFilterMatches(filter: string | undefined, value: string): boolean {
+  const normalized = filter?.trim();
+  return !normalized || normalized === value;
+}
+
+function filterRemoteStatsSummarySnapshot(
+  snapshot: RemoteStatsSummaryResponse,
+  query?: {
+    service?: string;
+    country?: string;
+    operator?: string;
+    provider?: string;
+  },
+): RemoteStatsSummaryResponse {
+  return {
+    ...snapshot,
+    items: snapshot.items.filter((item) =>
+      optionalSummaryFilterMatches(query?.provider, item.provider)
+      && optionalSummaryFilterMatches(query?.service, item.service)
+      && optionalSummaryFilterMatches(query?.country, item.country)
+      && optionalSummaryFilterMatches(query?.operator, item.operator)
+    ),
+  };
 }
 
 export async function fetchHttpAuthStatus(): Promise<{ authenticated: boolean }> {

@@ -7,14 +7,14 @@ use crate::models::{
     ProviderDynamicOptions, ProviderManifestList, ProviderManifestSaveResponse,
     ProviderOperatorsQuery, ProviderOptionCacheEntry, ProviderPriceQuery, ProviderPriceResponse,
     ProviderRawOptionAuditEntry, ProviderReorderRequest, ProviderServicesQuery, ProviderSummary,
-    ReleaseCodeRequest, ReleaseCodeResponse, RemoteStatsSummaryQuery, RemoteStatsSummaryResponse,
-    ReuseCapability, ReusePoolEntry, ReusePoolSummary, RoutingExecutionMode,
-    RoutingFailoverRequest, RoutingPlan, RoutingPlanItem, RoutingPlanList, RoutingPlanStore,
-    RoutingReplaceRequest, RoutingReplaceResponse, RuntimeAccessInfo, RuntimeSettings,
-    RuntimeSettingsUpdate, RuntimeSnapshot, RuntimeStateStore, StatsSyncResult, StatsSyncStatus,
-    TicketCallbackListResponse, TicketCallbackRegistrationRequest, TicketCallbackSubscription,
-    TicketCodeCallbackPayload, TicketListResponse, TicketRecord, TicketStatsEvent,
-    TicketStatsOutcome, TicketStatus,
+    ReleaseCodeRequest, ReleaseCodeResponse, RemoteStatsSummaryItem, RemoteStatsSummaryQuery,
+    RemoteStatsSummaryResponse, ReuseCapability, ReusePoolEntry, ReusePoolSummary,
+    RoutingExecutionMode, RoutingFailoverRequest, RoutingPlan, RoutingPlanItem, RoutingPlanList,
+    RoutingPlanStore, RoutingReplaceRequest, RoutingReplaceResponse, RuntimeAccessInfo,
+    RuntimeSettings, RuntimeSettingsUpdate, RuntimeSnapshot, RuntimeStateStore, StatsSyncResult,
+    StatsSyncStatus, TicketCallbackListResponse, TicketCallbackRegistrationRequest,
+    TicketCallbackSubscription, TicketCodeCallbackPayload, TicketListResponse, TicketRecord,
+    TicketStatsEvent, TicketStatsOutcome, TicketStatus,
 };
 use crate::options::{
     FileProviderMetadataCacheRepository, OptionKind, ProviderMetadataCacheBatch,
@@ -69,6 +69,43 @@ const LOW_BALANCE_PATTERNS: [&str; 8] = [
     "insufficient funds",
     "balance below",
 ];
+
+fn normalize_stats_summary_snapshot_lookback(lookback_hours: Option<u32>) -> Option<u32> {
+    let lookback_hours = lookback_hours.unwrap_or(24);
+    matches!(lookback_hours, 24 | 72 | 168).then_some(lookback_hours)
+}
+
+fn optional_filter_matches(filter: &Option<String>, value: &str) -> bool {
+    filter
+        .as_ref()
+        .map(|candidate| {
+            let candidate = candidate.trim();
+            candidate.is_empty() || candidate == value
+        })
+        .unwrap_or(true)
+}
+
+fn filter_remote_stats_summary_snapshot(
+    mut snapshot: RemoteStatsSummaryResponse,
+    query: &RemoteStatsSummaryQuery,
+) -> RemoteStatsSummaryResponse {
+    snapshot.items = snapshot
+        .items
+        .into_iter()
+        .filter(|item| remote_stats_summary_item_matches(item, query))
+        .collect();
+    snapshot
+}
+
+fn remote_stats_summary_item_matches(
+    item: &RemoteStatsSummaryItem,
+    query: &RemoteStatsSummaryQuery,
+) -> bool {
+    optional_filter_matches(&query.provider, &item.provider)
+        && optional_filter_matches(&query.service, &item.service)
+        && optional_filter_matches(&query.country, &item.country)
+        && optional_filter_matches(&query.operator, &item.operator)
+}
 
 fn parse_min_activation_time_seconds(message: &str) -> Option<u64> {
     let marker = "minActivationTime=";
@@ -4098,41 +4135,18 @@ impl SmsService {
             ));
         }
 
+        let lookback_hours = normalize_stats_summary_snapshot_lookback(query.lookback_hours)
+            .ok_or_else(|| {
+                SmsError::InvalidRequest(
+                    "stats summary snapshots only support lookback_hours 24, 72, or 168"
+                        .to_string(),
+                )
+            })?;
         let mut url = Url::parse(&format!("{}/v1/summary", base_url.trim_end_matches('/')))
             .map_err(|err| SmsError::Config(format!("invalid stats summary URL: {err}")))?;
         {
             let mut params = url.query_pairs_mut();
-            if let Some(provider) = query
-                .provider
-                .as_ref()
-                .filter(|value| !value.trim().is_empty())
-            {
-                params.append_pair("provider", provider);
-            }
-            if let Some(service) = query
-                .service
-                .as_ref()
-                .filter(|value| !value.trim().is_empty())
-            {
-                params.append_pair("service", service);
-            }
-            if let Some(country) = query
-                .country
-                .as_ref()
-                .filter(|value| !value.trim().is_empty())
-            {
-                params.append_pair("country", country);
-            }
-            if let Some(operator) = query
-                .operator
-                .as_ref()
-                .filter(|value| !value.trim().is_empty())
-            {
-                params.append_pair("operator", operator);
-            }
-            if let Some(lookback_hours) = query.lookback_hours {
-                params.append_pair("lookback_hours", &lookback_hours.to_string());
-            }
+            params.append_pair("lookback_hours", &lookback_hours.to_string());
         }
 
         let response = self
@@ -4149,10 +4163,11 @@ impl SmsService {
                     .unwrap_or_else(|_| "fetch remote stats failed".to_string()),
             ));
         }
-        response
+        let snapshot = response
             .json::<RemoteStatsSummaryResponse>()
             .await
-            .map_err(|err| SmsError::Config(format!("decode remote stats failed: {err}")))
+            .map_err(|err| SmsError::Config(format!("decode remote stats failed: {err}")))?;
+        Ok(filter_remote_stats_summary_snapshot(snapshot, &query))
     }
 
     fn try_same_activation_retry_candidate(
@@ -4926,6 +4941,7 @@ mod tests {
     use crate::registry::ProviderRegistry;
     use crate::runtime_store::{ReleaseOwnerLease, RuntimeStore};
     use axum::extract::{Query, State};
+    use axum::http::{HeaderMap, StatusCode};
     use axum::routing::{get, post};
     use axum::{Json, Router};
     use parking_lot::Mutex;
@@ -7099,14 +7115,22 @@ codes = ["123456"]
     #[derive(Clone, Default)]
     struct StatsUploadState {
         payloads: Arc<Mutex<Vec<Value>>>,
+        auth_headers: Arc<Mutex<Vec<Option<String>>>>,
     }
 
     #[tokio::test]
     async fn sync_ticket_stats_marks_events_synced_and_updates_status() {
         async fn upload_stats(
             State(state): State<StatsUploadState>,
+            headers: HeaderMap,
             Json(payload): Json<Value>,
         ) -> Json<Value> {
+            state.auth_headers.lock().push(
+                headers
+                    .get("authorization")
+                    .and_then(|value| value.to_str().ok())
+                    .map(str::to_string),
+            );
             state.payloads.lock().push(payload);
             Json(serde_json::json!({ "accepted": 1 }))
         }
@@ -7205,6 +7229,10 @@ codes = ["123456"]
 
         let payloads = upload_state.payloads.lock().clone();
         assert_eq!(payloads.len(), 1);
+        assert_eq!(
+            upload_state.auth_headers.lock().as_slice(),
+            [Some("Bearer test-token".to_string())]
+        );
         let events = payloads[0]
             .get("events")
             .and_then(Value::as_array)
@@ -7216,8 +7244,24 @@ codes = ["123456"]
     }
 
     #[tokio::test]
-    async fn fetch_remote_stats_summary_decodes_worker_response() {
-        async fn summary() -> Json<Value> {
+    async fn fetch_remote_stats_summary_uses_public_snapshot_for_unfiltered_query() {
+        #[derive(Clone, Default)]
+        struct SummaryCallState {
+            public_calls: Arc<Mutex<Vec<String>>>,
+            admin_calls: Arc<Mutex<u32>>,
+        }
+
+        async fn public_summary(
+            State(state): State<SummaryCallState>,
+            headers: HeaderMap,
+        ) -> Json<Value> {
+            state.public_calls.lock().push(
+                headers
+                    .get("authorization")
+                    .and_then(|value| value.to_str().ok())
+                    .map(str::to_string)
+                    .unwrap_or_default(),
+            );
             Json(serde_json::json!({
                 "lookback_hours": 24,
                 "items": [
@@ -7237,7 +7281,16 @@ codes = ["123456"]
             }))
         }
 
-        let router = Router::new().route("/v1/summary", get(summary));
+        async fn admin_summary(State(state): State<SummaryCallState>) -> Json<Value> {
+            *state.admin_calls.lock() += 1;
+            Json(serde_json::json!({ "lookback_hours": 24, "items": [] }))
+        }
+
+        let state = SummaryCallState::default();
+        let router = Router::new()
+            .route("/v1/summary", get(public_summary))
+            .route("/v1/admin/summary", get(admin_summary))
+            .with_state(state.clone());
         let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
         let addr: SocketAddr = listener.local_addr().unwrap();
         let server = tokio::spawn(async move {
@@ -7256,7 +7309,110 @@ codes = ["123456"]
                 http_port: 7822,
                 stats_sync_enabled: true,
                 stats_sync_base_url: format!("http://{addr}"),
-                stats_sync_api_token: "unused".to_string(),
+                stats_sync_api_token: "summary-token".to_string(),
+            })
+            .unwrap();
+
+        let summary = service
+            .fetch_remote_stats_summary(RemoteStatsSummaryQuery {
+                provider: None,
+                service: None,
+                country: None,
+                operator: None,
+                lookback_hours: Some(24),
+            })
+            .await
+            .unwrap();
+
+        assert_eq!(summary.lookback_hours, 24);
+        assert_eq!(summary.items.len(), 1);
+        assert_eq!(summary.items[0].provider, "mock");
+        assert_eq!(summary.items[0].success_count, 2);
+        assert_eq!(state.public_calls.lock().as_slice(), [""]);
+        assert_eq!(*state.admin_calls.lock(), 0);
+
+        server.abort();
+    }
+
+    #[tokio::test]
+    async fn fetch_remote_stats_summary_filters_snapshot_locally() {
+        #[derive(Clone, Default)]
+        struct SummaryCallState {
+            public_calls: Arc<Mutex<Vec<String>>>,
+            admin_calls: Arc<Mutex<u32>>,
+        }
+
+        async fn public_summary(
+            State(state): State<SummaryCallState>,
+            headers: HeaderMap,
+        ) -> Json<Value> {
+            state.public_calls.lock().push(
+                headers
+                    .get("authorization")
+                    .and_then(|value| value.to_str().ok())
+                    .map(str::to_string)
+                    .unwrap_or_default(),
+            );
+            Json(serde_json::json!({
+                "lookback_hours": 24,
+                "items": [
+                    {
+                        "provider": "mock",
+                        "service": "openai",
+                        "country": "local",
+                        "operator": "any",
+                        "total": 3,
+                        "success_count": 2,
+                        "success_rate": 0.6666666667,
+                        "cancelled_count": 1,
+                        "banned_count": 0,
+                        "failed_count": 0
+                    },
+                    {
+                        "provider": "other",
+                        "service": "openai",
+                        "country": "local",
+                        "operator": "any",
+                        "total": 10,
+                        "success_count": 4,
+                        "success_rate": 0.4,
+                        "cancelled_count": 0,
+                        "banned_count": 0,
+                        "failed_count": 6
+                    }
+                ]
+            }))
+        }
+
+        async fn admin_summary(State(state): State<SummaryCallState>) -> StatusCode {
+            *state.admin_calls.lock() += 1;
+            StatusCode::IM_A_TEAPOT
+        }
+
+        let state = SummaryCallState::default();
+        let router = Router::new()
+            .route("/v1/summary", get(public_summary))
+            .route("/v1/admin/summary", get(admin_summary))
+            .with_state(state.clone());
+        let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let addr: SocketAddr = listener.local_addr().unwrap();
+        let server = tokio::spawn(async move {
+            let _ = axum::serve(listener, router).await;
+        });
+
+        let service = make_service();
+        service
+            .update_runtime_settings(RuntimeSettingsUpdate {
+                routing_strategy: "ordered_priority".to_string(),
+                auto_fallback: true,
+                option_cache_enabled: true,
+                option_cache_poll_interval_minutes: 30,
+                only_show_openai_sms_countries: false,
+                check_updates_on_launch: true,
+                http_port: 7822,
+                stats_sync_enabled: true,
+                stats_sync_base_url: format!("http://{addr}"),
+                stats_sync_api_token: "summary-token".to_string(),
             })
             .unwrap();
 
@@ -7271,12 +7427,48 @@ codes = ["123456"]
             .await
             .unwrap();
 
-        assert_eq!(summary.lookback_hours, 24);
         assert_eq!(summary.items.len(), 1);
         assert_eq!(summary.items[0].provider, "mock");
-        assert_eq!(summary.items[0].success_count, 2);
+        assert_eq!(summary.items[0].service, "openai");
+        assert_eq!(summary.items[0].country, "local");
+        assert_eq!(state.public_calls.lock().as_slice(), [""]);
+        assert_eq!(*state.admin_calls.lock(), 0);
 
         server.abort();
+    }
+
+    #[tokio::test]
+    async fn fetch_remote_stats_summary_rejects_non_snapshot_lookback() {
+        let service = make_service();
+        service
+            .update_runtime_settings(RuntimeSettingsUpdate {
+                routing_strategy: "ordered_priority".to_string(),
+                auto_fallback: true,
+                option_cache_enabled: true,
+                option_cache_poll_interval_minutes: 30,
+                only_show_openai_sms_countries: false,
+                check_updates_on_launch: true,
+                http_port: 7822,
+                stats_sync_enabled: true,
+                stats_sync_base_url: "http://127.0.0.1:1".to_string(),
+                stats_sync_api_token: "summary-token".to_string(),
+            })
+            .unwrap();
+
+        let error = service
+            .fetch_remote_stats_summary(RemoteStatsSummaryQuery {
+                provider: None,
+                service: None,
+                country: None,
+                operator: None,
+                lookback_hours: Some(12),
+            })
+            .await
+            .unwrap_err();
+
+        assert!(
+            matches!(error, SmsError::InvalidRequest(message) if message.contains("24, 72, or 168"))
+        );
     }
 
     #[tokio::test]
