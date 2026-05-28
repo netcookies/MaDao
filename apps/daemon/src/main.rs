@@ -4,8 +4,8 @@ use fs2::FileExt;
 use sms_core::config::ServerConfig;
 use sms_core::models::RuntimeSettings;
 use sms_core::registry::ProviderRegistry;
-use sms_core::runtime_config::load_runtime_settings_from_disk;
 use sms_core::runtime_config::AppPersistencePaths;
+use sms_core::runtime_config::load_runtime_settings_from_disk;
 use sms_core::service::SmsService;
 use sms_server::{spawn_http_server, spawn_socket_server};
 use std::env;
@@ -92,6 +92,9 @@ async fn main() -> anyhow::Result<()> {
             let _ = background_service.maybe_poll_provider_options().await;
             background_service.refresh_all_provider_balances().await;
             background_service.maybe_dispatch_ticket_callbacks().await;
+            if let Err(error) = background_service.sync_ticket_stats().await {
+                eprintln!("stats sync failed: {error}");
+            }
             tokio::time::sleep(std::time::Duration::from_secs(60)).await;
         }
     });
@@ -202,8 +205,7 @@ fn is_docker_runtime() -> bool {
 }
 
 fn load_runtime_settings_file(path: &Path) -> anyhow::Result<RuntimeSettings> {
-    load_runtime_settings_from_disk(path)
-        .map_err(|err| anyhow::anyhow!(err.to_string()))
+    load_runtime_settings_from_disk(path).map_err(|err| anyhow::anyhow!(err.to_string()))
 }
 
 fn seed_default_providers(config_dir: &Path) -> anyhow::Result<()> {

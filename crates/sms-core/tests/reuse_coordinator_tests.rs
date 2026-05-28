@@ -702,7 +702,10 @@ fn test_pending_release_claims_round_trip_in_sqlite_schema() {
     assert_eq!(claims[0].ticket_id, ticket.id);
     assert_eq!(claims[0].action, ReleaseAction::Cancel);
     assert_eq!(claims[0].auto_release_at, ticket.auto_release_at);
-    assert_eq!(claims[0].retry_deadline_at, ticket.release_retry_deadline_at);
+    assert_eq!(
+        claims[0].retry_deadline_at,
+        ticket.release_retry_deadline_at
+    );
     assert_eq!(claims[0].retry_count, 2);
 }
 
@@ -721,7 +724,10 @@ async fn test_operator_is_persisted_on_acquire() {
         .unwrap();
 
     let state_path = dir.path().join("runtime.db");
-    let state = RuntimeStore::open(&state_path).unwrap().load_state().unwrap();
+    let state = RuntimeStore::open(&state_path)
+        .unwrap()
+        .load_state()
+        .unwrap();
     let ticket = state
         .tickets
         .into_iter()

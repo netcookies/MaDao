@@ -110,6 +110,8 @@ Published Docker images support both `linux/amd64` and `linux/arm64`.
 
 The `cloudflare/stats-worker/` directory contains a Cloudflare Worker + D1 service that receives anonymous usage statistics from the app and returns aggregated summaries.
 
+When stats sync is enabled in Settings, the desktop runtime and daemon upload pending ticket outcome events to the Worker automatically about once per minute. The Settings screen still includes `Sync now` as a manual catch-up action for pending events. Public summary reads use precomputed snapshots; run the admin refresh endpoint or wait for the Worker cron before newly uploaded events appear in the Overview statistics.
+
 ```bash
 cd cloudflare/stats-worker
 npm install

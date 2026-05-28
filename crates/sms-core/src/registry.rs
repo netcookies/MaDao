@@ -352,10 +352,8 @@ code_json_pointers = ["/sms/code", "/code", "/data/code", "/sms/0/code"]
         fs::remove_file(&fivesim_path).unwrap();
         fs::create_dir_all(&fivesim_path).unwrap();
 
-        let result = registry.set_priorities(&[
-            ("mock".to_string(), 111),
-            ("fivesim".to_string(), 222),
-        ]);
+        let result =
+            registry.set_priorities(&[("mock".to_string(), 111), ("fivesim".to_string(), 222)]);
 
         assert!(result.is_err());
         assert_eq!(registry.manifest("mock").unwrap().priority, mock_before);

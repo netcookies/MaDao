@@ -14,7 +14,7 @@
     "ui:design-baselines": "node scripts/ui-screenshot/fixtures.mjs",
     "ui:screenshot": "node scripts/ui-screenshot/capture.mjs",
     "ui:screenshot:compare": "node scripts/ui-screenshot/compare.mjs",
-    "app": "npm run build && cargo run -p madao-tauri"
+    "app": "node scripts/run-app.mjs"
   },
   "dependencies": {
     "@dnd-kit/core": "^6.3.1",

@@ -377,7 +377,10 @@ paths:
   /api/settings/stats/sync:
     post:
       tags: [settings]
-      summary: Upload pending ticket stats events to remote worker
+      summary: Immediately upload pending ticket stats events to remote worker
+      description: >
+        Stats sync also runs automatically in the daemon / desktop background loop when enabled.
+        This endpoint triggers an immediate catch-up upload for pending local events.
       operationId: syncTicketStats
       security:
         - bearerAuth: []

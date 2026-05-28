@@ -268,7 +268,7 @@ export function SettingsScreen(props: SettingsScreenProps) {
           <div className="flex flex-col gap-1.5">
             <h3 className="m-0 text-section-title font-semibold tracking-[var(--ds-type-section-title-tracking)] text-ds-text-primary">{t('Stats Sync')}</h3>
             <p className="m-0 text-[12px] leading-[1.45] text-ds-text-secondary">
-              {t('Share route quality data with the remote worker.')}
+              {t('Automatically sync route quality events to the remote worker every minute.')}
             </p>
           </div>
           <ServerConfigRow label={t('Enable stats sync')}>
@@ -293,7 +293,7 @@ export function SettingsScreen(props: SettingsScreenProps) {
             <span className="text-[12px] leading-[1.45] text-ds-danger">{props.statsSyncLastError}</span>
           ) : null}
           <div className="flex items-center justify-between">
-            <span className="text-[11px] text-ds-text-secondary/40">{t('Manually push pending events to the remote worker.')}</span>
+            <span className="text-[11px] text-ds-text-secondary/40">{t('Run an immediate sync for pending events without waiting for the next automatic cycle.')}</span>
             <AppButton variant="outline" size="utility" onClick={props.onSyncStatsNow} disabled={props.syncStatsBusy}>
               {props.syncStatsBusy ? t('Syncing…') : t('Sync now')}
             </AppButton>

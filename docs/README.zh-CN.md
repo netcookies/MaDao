@@ -101,6 +101,8 @@ docker compose -f docker-compose.prod.yml up -d
 
 `cloudflare/stats-worker/` 目录包含一个 Cloudflare Worker + D1 服务，用于接收应用上报的匿名统计事件并返回聚合汇总。
 
+在设置中启用统计同步后，桌面运行时和 daemon 会大约每分钟自动把待同步的 Ticket 结果事件上传到 Worker。设置页仍保留 `立即同步`，用于手动补同步待处理事件。总览统计读取的是预计算快照；新上传事件需要等待 Worker cron，或调用 admin refresh 接口后，才会出现在总览统计里。
+
 ```bash
 cd cloudflare/stats-worker
 npm install

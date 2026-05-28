@@ -150,6 +150,10 @@ function unauthorizedHtml() {
   });
 }
 
+function errorMessage(error: unknown) {
+  return error instanceof Error ? error.message : String(error);
+}
+
 function dashboardCacheKey(request: Request) {
   const url = new URL(request.url);
   url.pathname = '/';
@@ -494,7 +498,7 @@ async function ensureSchema(env: Env) {
 }
 
 async function setupSchema(env: Env) {
-  await env.DB.exec(`
+  await env.DB.prepare(`
     CREATE TABLE IF NOT EXISTS ticket_stats_events (
       id TEXT PRIMARY KEY,
       ticket_id TEXT NOT NULL,
@@ -510,20 +514,26 @@ async function setupSchema(env: Env) {
       price REAL,
       receive_duration_secs REAL,
       message TEXT
-    );
+    )
+  `).run();
+  await env.DB.prepare(`
     CREATE INDEX IF NOT EXISTS idx_ticket_stats_events_lookup
-      ON ticket_stats_events(service, country, operator, provider, occurred_at);
+      ON ticket_stats_events(service, country, operator, provider, occurred_at)
+  `).run();
+  await env.DB.prepare(`
     CREATE INDEX IF NOT EXISTS idx_ticket_stats_events_occurred_at
-      ON ticket_stats_events(occurred_at);
+      ON ticket_stats_events(occurred_at)
+  `).run();
+  await env.DB.prepare(`
     CREATE TABLE IF NOT EXISTS stats_snapshots (
       key TEXT PRIMARY KEY,
       payload_json TEXT NOT NULL,
       refreshed_at TEXT NOT NULL
-    );
-  `);
+    )
+  `).run();
   // Migrate existing tables that lack new columns
-  await env.DB.exec(`ALTER TABLE ticket_stats_events ADD COLUMN price REAL;`).catch(() => {});
-  await env.DB.exec(`ALTER TABLE ticket_stats_events ADD COLUMN receive_duration_secs REAL;`).catch(() => {});
+  await env.DB.prepare(`ALTER TABLE ticket_stats_events ADD COLUMN price REAL`).run().catch(() => {});
+  await env.DB.prepare(`ALTER TABLE ticket_stats_events ADD COLUMN receive_duration_secs REAL`).run().catch(() => {});
 }
 
 async function uploadEvents(request: Request, env: Env) {
@@ -631,10 +641,10 @@ async function computeSummary(env: Env, query: StatsQuery): Promise<SummaryRespo
   )
     .bind(
       lowerBound,
-      query.service, query.service,
-      query.country, query.country,
-      query.operator, query.operator,
-      query.provider, query.provider,
+      query.service ?? null, query.service ?? null,
+      query.country ?? null, query.country ?? null,
+      query.operator ?? null, query.operator ?? null,
+      query.provider ?? null, query.provider ?? null,
     )
     .all<SummaryRow>();
 
@@ -711,26 +721,31 @@ async function queryRealtimeSummary(request: Request, env: Env, ctx: ExecutionCo
 
 export default {
   async fetch(request: Request, env: Env, ctx: ExecutionContext) {
-    const url = new URL(request.url);
-    if (request.method === 'GET' && url.pathname === '/') {
-      return renderDashboard(request, env, ctx);
+    try {
+      const url = new URL(request.url);
+      if (request.method === 'GET' && url.pathname === '/') {
+        return renderDashboard(request, env, ctx);
+      }
+      if (request.method === 'POST' && url.pathname === '/v1/admin/dashboard/refresh') {
+        return refreshDashboard(request, env);
+      }
+      if (request.method === 'GET' && url.pathname === '/v1/admin/summary') {
+        return queryRealtimeSummary(request, env, ctx);
+      }
+      if (request.method === 'POST' && url.pathname === '/v1/events') {
+        return uploadEvents(request, env);
+      }
+      if (request.method === 'GET' && url.pathname === '/v1/summary') {
+        return querySnapshotSummary(request, env, ctx);
+      }
+      if (request.method === 'GET' && url.pathname === '/health') {
+        return json({ status: 'ok' });
+      }
+      return json({ message: 'not found' }, 404);
+    } catch (error) {
+      console.error(errorMessage(error));
+      return json({ message: 'internal error' }, 500);
     }
-    if (request.method === 'POST' && url.pathname === '/v1/admin/dashboard/refresh') {
-      return refreshDashboard(request, env);
-    }
-    if (request.method === 'GET' && url.pathname === '/v1/admin/summary') {
-      return queryRealtimeSummary(request, env, ctx);
-    }
-    if (request.method === 'POST' && url.pathname === '/v1/events') {
-      return uploadEvents(request, env);
-    }
-    if (request.method === 'GET' && url.pathname === '/v1/summary') {
-      return querySnapshotSummary(request, env, ctx);
-    }
-    if (request.method === 'GET' && url.pathname === '/health') {
-      return json({ status: 'ok' });
-    }
-    return json({ message: 'not found' }, 404);
   },
   async scheduled(event: ScheduledEvent, env: Env, ctx: ExecutionContext) {
     ctx.waitUntil((async () => {

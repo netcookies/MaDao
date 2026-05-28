@@ -14,8 +14,7 @@ use sms_core::models::{
     ReleaseCodeRequest, RemoteStatsSummaryQuery, RemoteStatsSummaryResponse,
     ReusePoolClearResponse, RoutingFailoverRequest, RoutingPlan, RoutingPlanList,
     RoutingReplaceRequest, RuntimeAccessInfo, RuntimeSettings, RuntimeSettingsUpdate,
-    RuntimeSnapshot, StatsSyncResult, TicketCallbackRegistrationRequest,
-    TicketListResponse,
+    RuntimeSnapshot, StatsSyncResult, TicketCallbackRegistrationRequest, TicketListResponse,
 };
 use sms_core::service::SmsService;
 #[cfg(unix)]
@@ -135,9 +134,7 @@ async fn handle_socket_command(service: &SmsService, line: &str) -> String {
             SocketCommand::RuntimeAccessInfo => {
                 wrap_socket_plain_result(Ok(service.runtime_access_info(None)))
             }
-            SocketCommand::SyncTicketStats => {
-                wrap_socket_result(service.sync_ticket_stats().await)
-            }
+            SocketCommand::SyncTicketStats => wrap_socket_result(service.sync_ticket_stats().await),
             SocketCommand::RemoteStatsSummary { query } => {
                 wrap_socket_result(service.fetch_remote_stats_summary(query).await)
             }
@@ -298,7 +295,10 @@ pub fn build_router(service: Arc<SmsService>, http_secret: Option<String>) -> Ro
             post(regenerate_http_secret),
         )
         .route("/api/settings/stats/sync", post(sync_ticket_stats))
-        .route("/api/settings/stats/summary", post(get_remote_stats_summary))
+        .route(
+            "/api/settings/stats/summary",
+            post(get_remote_stats_summary),
+        )
         .route(
             "/api/settings/openai-sms-regions",
             get(get_openai_sms_regions),
@@ -760,7 +760,12 @@ async fn sync_ticket_stats(
     headers: HeaderMap,
 ) -> Result<Json<StatsSyncResult>, (StatusCode, Json<ApiError>)> {
     ensure_http_authenticated(&state, &headers)?;
-    let result = state.service.sync_ticket_stats().await.map(Json).map_err(to_api_error);
+    let result = state
+        .service
+        .sync_ticket_stats()
+        .await
+        .map(Json)
+        .map_err(to_api_error);
     state.service.log_http_access(
         "POST",
         "/api/settings/stats/sync",

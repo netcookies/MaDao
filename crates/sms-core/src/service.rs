@@ -107,6 +107,52 @@ fn remote_stats_summary_item_matches(
         && optional_filter_matches(&query.operator, &item.operator)
 }
 
+fn is_legacy_stats_sync_base_url(value: &str) -> bool {
+    let trimmed = value.trim().trim_end_matches('/');
+    Url::parse(trimmed)
+        .ok()
+        .and_then(|url| url.host_str().map(str::to_string))
+        .is_some_and(|host| host == "madao-stats.example.workers.dev")
+}
+
+fn repair_runtime_settings_with_defaults(
+    runtime_settings: &mut RuntimeSettings,
+    default_stats_sync_base_url: &str,
+    default_stats_sync_api_token: &str,
+) -> bool {
+    let mut repaired = false;
+    if runtime_settings.http_secret.trim().is_empty() {
+        runtime_settings.http_secret = generate_runtime_secret();
+        repaired = true;
+    }
+    if runtime_settings.stats_sync_base_url.trim().is_empty()
+        || is_legacy_stats_sync_base_url(&runtime_settings.stats_sync_base_url)
+    {
+        runtime_settings.stats_sync_base_url = default_stats_sync_base_url.to_string();
+        repaired = true;
+    }
+    if runtime_settings.stats_sync_instance_id.trim().is_empty() {
+        runtime_settings.stats_sync_instance_id = Uuid::now_v7().to_string();
+        repaired = true;
+    }
+    if !default_stats_sync_api_token.is_empty() {
+        let current_token = runtime_settings.stats_sync_api_token.trim();
+        if current_token.is_empty() || current_token == "replace-me" {
+            runtime_settings.stats_sync_api_token = default_stats_sync_api_token.to_string();
+            repaired = true;
+        }
+    }
+    repaired
+}
+
+fn repair_runtime_settings(runtime_settings: &mut RuntimeSettings) -> bool {
+    repair_runtime_settings_with_defaults(
+        runtime_settings,
+        DEFAULT_STATS_SYNC_BASE_URL,
+        DEFAULT_STATS_SYNC_API_TOKEN,
+    )
+}
+
 fn parse_min_activation_time_seconds(message: &str) -> Option<u64> {
     let marker = "minActivationTime=";
     let start = message.find(marker)? + marker.len();
@@ -335,21 +381,7 @@ impl SmsService {
             }
         };
         let mut runtime_settings = runtime_settings;
-        let mut runtime_settings_repaired = false;
-        if runtime_settings.http_secret.trim().is_empty() {
-            runtime_settings.http_secret = generate_runtime_secret();
-            runtime_settings_repaired = true;
-        }
-        if runtime_settings.stats_sync_base_url.trim().is_empty() {
-            runtime_settings.stats_sync_base_url = DEFAULT_STATS_SYNC_BASE_URL.to_string();
-            runtime_settings_repaired = true;
-        }
-        if runtime_settings.stats_sync_api_token.trim().is_empty()
-            && !DEFAULT_STATS_SYNC_API_TOKEN.is_empty()
-        {
-            runtime_settings.stats_sync_api_token = DEFAULT_STATS_SYNC_API_TOKEN.to_string();
-            runtime_settings_repaired = true;
-        }
+        let runtime_settings_repaired = repair_runtime_settings(&mut runtime_settings);
         if runtime_settings_repaired {
             if let Err(error) = runtime_config_repository.save_settings(&runtime_settings) {
                 startup_warnings.push(format!(
@@ -5024,6 +5056,23 @@ mod tests {
         )
     }
 
+    fn runtime_settings_fixture() -> RuntimeSettings {
+        RuntimeSettings {
+            routing_strategy: "ordered_priority".to_string(),
+            auto_fallback: true,
+            option_cache_enabled: true,
+            option_cache_poll_interval_minutes: 30,
+            only_show_openai_sms_countries: false,
+            check_updates_on_launch: true,
+            http_port: 7822,
+            http_secret: "secret-token".to_string(),
+            stats_sync_instance_id: "instance-1".to_string(),
+            stats_sync_enabled: false,
+            stats_sync_base_url: "https://custom.example.workers.dev/proxy".to_string(),
+            stats_sync_api_token: "custom-token".to_string(),
+        }
+    }
+
     #[test]
     fn statsig_config_id_matches_openai_sms_region_key() {
         assert_eq!(
@@ -5081,6 +5130,45 @@ mod tests {
         assert_eq!(loaded.settings.http_secret, "secret-token");
         assert_eq!(loaded.routing_plans.plans.len(), 1);
         assert_eq!(loaded.routing_plans.plans[0].id, "openai-plan");
+    }
+
+    #[test]
+    fn repair_runtime_settings_migrates_legacy_stats_defaults() {
+        let mut settings = runtime_settings_fixture();
+        settings.http_secret = String::new();
+        settings.stats_sync_instance_id = String::new();
+        settings.stats_sync_base_url = "https://madao-stats.example.workers.dev".to_string();
+        settings.stats_sync_api_token = "replace-me".to_string();
+
+        let repaired = repair_runtime_settings_with_defaults(
+            &mut settings,
+            "https://madao-stats.nznd.org",
+            "compiled-token",
+        );
+
+        assert!(repaired);
+        assert!(!settings.http_secret.trim().is_empty());
+        assert!(!settings.stats_sync_instance_id.trim().is_empty());
+        assert_eq!(settings.stats_sync_base_url, "https://madao-stats.nznd.org");
+        assert_eq!(settings.stats_sync_api_token, "compiled-token");
+    }
+
+    #[test]
+    fn repair_runtime_settings_keeps_custom_stats_sync_values() {
+        let mut settings = runtime_settings_fixture();
+
+        let repaired = repair_runtime_settings_with_defaults(
+            &mut settings,
+            "https://madao-stats.nznd.org",
+            "compiled-token",
+        );
+
+        assert!(!repaired);
+        assert_eq!(
+            settings.stats_sync_base_url,
+            "https://custom.example.workers.dev/proxy"
+        );
+        assert_eq!(settings.stats_sync_api_token, "custom-token");
     }
 
     #[test]

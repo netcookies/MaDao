@@ -2,6 +2,8 @@
 
 Cloudflare Worker + D1，用于接收 app 上传的匿名统计事件，并返回按服务、国家、运营商、服务商聚合的近期汇总数据。
 
+App/daemon 侧启用统计同步后，会大约每分钟自动批量上传待同步事件；Settings 中的 `Sync now` 只是立即补同步入口。Worker 侧不会主动拉取 app 数据，只负责接收上传、刷新快照和提供汇总读取。
+
 ## Endpoints
 
 - `GET /health`
@@ -13,7 +15,7 @@ Cloudflare Worker + D1，用于接收 app 上传的匿名统计事件，并返�
 
 ## Auth
 
-上传接口、运维实时/过滤汇总接口和手动刷新接口需要：
+App 自动上传使用 `POST /v1/events`。上传接口、运维实时/过滤汇总接口和手动刷新接口需要：
 
 `Authorization: Bearer <API_TOKEN>`
 

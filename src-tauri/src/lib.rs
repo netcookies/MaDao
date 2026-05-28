@@ -1,15 +1,15 @@
+use fs2::FileExt;
 use plugin_sdk::ProviderManifest;
 use serde::Serialize;
 use sms_core::config::ServerConfig;
 use sms_core::models::ProviderSummary;
 use sms_core::models::{RuntimeAccessInfo, RuntimeSettings};
 use sms_core::registry::ProviderRegistry;
-use sms_core::runtime_config::load_runtime_settings_from_disk;
 use sms_core::runtime_config::AppPersistencePaths;
+use sms_core::runtime_config::load_runtime_settings_from_disk;
 use sms_core::service::SmsService;
 use sms_core::socket_api::SocketCommand;
 use sms_server::{spawn_http_server, spawn_socket_server};
-use fs2::FileExt;
 use std::fs;
 use std::fs::File;
 use std::io::ErrorKind;
@@ -206,7 +206,14 @@ fn try_acquire_desktop_runtime_owner(config_dir: &Path) -> Result<Option<File>, 
         .map_err(|err| format!("open desktop owner lock failed: {err}"))?;
     match file.try_lock_exclusive() {
         Ok(()) => Ok(Some(file)),
-        Err(error) if matches!(error.kind(), ErrorKind::WouldBlock | ErrorKind::PermissionDenied) => Ok(None),
+        Err(error)
+            if matches!(
+                error.kind(),
+                ErrorKind::WouldBlock | ErrorKind::PermissionDenied
+            ) =>
+        {
+            Ok(None)
+        }
         Err(error) => Err(format!("lock desktop runtime owner failed: {error}")),
     }
 }
@@ -948,6 +955,9 @@ pub fn run() {
                         let _ = background_service.maybe_poll_provider_options().await;
                         background_service.refresh_all_provider_balances().await;
                         background_service.maybe_dispatch_ticket_callbacks().await;
+                        if let Err(error) = background_service.sync_ticket_stats().await {
+                            eprintln!("stats sync failed: {error}");
+                        }
                         tokio::time::sleep(std::time::Duration::from_secs(60)).await;
                     }
                 });
