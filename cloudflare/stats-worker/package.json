@@ -4,7 +4,12 @@
   "type": "module",
   "scripts": {
     "dev": "wrangler dev",
-    "deploy": "wrangler deploy"
+    "deploy": "wrangler deploy",
+    "ops:health": "node scripts/ops.mjs health",
+    "ops:refresh": "node scripts/ops.mjs refresh",
+    "ops:summary": "node scripts/ops.mjs summary",
+    "ops:realtime": "node scripts/ops.mjs realtime",
+    "ops:tail": "wrangler tail madao-stats-worker --format pretty"
   },
   "devDependencies": {
     "@cloudflare/workers-types": "^4.20260524.0",

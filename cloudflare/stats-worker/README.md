@@ -118,9 +118,36 @@ npm run deploy
 
 Worker 会自动创建/更新到你的 Cloudflare 账户下。数据库表结构由 Worker 首次请求时自动创建（`ensureSchema`），无需手动执行 SQL。
 
-部署后可手动预热一次仪表盘快照：
+## 运维命令
+
+运维脚本默认访问 `https://madao-stats.nznd.org`。如需访问其他 Worker 域名，可以在命令后追加 `-- --base-url https://...`。需要鉴权的命令会按 `STATS_WORKER_API_TOKEN`、`API_TOKEN`、`.dev.vars` 中的 `API_TOKEN` 顺序读取 token，且不会打印 token。
+
+健康检查：
 
 ```bash
-curl -X POST https://<你的 worker 域名>/v1/admin/dashboard/refresh \
-  -H "Authorization: Bearer <API_TOKEN>"
+npm run ops:health
+```
+
+刷新 dashboard 和 `24h`、`72h`、`168h` summary 快照：
+
+```bash
+npm run ops:refresh
+```
+
+读取 app 总览实际使用的公开 summary 快照：
+
+```bash
+npm run ops:summary -- --lookback 24
+```
+
+实时查询 D1 明细汇总（仅用于运维排查，不写入公开快照）：
+
+```bash
+npm run ops:realtime -- --lookback 24 --service openai
+```
+
+查看线上日志：
+
+```bash
+npm run ops:tail
 ```
