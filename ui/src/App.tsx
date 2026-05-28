@@ -90,6 +90,7 @@ import {
   selectorOptionFromOptionItem,
   selectorOptionFromProvider,
 } from './app/selectorViewModel';
+import { applyDocumentTheme, subscribeToSystemThemeChange } from './app/theme';
 import { cx } from './lib/cx';
 import { useActivationFlow } from './hooks/useActivationFlow';
 import { useConsoleDataState } from './hooks/useConsoleDataState';
@@ -116,7 +117,7 @@ import {
   saveRoutingPlan,
 } from './services/runtimeApi';
 import { getAppConfigDirectory, openAppConfigDirectory } from './services/appConfigApi';
-import { openExternalUrl, windowAction } from './services/windowApi';
+import { openExternalUrl, setAppThemePreference, windowAction } from './services/windowApi';
 import { listenMenuCommand } from './services/menuBarApi';
 import { i18n } from './app/i18n';
 import { formatProviderErrorMessage } from './app/providerErrors';
@@ -949,11 +950,23 @@ export function App() {
   }, [activeScreen, providerView, visibleProviderIds]);
 
   useEffect(() => {
-    const root = document.documentElement;
-    root.dataset.theme = appearanceTheme;
-    root.dataset.language = language;
+    applyDocumentTheme(appearanceTheme, language);
     window.localStorage.setItem('madao-theme', appearanceTheme);
     window.localStorage.setItem('madao-language', language);
+  }, [appearanceTheme, language]);
+
+  useEffect(() => {
+    void setAppThemePreference(appearanceTheme);
+  }, [appearanceTheme]);
+
+  useEffect(() => {
+    if (appearanceTheme !== 'system') return;
+
+    function handleSystemThemeChange() {
+      applyDocumentTheme(appearanceTheme, language);
+    }
+
+    return subscribeToSystemThemeChange(handleSystemThemeChange) ?? undefined;
   }, [appearanceTheme, language]);
 
   useEffect(() => {

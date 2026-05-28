@@ -1,4 +1,6 @@
 import { invoke } from '@tauri-apps/api/core';
+import { setTheme } from '@tauri-apps/api/app';
+import type { AppearanceTheme } from '../app/types';
 import { IS_DESKTOP_RUNTIME } from './runtimeEnv';
 
 export async function windowAction(action: 'minimize' | 'maximize_toggle' | 'close') {
@@ -12,6 +14,15 @@ export async function setWindowTitle(title: string) {
     await invoke('set_window_title', { title });
   } catch {
     // 浏览器模式下没有 Tauri window，静默忽略。
+  }
+}
+
+export async function setAppThemePreference(theme: AppearanceTheme) {
+  if (!IS_DESKTOP_RUNTIME) return;
+  try {
+    await setTheme(theme === 'system' ? null : theme);
+  } catch {
+    // 主题同步失败时保留 WebView 主题，不打断设置更新。
   }
 }
 

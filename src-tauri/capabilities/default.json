@@ -3,5 +3,5 @@
   "identifier": "default",
   "description": "Default desktop capability for MaDao",
   "windows": ["main"],
-  "permissions": ["core:default"]
+  "permissions": ["core:default", "core:app:allow-set-app-theme"]
 }
