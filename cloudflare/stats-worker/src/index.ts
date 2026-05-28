@@ -23,8 +23,8 @@ type TicketStatsEvent = {
   outcome: TicketStatsOutcome;
   status: string;
   occurred_at: string;
-  routing_plan_id?: string | null;
-  routing_item_id?: string | null;
+  price?: number | null;
+  receive_duration_secs?: number | null;
   message?: string | null;
 };
 
@@ -70,13 +70,16 @@ async function ensureSchema(env: Env) {
       outcome TEXT NOT NULL,
       status TEXT NOT NULL,
       occurred_at TEXT NOT NULL,
-      routing_plan_id TEXT,
-      routing_item_id TEXT,
+      price REAL,
+      receive_duration_secs REAL,
       message TEXT
     );
     CREATE INDEX IF NOT EXISTS idx_ticket_stats_events_lookup
       ON ticket_stats_events(service, country, operator, provider, occurred_at);
   `);
+  // Migrate existing tables that lack new columns
+  await env.DB.exec(`ALTER TABLE ticket_stats_events ADD COLUMN price REAL;`).catch(() => {});
+  await env.DB.exec(`ALTER TABLE ticket_stats_events ADD COLUMN receive_duration_secs REAL;`).catch(() => {});
 }
 
 async function uploadEvents(request: Request, env: Env) {
@@ -93,7 +96,7 @@ async function uploadEvents(request: Request, env: Env) {
     env.DB.prepare(`
       INSERT OR REPLACE INTO ticket_stats_events (
         id, ticket_id, app_instance_id, app_version, provider, service, country, operator,
-        outcome, status, occurred_at, routing_plan_id, routing_item_id, message
+        outcome, status, occurred_at, price, receive_duration_secs, message
       ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `).bind(
       event.id,
@@ -107,8 +110,8 @@ async function uploadEvents(request: Request, env: Env) {
       event.outcome,
       event.status,
       event.occurred_at,
-      event.routing_plan_id ?? null,
-      event.routing_item_id ?? null,
+      event.price ?? null,
+      event.receive_duration_secs ?? null,
       event.message ?? null,
     )
   );
@@ -141,18 +144,22 @@ async function querySummary(request: Request, env: Env) {
         AND (? IS NULL OR COALESCE(operator, 'any') = ?)
         AND (? IS NULL OR provider = ?)
     ),
-    latest_ticket_events AS (
-      SELECT *
-      FROM (
-        SELECT
-          filtered_events.*,
-          ROW_NUMBER() OVER (
-            PARTITION BY ticket_id
-            ORDER BY occurred_at DESC, id DESC
-          ) AS row_number
-        FROM filtered_events
-      )
-      WHERE row_number = 1
+    ticket_agg AS (
+      SELECT
+        ticket_id,
+        provider,
+        service,
+        country,
+        operator,
+        MAX(price) AS price,
+        SUM(CASE WHEN outcome = 'code_received' THEN 1 ELSE 0 END) AS code_received_count,
+        MAX(CASE WHEN outcome = 'code_received' THEN receive_duration_secs END) AS last_receive_duration,
+        MAX(CASE WHEN outcome IN ('finished', 'code_received') THEN 1 ELSE 0 END) AS is_success,
+        MAX(CASE WHEN outcome = 'cancelled' THEN 1 ELSE 0 END) AS is_cancelled,
+        MAX(CASE WHEN outcome = 'banned' THEN 1 ELSE 0 END) AS is_banned,
+        MAX(CASE WHEN outcome = 'failed' THEN 1 ELSE 0 END) AS is_failed
+      FROM filtered_events
+      GROUP BY ticket_id, provider, service, country, operator
     )
     SELECT
       provider,
@@ -160,11 +167,13 @@ async function querySummary(request: Request, env: Env) {
       country,
       COALESCE(operator, 'any') AS operator,
       COUNT(*) AS total,
-      SUM(CASE WHEN outcome IN ('code_received', 'finished') THEN 1 ELSE 0 END) AS success_count,
-      SUM(CASE WHEN outcome = 'cancelled' THEN 1 ELSE 0 END) AS cancelled_count,
-      SUM(CASE WHEN outcome = 'banned' THEN 1 ELSE 0 END) AS banned_count,
-      SUM(CASE WHEN outcome = 'failed' THEN 1 ELSE 0 END) AS failed_count
-    FROM latest_ticket_events
+      SUM(is_success) AS success_count,
+      SUM(is_cancelled) AS cancelled_count,
+      SUM(is_banned) AS banned_count,
+      SUM(is_failed) AS failed_count,
+      AVG(CASE WHEN code_received_count > 0 AND price IS NOT NULL THEN price / code_received_count END) AS avg_effective_price,
+      AVG(last_receive_duration) AS avg_receive_time_secs
+    FROM ticket_agg
     GROUP BY provider, service, country, COALESCE(operator, 'any')
     ORDER BY success_count DESC, total DESC
     `
@@ -192,6 +201,8 @@ async function querySummary(request: Request, env: Env) {
       cancelled_count: Number(row.cancelled_count ?? 0),
       banned_count: Number(row.banned_count ?? 0),
       failed_count: Number(row.failed_count ?? 0),
+      avg_effective_price: row.avg_effective_price != null ? Number(row.avg_effective_price) : null,
+      avg_receive_time_secs: row.avg_receive_time_secs != null ? Number(row.avg_receive_time_secs) : null,
     };
   });
 

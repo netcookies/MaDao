@@ -10,6 +10,8 @@ pub const RUNTIME_DB_FILE_NAME: &str = "runtime.db";
 pub const RUNTIME_SETTINGS_FILE_NAME: &str = "runtime-settings.json";
 pub const PROVIDER_OPTIONS_CACHE_FILE_NAME: &str = "provider-options-cache.json";
 pub const PROVIDER_OPTIONS_RAW_AUDIT_FILE_NAME: &str = "provider-options-raw.json";
+pub const DEFAULT_STATS_SYNC_BASE_URL: &str = "https://madao-stats.example.workers.dev";
+pub const DEFAULT_STATS_SYNC_API_TOKEN: &str = "replace-me";
 
 #[derive(Debug, Clone)]
 pub struct AppPersistencePaths {
@@ -52,7 +54,10 @@ pub struct FileRuntimeConfigRepository {
 }
 
 impl FileRuntimeConfigRepository {
-    pub fn new(runtime_settings_path: Option<PathBuf>, routing_plans_path: Option<PathBuf>) -> Self {
+    pub fn new(
+        runtime_settings_path: Option<PathBuf>,
+        routing_plans_path: Option<PathBuf>,
+    ) -> Self {
         let routing_plans_path = routing_plans_path.or_else(|| {
             runtime_settings_path.as_ref().and_then(|path| {
                 path.parent()
@@ -126,8 +131,8 @@ pub fn default_runtime_settings() -> RuntimeSettings {
         http_secret: generate_runtime_secret(),
         stats_sync_instance_id: Uuid::now_v7().to_string(),
         stats_sync_enabled: false,
-        stats_sync_base_url: String::new(),
-        stats_sync_api_token: String::new(),
+        stats_sync_base_url: DEFAULT_STATS_SYNC_BASE_URL.to_string(),
+        stats_sync_api_token: DEFAULT_STATS_SYNC_API_TOKEN.to_string(),
     }
 }
 

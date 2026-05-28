@@ -573,6 +573,10 @@ pub struct RemoteStatsSummaryItem {
     pub cancelled_count: u32,
     pub banned_count: u32,
     pub failed_count: u32,
+    #[serde(default)]
+    pub avg_effective_price: Option<f64>,
+    #[serde(default)]
+    pub avg_receive_time_secs: Option<f64>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -714,9 +718,9 @@ pub struct TicketStatsEvent {
     pub status: TicketStatus,
     pub occurred_at: DateTime<Utc>,
     #[serde(default)]
-    pub routing_plan_id: Option<String>,
+    pub price: Option<f64>,
     #[serde(default)]
-    pub routing_item_id: Option<String>,
+    pub receive_duration_secs: Option<f64>,
     #[serde(default)]
     pub message: Option<String>,
     #[serde(default)]

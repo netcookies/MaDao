@@ -11,7 +11,7 @@ use std::error::Error as StdError;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
-const RUNTIME_DB_SCHEMA_VERSION: i64 = 2;
+const RUNTIME_DB_SCHEMA_VERSION: i64 = 3;
 const RELEASE_OWNER_KEY: &str = "release_owner";
 
 #[derive(Debug, Clone)]
@@ -502,8 +502,8 @@ impl RuntimeStore {
               outcome TEXT NOT NULL,
               status TEXT NOT NULL,
               occurred_at TEXT NOT NULL,
-              routing_plan_id TEXT,
-              routing_item_id TEXT,
+              price REAL,
+              receive_duration_secs REAL,
               message TEXT,
               synced_at TEXT
             );
@@ -565,10 +565,16 @@ impl RuntimeStore {
     }
 
     fn migrate_schema(&self, conn: &Connection, current_version: i64) -> Result<(), SmsError> {
-        if current_version >= 2 {
-            return Ok(());
+        if current_version < 2 {
+            self.migrate_v1_to_v2(conn)?;
         }
+        if current_version < 3 {
+            self.migrate_v2_to_v3(conn)?;
+        }
+        Ok(())
+    }
 
+    fn migrate_v1_to_v2(&self, conn: &Connection) -> Result<(), SmsError> {
         conn.execute_batch(
             "
             ALTER TABLE tickets RENAME TO tickets_legacy;
@@ -622,8 +628,9 @@ impl RuntimeStore {
         for row in rows {
             let payload =
                 row.map_err(|err| SmsError::Io(format!("read legacy ticket row failed: {err}")))?;
-            let ticket = serde_json::from_str::<TicketRecord>(&payload)
-                .map_err(|err| SmsError::Config(format!("parse legacy ticket payload failed: {err}")))?;
+            let ticket = serde_json::from_str::<TicketRecord>(&payload).map_err(|err| {
+                SmsError::Config(format!("parse legacy ticket payload failed: {err}"))
+            })?;
             tickets.push(ticket);
         }
         drop(stmt);
@@ -635,6 +642,12 @@ impl RuntimeStore {
             .map_err(|err| SmsError::Io(format!("commit migrated tickets failed: {err}")))?;
         conn.execute("DROP TABLE tickets_legacy", [])
             .map_err(|err| SmsError::Io(format!("drop legacy tickets table failed: {err}")))?;
+        Ok(())
+    }
+
+    fn migrate_v2_to_v3(&self, conn: &Connection) -> Result<(), SmsError> {
+        add_column_if_missing(conn, "ticket_stats_events", "price", "REAL")?;
+        add_column_if_missing(conn, "ticket_stats_events", "receive_duration_secs", "REAL")?;
         Ok(())
     }
 
@@ -707,7 +720,7 @@ impl RuntimeStore {
         let mut stmt = conn
             .prepare(
                 "SELECT id, ticket_id, provider, service, country, operator, outcome, status,
-                        occurred_at, routing_plan_id, routing_item_id, message, synced_at
+                        occurred_at, price, receive_duration_secs, message, synced_at
                  FROM ticket_stats_events
                  ORDER BY occurred_at ASC, id ASC",
             )
@@ -853,8 +866,8 @@ impl ReleaseCoordinationRepository for RuntimeStore {
 
 fn insert_tickets(tx: &Transaction<'_>, tickets: &[TicketRecord]) -> Result<(), SmsError> {
     let mut stmt = tx
-            .prepare(
-                "INSERT INTO tickets (
+        .prepare(
+            "INSERT INTO tickets (
                     id, provider, service, country, operator, phone_number, upstream_id, price,
                     status, created_at, updated_at, acquire_path, code, message,
                     same_activation_retry_supported, same_activation_retry_expires_at,
@@ -867,11 +880,13 @@ fn insert_tickets(tx: &Transaction<'_>, tickets: &[TicketRecord]) -> Result<(), 
                     ?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16,
                     ?17, ?18, ?19, ?20, ?21, ?22, ?23, ?24, ?25, ?26, ?27, ?28, ?29, ?30, ?31
                  )",
-            )
-            .map_err(|err| SmsError::Io(format!("prepare ticket insert failed: {err}")))?;
+        )
+        .map_err(|err| SmsError::Io(format!("prepare ticket insert failed: {err}")))?;
     for ticket in tickets {
-        let candidate_ids = serde_json::to_string(&ticket.routing_candidate_item_ids)
-            .map_err(|err| SmsError::Config(format!("serialize ticket candidate ids failed: {err}")))?;
+        let candidate_ids =
+            serde_json::to_string(&ticket.routing_candidate_item_ids).map_err(|err| {
+                SmsError::Config(format!("serialize ticket candidate ids failed: {err}"))
+            })?;
         stmt.execute(params![
             ticket.id,
             ticket.provider,
@@ -888,17 +903,28 @@ fn insert_tickets(tx: &Transaction<'_>, tickets: &[TicketRecord]) -> Result<(), 
             ticket.code,
             ticket.message,
             ticket.same_activation_retry_supported as i64,
-            ticket.same_activation_retry_expires_at.map(|value| value.to_rfc3339()),
-            ticket.pending_release_action.as_ref().map(encode_release_action),
+            ticket
+                .same_activation_retry_expires_at
+                .map(|value| value.to_rfc3339()),
+            ticket
+                .pending_release_action
+                .as_ref()
+                .map(encode_release_action),
             ticket.auto_release_at.map(|value| value.to_rfc3339()),
-            ticket.next_release_attempt_at.map(|value| value.to_rfc3339()),
-            ticket.release_retry_deadline_at.map(|value| value.to_rfc3339()),
+            ticket
+                .next_release_attempt_at
+                .map(|value| value.to_rfc3339()),
+            ticket
+                .release_retry_deadline_at
+                .map(|value| value.to_rfc3339()),
             ticket.release_retry_count,
             ticket.routing_plan_id,
             ticket.routing_plan_name,
             ticket.routing_item_id,
             ticket.routing_item_index,
-            ticket.routing_execution_mode.map(|value| encode_routing_execution_mode(&value)),
+            ticket
+                .routing_execution_mode
+                .map(|value| encode_routing_execution_mode(&value)),
             ticket.routing_execution_rounds,
             ticket.routing_current_round,
             candidate_ids,
@@ -914,7 +940,7 @@ fn upsert_ticket_tx(tx: &Transaction<'_>, ticket: &TicketRecord) -> Result<(), S
     let candidate_ids = serde_json::to_string(&ticket.routing_candidate_item_ids)
         .map_err(|err| SmsError::Config(format!("serialize ticket candidate ids failed: {err}")))?;
     tx.execute(
-            "INSERT INTO tickets (
+        "INSERT INTO tickets (
                 id, provider, service, country, operator, phone_number, upstream_id, price,
                 status, created_at, updated_at, acquire_path, code, message,
                 same_activation_retry_supported, same_activation_retry_expires_at,
@@ -958,41 +984,52 @@ fn upsert_ticket_tx(tx: &Transaction<'_>, ticket: &TicketRecord) -> Result<(), S
                 routing_candidate_item_ids_json = excluded.routing_candidate_item_ids_json,
                 routing_attempt_count = excluded.routing_attempt_count,
                 reuse_count = excluded.reuse_count",
-            params![
-                ticket.id,
-                ticket.provider,
-                ticket.service,
-                ticket.country,
-                ticket.operator,
-                ticket.phone_number,
-                ticket.upstream_id,
-                ticket.price,
-                encode_ticket_status(&ticket.status),
-                ticket.created_at.to_rfc3339(),
-                ticket.updated_at.to_rfc3339(),
-                encode_acquire_path(&ticket.acquire_path),
-                ticket.code,
-                ticket.message,
-                ticket.same_activation_retry_supported as i64,
-                ticket.same_activation_retry_expires_at.map(|value| value.to_rfc3339()),
-                ticket.pending_release_action.as_ref().map(encode_release_action),
-                ticket.auto_release_at.map(|value| value.to_rfc3339()),
-                ticket.next_release_attempt_at.map(|value| value.to_rfc3339()),
-                ticket.release_retry_deadline_at.map(|value| value.to_rfc3339()),
-                ticket.release_retry_count,
-                ticket.routing_plan_id,
-                ticket.routing_plan_name,
-                ticket.routing_item_id,
-                ticket.routing_item_index,
-                ticket.routing_execution_mode.map(|value| encode_routing_execution_mode(&value)),
-                ticket.routing_execution_rounds,
-                ticket.routing_current_round,
-                candidate_ids,
-                ticket.routing_attempt_count,
-                ticket.reuse_count,
-            ],
-        )
-        .map_err(|err| SmsError::Io(format!("upsert ticket failed: {err}")))?;
+        params![
+            ticket.id,
+            ticket.provider,
+            ticket.service,
+            ticket.country,
+            ticket.operator,
+            ticket.phone_number,
+            ticket.upstream_id,
+            ticket.price,
+            encode_ticket_status(&ticket.status),
+            ticket.created_at.to_rfc3339(),
+            ticket.updated_at.to_rfc3339(),
+            encode_acquire_path(&ticket.acquire_path),
+            ticket.code,
+            ticket.message,
+            ticket.same_activation_retry_supported as i64,
+            ticket
+                .same_activation_retry_expires_at
+                .map(|value| value.to_rfc3339()),
+            ticket
+                .pending_release_action
+                .as_ref()
+                .map(encode_release_action),
+            ticket.auto_release_at.map(|value| value.to_rfc3339()),
+            ticket
+                .next_release_attempt_at
+                .map(|value| value.to_rfc3339()),
+            ticket
+                .release_retry_deadline_at
+                .map(|value| value.to_rfc3339()),
+            ticket.release_retry_count,
+            ticket.routing_plan_id,
+            ticket.routing_plan_name,
+            ticket.routing_item_id,
+            ticket.routing_item_index,
+            ticket
+                .routing_execution_mode
+                .map(|value| encode_routing_execution_mode(&value)),
+            ticket.routing_execution_rounds,
+            ticket.routing_current_round,
+            candidate_ids,
+            ticket.routing_attempt_count,
+            ticket.reuse_count,
+        ],
+    )
+    .map_err(|err| SmsError::Io(format!("upsert ticket failed: {err}")))?;
     Ok(())
 }
 
@@ -1009,9 +1046,7 @@ fn decode_ticket_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<TicketRecord> 
         &routing_candidate_item_ids_json,
     )
     .map_err(|err| {
-        rusqlite::Error::ToSqlConversionFailure(
-            Box::new(err) as Box<dyn StdError + Send + Sync>
-        )
+        rusqlite::Error::ToSqlConversionFailure(Box::new(err) as Box<dyn StdError + Send + Sync>)
     })?;
 
     Ok(TicketRecord {
@@ -1053,9 +1088,7 @@ fn decode_ticket_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<TicketRecord> 
     })
 }
 
-fn decode_ticket_stats_event_row(
-    row: &rusqlite::Row<'_>,
-) -> rusqlite::Result<TicketStatsEvent> {
+fn decode_ticket_stats_event_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<TicketStatsEvent> {
     let occurred_at = parse_datetime(row.get::<_, String>(8)?).map_err(to_sqlite_decode_error)?;
     let synced_at = parse_optional_datetime(row.get::<_, Option<String>>(12)?);
     Ok(TicketStatsEvent {
@@ -1068,8 +1101,8 @@ fn decode_ticket_stats_event_row(
         outcome: decode_ticket_stats_outcome(&row.get::<_, String>(6)?),
         status: decode_ticket_status(&row.get::<_, String>(7)?),
         occurred_at,
-        routing_plan_id: row.get(9)?,
-        routing_item_id: row.get(10)?,
+        price: row.get(9)?,
+        receive_duration_secs: row.get(10)?,
         message: row.get(11)?,
         synced_at,
     })
@@ -1125,7 +1158,7 @@ fn insert_ticket_stats_events(
         .prepare(
             "INSERT INTO ticket_stats_events (
                 id, ticket_id, provider, service, country, operator, outcome, status,
-                occurred_at, routing_plan_id, routing_item_id, message, synced_at
+                occurred_at, price, receive_duration_secs, message, synced_at
              ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13)",
         )
         .map_err(|err| SmsError::Io(format!("prepare stats event insert failed: {err}")))?;
@@ -1140,8 +1173,8 @@ fn insert_ticket_stats_events(
             encode_ticket_stats_outcome(&event.outcome),
             encode_ticket_status(&event.status),
             event.occurred_at.to_rfc3339(),
-            event.routing_plan_id,
-            event.routing_item_id,
+            event.price,
+            event.receive_duration_secs,
             event.message,
             event.synced_at.map(|value| value.to_rfc3339()),
         ])
@@ -1304,7 +1337,9 @@ impl RuntimeStoreTx<'_, '_> {
                     .reuse_pool
                     .insert(provider_bucket.clone(), entries.clone());
             }
-            state.ticket_stats_events.extend(batch.stats_events.iter().cloned());
+            state
+                .ticket_stats_events
+                .extend(batch.stats_events.iter().cloned());
             if !batch.mark_stats_events_synced.is_empty() {
                 for (event_id, synced_at) in &batch.mark_stats_events_synced {
                     if let Some(event) = state
@@ -1364,7 +1399,9 @@ impl RuntimeStoreTx<'_, '_> {
                         "UPDATE ticket_stats_events SET synced_at = ?2 WHERE id = ?1",
                         params![event_id, synced_at.to_rfc3339()],
                     )
-                    .map_err(|err| SmsError::Io(format!("mark stats event synced failed: {err}")))?;
+                    .map_err(|err| {
+                        SmsError::Io(format!("mark stats event synced failed: {err}"))
+                    })?;
             }
         }
         if let Some(status) = batch.stats_sync_status.as_ref() {
@@ -1662,6 +1699,37 @@ fn decode_release_action(value: &str) -> ReleaseAction {
         "ban" => ReleaseAction::Ban,
         _ => ReleaseAction::Cancel,
     }
+}
+
+fn add_column_if_missing(
+    conn: &Connection,
+    table_name: &str,
+    column_name: &str,
+    column_type: &str,
+) -> Result<(), SmsError> {
+    let mut stmt = conn
+        .prepare(&format!("PRAGMA table_info({table_name})"))
+        .map_err(|err| SmsError::Io(format!("prepare table info failed: {err}")))?;
+    let columns = stmt
+        .query_map([], |row| row.get::<_, String>(1))
+        .map_err(|err| SmsError::Io(format!("query table info failed: {err}")))?;
+    for column in columns {
+        let column =
+            column.map_err(|err| SmsError::Io(format!("read table info failed: {err}")))?;
+        if column == column_name {
+            return Ok(());
+        }
+    }
+    conn.execute(
+        &format!("ALTER TABLE {table_name} ADD COLUMN {column_name} {column_type}"),
+        [],
+    )
+    .map_err(|err| {
+        SmsError::Io(format!(
+            "add sqlite column {table_name}.{column_name} failed: {err}"
+        ))
+    })?;
+    Ok(())
 }
 
 fn encode_activity_level(level: &crate::models::ActivityLevel) -> &'static str {

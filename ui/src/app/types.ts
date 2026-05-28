@@ -300,6 +300,8 @@ export type RemoteStatsSummaryResponse = {
     cancelled_count: number;
     banned_count: number;
     failed_count: number;
+    avg_effective_price: number | null;
+    avg_receive_time_secs: number | null;
   }>;
 };
 

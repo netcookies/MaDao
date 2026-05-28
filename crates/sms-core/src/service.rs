@@ -7,15 +7,14 @@ use crate::models::{
     ProviderDynamicOptions, ProviderManifestList, ProviderManifestSaveResponse,
     ProviderOperatorsQuery, ProviderOptionCacheEntry, ProviderPriceQuery, ProviderPriceResponse,
     ProviderRawOptionAuditEntry, ProviderReorderRequest, ProviderServicesQuery, ProviderSummary,
-    ReleaseCodeRequest, ReleaseCodeResponse, ReuseCapability, ReusePoolEntry, ReusePoolSummary,
-    RemoteStatsSummaryQuery, RemoteStatsSummaryResponse,
-    RoutingExecutionMode, RoutingFailoverRequest, RoutingPlan, RoutingPlanItem, RoutingPlanList,
-    RoutingPlanStore, RoutingReplaceRequest, RoutingReplaceResponse, RuntimeAccessInfo,
-    RuntimeSettings, RuntimeSettingsUpdate, RuntimeSnapshot, RuntimeStateStore, StatsSyncStatus,
-    StatsSyncResult,
+    ReleaseCodeRequest, ReleaseCodeResponse, RemoteStatsSummaryQuery, RemoteStatsSummaryResponse,
+    ReuseCapability, ReusePoolEntry, ReusePoolSummary, RoutingExecutionMode,
+    RoutingFailoverRequest, RoutingPlan, RoutingPlanItem, RoutingPlanList, RoutingPlanStore,
+    RoutingReplaceRequest, RoutingReplaceResponse, RuntimeAccessInfo, RuntimeSettings,
+    RuntimeSettingsUpdate, RuntimeSnapshot, RuntimeStateStore, StatsSyncResult, StatsSyncStatus,
     TicketCallbackListResponse, TicketCallbackRegistrationRequest, TicketCallbackSubscription,
-    TicketCodeCallbackPayload, TicketListResponse, TicketRecord, TicketStatus,
-    TicketStatsEvent, TicketStatsOutcome,
+    TicketCodeCallbackPayload, TicketListResponse, TicketRecord, TicketStatsEvent,
+    TicketStatsOutcome, TicketStatus,
 };
 use crate::options::{
     FileProviderMetadataCacheRepository, OptionKind, ProviderMetadataCacheBatch,
@@ -28,7 +27,8 @@ use crate::options::{
 };
 use crate::registry::ProviderRegistry;
 use crate::runtime_config::{
-    AppPersistencePaths, FileRuntimeConfigRepository, RuntimeConfigRepository, RuntimeConfigState,
+    AppPersistencePaths, DEFAULT_STATS_SYNC_API_TOKEN, DEFAULT_STATS_SYNC_BASE_URL,
+    FileRuntimeConfigRepository, RuntimeConfigRepository, RuntimeConfigState,
     default_runtime_settings, normalize_loaded_routing_plans, normalize_routing_plan_item,
     normalize_routing_plan_service,
 };
@@ -298,8 +298,20 @@ impl SmsService {
             }
         };
         let mut runtime_settings = runtime_settings;
+        let mut runtime_settings_repaired = false;
         if runtime_settings.http_secret.trim().is_empty() {
             runtime_settings.http_secret = generate_runtime_secret();
+            runtime_settings_repaired = true;
+        }
+        if runtime_settings.stats_sync_base_url.trim().is_empty() {
+            runtime_settings.stats_sync_base_url = DEFAULT_STATS_SYNC_BASE_URL.to_string();
+            runtime_settings_repaired = true;
+        }
+        if runtime_settings.stats_sync_api_token.trim().is_empty() {
+            runtime_settings.stats_sync_api_token = DEFAULT_STATS_SYNC_API_TOKEN.to_string();
+            runtime_settings_repaired = true;
+        }
+        if runtime_settings_repaired {
             if let Err(error) = runtime_config_repository.save_settings(&runtime_settings) {
                 startup_warnings.push(format!(
                     "runtime settings persistence failed during startup repair: {error}"
@@ -666,7 +678,15 @@ impl SmsService {
         ticket: &TicketRecord,
         outcome: TicketStatsOutcome,
         message: Option<String>,
+        receive_started_at: Option<chrono::DateTime<Utc>>,
     ) {
+        let now = Utc::now();
+        let receive_duration_secs = if outcome == TicketStatsOutcome::CodeReceived {
+            let started_at = receive_started_at.unwrap_or(ticket.created_at);
+            Some((now - started_at).num_milliseconds().max(0) as f64 / 1000.0)
+        } else {
+            None
+        };
         let event = TicketStatsEvent {
             id: Uuid::now_v7().to_string(),
             ticket_id: ticket.id.clone(),
@@ -676,9 +696,9 @@ impl SmsService {
             operator: ticket.operator.clone(),
             outcome,
             status: ticket.status.clone(),
-            occurred_at: Utc::now(),
-            routing_plan_id: ticket.routing_plan_id.clone(),
-            routing_item_id: ticket.routing_item_id.clone(),
+            occurred_at: now,
+            price: ticket.price,
+            receive_duration_secs,
             message,
             synced_at: None,
         };
@@ -1559,6 +1579,7 @@ impl SmsService {
             &ticket,
             TicketStatsOutcome::Acquired,
             ticket.message.clone(),
+            None,
         );
         self.upsert_ticket_into_uow(&mut effect.uow, ticket);
         Ok(AcquireCodeRuntimeEffect {
@@ -2036,11 +2057,19 @@ impl SmsService {
             );
         }
         if let Some(outcome) = stats_outcome_for_status(&updated.status) {
+            let receive_started_at = if outcome == TicketStatsOutcome::CodeReceived
+                && current.acquire_path == AcquirePath::SameActivationRetry
+            {
+                Some(current.updated_at)
+            } else {
+                None
+            };
             self.append_ticket_stats_event_to_uow(
                 &mut uow,
                 &updated,
                 outcome,
                 updated.message.clone(),
+                receive_started_at,
             );
         }
         self.commit_runtime_uow(uow);
@@ -2273,6 +2302,7 @@ impl SmsService {
                 crate::models::ReleaseAction::Retry => TicketStatsOutcome::RetryRequested,
             },
             updated.message.clone(),
+            None,
         );
         uow.batch.upsert_ticket = Some(updated);
         uow.batch.reuse_bucket = reuse_bucket;
@@ -2479,7 +2509,9 @@ impl SmsService {
             .read()
             .get(&request.ticket_id)
             .cloned()
-            .ok_or_else(|| SmsError::InvalidRequest(format!("unknown ticket {}", request.ticket_id)))?;
+            .ok_or_else(|| {
+                SmsError::InvalidRequest(format!("unknown ticket {}", request.ticket_id))
+            })?;
         if current.routing_plan_id.is_none() {
             return Err(SmsError::InvalidRequest(
                 "ticket is not associated with a routing plan".to_string(),
@@ -4041,10 +4073,7 @@ impl SmsService {
             status.clone()
         };
         self.persist_runtime_batch(RuntimeStoreBatch {
-            mark_stats_events_synced: events
-                .iter()
-                .map(|event| (event.id.clone(), now))
-                .collect(),
+            mark_stats_events_synced: events.iter().map(|event| (event.id.clone(), now)).collect(),
             stats_sync_status: Some(status.clone()),
             ..RuntimeStoreBatch::default()
         });
@@ -4071,16 +4100,32 @@ impl SmsService {
             .map_err(|err| SmsError::Config(format!("invalid stats summary URL: {err}")))?;
         {
             let mut params = url.query_pairs_mut();
-            if let Some(provider) = query.provider.as_ref().filter(|value| !value.trim().is_empty()) {
+            if let Some(provider) = query
+                .provider
+                .as_ref()
+                .filter(|value| !value.trim().is_empty())
+            {
                 params.append_pair("provider", provider);
             }
-            if let Some(service) = query.service.as_ref().filter(|value| !value.trim().is_empty()) {
+            if let Some(service) = query
+                .service
+                .as_ref()
+                .filter(|value| !value.trim().is_empty())
+            {
                 params.append_pair("service", service);
             }
-            if let Some(country) = query.country.as_ref().filter(|value| !value.trim().is_empty()) {
+            if let Some(country) = query
+                .country
+                .as_ref()
+                .filter(|value| !value.trim().is_empty())
+            {
                 params.append_pair("country", country);
             }
-            if let Some(operator) = query.operator.as_ref().filter(|value| !value.trim().is_empty()) {
+            if let Some(operator) = query
+                .operator
+                .as_ref()
+                .filter(|value| !value.trim().is_empty())
+            {
                 params.append_pair("operator", operator);
             }
             if let Some(lookback_hours) = query.lookback_hours {
@@ -4882,6 +4927,7 @@ mod tests {
     use axum::routing::{get, post};
     use axum::{Json, Router};
     use parking_lot::Mutex;
+    use rusqlite::Connection;
     use serde_json::Value;
     use std::fs;
     use std::net::SocketAddr;
@@ -5155,6 +5201,96 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn same_activation_retry_stats_duration_starts_at_retry_time() {
+        async fn handler(Query(query): Query<HashMap<String, String>>) -> String {
+            match query.get("action").map(String::as_str) {
+                Some("setStatus") if query.get("status").map(String::as_str) == Some("3") => {
+                    "ACCESS_RETRY_GET".to_string()
+                }
+                Some("getStatus") => "STATUS_OK:123456".to_string(),
+                _ => "ACCESS_OK".to_string(),
+            }
+        }
+
+        let router = Router::new().route("/", get(handler));
+        let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let addr: SocketAddr = listener.local_addr().unwrap();
+        let server = tokio::spawn(async move {
+            let _ = axum::serve(listener, router).await;
+        });
+        let service = make_service_with_provider_overrides(&[(
+            "smsbower",
+            &|manifest: &mut ProviderManifest| {
+                manifest.handler_api.as_mut().unwrap().base_url = format!("http://{addr}/");
+                manifest.handler_api.as_mut().unwrap().api_key = "test-key".to_string();
+            },
+        )]);
+        let mut ticket = TicketRecord::new(
+            "smsbower".to_string(),
+            "telegram".to_string(),
+            "RU".to_string(),
+            "+10000000000".to_string(),
+            Some("smsbower-activation".to_string()),
+            Some(0.12),
+        );
+        let now = Utc::now();
+        ticket.status = TicketStatus::CodeReceived;
+        ticket.created_at = now - Duration::seconds(600);
+        ticket.updated_at = now - Duration::seconds(3);
+        ticket.acquire_path = AcquirePath::SameActivationRetry;
+        ticket.same_activation_retry_supported = true;
+        ticket.same_activation_retry_expires_at = Some(now + Duration::minutes(5));
+        service.upsert_ticket(ticket.clone());
+
+        let retry = service
+            .acquire_code(AcquireCodeRequest {
+                provider: "smsbower".to_string(),
+                service: Some("telegram".to_string()),
+                country: Some("RU".to_string()),
+                max_price: None,
+                min_price: None,
+                auto_pick_country: None,
+                reuse_phone: Some(true),
+                reuse_key: None,
+                metadata: BTreeMap::new(),
+                routing_plan_id: None,
+                routing_plan_name: None,
+            })
+            .await
+            .unwrap();
+        assert_eq!(retry.ticket_id, ticket.id);
+        assert_eq!(retry.acquire_path, AcquirePath::SameActivationRetry);
+        let retry_started_at = service.ticket(&ticket.id).unwrap().updated_at;
+
+        service
+            .poll_code(PollCodeRequest {
+                ticket_id: ticket.id.clone(),
+            })
+            .await
+            .unwrap();
+
+        let event = service
+            .ticket_stats_events
+            .read()
+            .iter()
+            .rev()
+            .find(|event| event.outcome == TicketStatsOutcome::CodeReceived)
+            .cloned()
+            .unwrap();
+        let receive_duration = event.receive_duration_secs.unwrap();
+        let retry_elapsed_secs =
+            (event.occurred_at - retry_started_at).num_milliseconds() as f64 / 1000.0;
+        let original_elapsed_secs =
+            (event.occurred_at - ticket.created_at).num_milliseconds() as f64 / 1000.0;
+
+        assert!((receive_duration - retry_elapsed_secs).abs() < 0.25);
+        assert!(original_elapsed_secs > 500.0);
+        assert!(receive_duration < 5.0);
+
+        server.abort();
+    }
+
+    #[tokio::test]
     async fn manifest_can_be_saved_and_reloaded() {
         let service = make_service();
         let mut manifest = service.provider_manifest("mock").unwrap();
@@ -5296,7 +5432,8 @@ mod tests {
 
     #[test]
     fn delete_routing_plan_keeps_in_memory_state_when_persist_fails() {
-        let base = std::env::temp_dir().join(format!("madao-routing-delete-fail-{}", Uuid::now_v7()));
+        let base =
+            std::env::temp_dir().join(format!("madao-routing-delete-fail-{}", Uuid::now_v7()));
         fs::create_dir_all(&base).unwrap();
         let blocked_dir = base.join("blocked");
         let routing_path = blocked_dir.join("routing-plans.json");
@@ -6949,7 +7086,8 @@ codes = ["123456"]
         assert_eq!(ticket.message.as_deref(), Some("STATUS_CANCEL"));
         let logs = service.runtime_snapshot().logs;
         assert!(logs.iter().any(|entry| {
-            entry.message
+            entry
+                .message
                 .contains("reconciled to cancelled from provider status")
         }));
 
@@ -7054,7 +7192,12 @@ codes = ["123456"]
             .unwrap()
             .load_state()
             .unwrap();
-        assert!(state.ticket_stats_events.iter().all(|event| event.synced_at.is_some()));
+        assert!(
+            state
+                .ticket_stats_events
+                .iter()
+                .all(|event| event.synced_at.is_some())
+        );
         assert_eq!(state.stats_sync_status.pending_events, 0);
         assert!(state.stats_sync_status.last_success_at.is_some());
 
@@ -7333,5 +7476,100 @@ codes = ["123456"]
         assert!(store.acquire_release_owner(&fresh, now).unwrap());
         let current = store.current_release_owner().unwrap().unwrap();
         assert_eq!(current.owner_id, "owner-b");
+    }
+
+    #[test]
+    fn sqlite_v2_stats_event_schema_migrates_price_columns() {
+        let base = std::env::temp_dir().join(format!("madao-runtime-store-{}", Uuid::now_v7()));
+        fs::create_dir_all(&base).unwrap();
+        let db_path = base.join("runtime.db");
+        let conn = Connection::open(&db_path).unwrap();
+        conn.execute_batch(
+            "
+            CREATE TABLE runtime_meta (
+              key TEXT PRIMARY KEY,
+              value_json TEXT NOT NULL,
+              updated_at TEXT NOT NULL
+            );
+            INSERT INTO runtime_meta (key, value_json, updated_at)
+              VALUES ('schema_version', '2', '2026-01-01T00:00:00Z');
+            CREATE TABLE tickets (
+              id TEXT PRIMARY KEY,
+              provider TEXT NOT NULL,
+              service TEXT NOT NULL,
+              country TEXT NOT NULL,
+              operator TEXT,
+              phone_number TEXT NOT NULL,
+              upstream_id TEXT,
+              price REAL,
+              status TEXT NOT NULL,
+              created_at TEXT NOT NULL,
+              updated_at TEXT NOT NULL,
+              acquire_path TEXT NOT NULL,
+              code TEXT,
+              message TEXT,
+              same_activation_retry_supported INTEGER NOT NULL,
+              same_activation_retry_expires_at TEXT,
+              pending_release_action TEXT,
+              auto_release_at TEXT,
+              next_release_attempt_at TEXT,
+              release_retry_deadline_at TEXT,
+              release_retry_count INTEGER NOT NULL,
+              routing_plan_id TEXT,
+              routing_plan_name TEXT,
+              routing_item_id TEXT,
+              routing_item_index INTEGER,
+              routing_execution_mode TEXT,
+              routing_execution_rounds INTEGER,
+              routing_current_round INTEGER,
+              routing_candidate_item_ids_json TEXT NOT NULL,
+              routing_attempt_count INTEGER NOT NULL,
+              reuse_count INTEGER NOT NULL
+            );
+            CREATE TABLE ticket_stats_events (
+              id TEXT PRIMARY KEY,
+              ticket_id TEXT NOT NULL,
+              provider TEXT NOT NULL,
+              service TEXT NOT NULL,
+              country TEXT NOT NULL,
+              operator TEXT,
+              outcome TEXT NOT NULL,
+              status TEXT NOT NULL,
+              occurred_at TEXT NOT NULL,
+              routing_plan_id TEXT,
+              routing_item_id TEXT,
+              message TEXT,
+              synced_at TEXT
+            );
+            ",
+        )
+        .unwrap();
+        drop(conn);
+
+        let store = RuntimeStore::open(&db_path).unwrap();
+        assert!(store.load_state().unwrap().ticket_stats_events.is_empty());
+
+        let conn = Connection::open(&db_path).unwrap();
+        let columns = conn
+            .prepare("PRAGMA table_info(ticket_stats_events)")
+            .unwrap()
+            .query_map([], |row| row.get::<_, String>(1))
+            .unwrap()
+            .collect::<Result<Vec<_>, _>>()
+            .unwrap();
+        assert!(columns.iter().any(|column| column == "price"));
+        assert!(
+            columns
+                .iter()
+                .any(|column| column == "receive_duration_secs")
+        );
+        let schema_version: String = conn
+            .query_row(
+                "SELECT value_json FROM runtime_meta WHERE key = 'schema_version'",
+                [],
+                |row| row.get(0),
+            )
+            .unwrap();
+        assert_eq!(schema_version, "3");
     }
 }
