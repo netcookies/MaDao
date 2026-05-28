@@ -32,6 +32,7 @@ It is not positioned as a public marketplace client. Instead, it provides a conf
   - `five_sim`
   - local `mock`
 - Routing plans, provider balances, price lookup, logs, and activation views
+- Anonymous usage statistics with Cloudflare Worker + D1 aggregation
 - Manifest-level `ui`, `behavior`, and profile-driven extension points
 
 ## Project Structure
@@ -39,6 +40,8 @@ It is not positioned as a public marketplace client. Instead, it provides a conf
 ```text
 .
 ├── apps/daemon/              # Local HTTP / Unix socket daemon entry
+├── cloudflare/
+│   └── stats-worker/         # Cloudflare Worker + D1 for stats aggregation
 ├── crates/
 │   ├── plugin-sdk/           # Provider manifest and protocol config models
 │   ├── sms-core/             # Domain models, provider trait, service layer
@@ -102,6 +105,29 @@ docker compose -f docker-compose.prod.yml up -d
 ```
 
 Published Docker images support both `linux/amd64` and `linux/arm64`.
+
+### Cloudflare Worker (stats aggregation)
+
+The `cloudflare/stats-worker/` directory contains a Cloudflare Worker + D1 service that receives anonymous usage statistics from the app and returns aggregated summaries.
+
+```bash
+cd cloudflare/stats-worker
+npm install
+```
+
+Local development:
+
+```bash
+npm run dev
+```
+
+Deploy to Cloudflare:
+
+```bash
+npm run deploy
+```
+
+Before deploying, update `wrangler.jsonc` with your D1 `database_id` and `API_TOKEN`. See [cloudflare/stats-worker/README.md](./cloudflare/stats-worker/README.md) for details.
 
 ## Runtime Notes
 
@@ -167,6 +193,7 @@ curl http://127.0.0.1:7822/api/provider-manifests
 - [Development](./docs/development.md)
 - [OpenAPI / Swagger UI](./docs/openapi/index.html)
 - [Docker Deployment](./docs/docker.md)
+- [Cloudflare Stats Worker](./cloudflare/stats-worker/README.md)
 - [Release Guide](./docs/release.md)
 - [Contributing](./CONTRIBUTING.md)
 

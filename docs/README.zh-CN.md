@@ -25,6 +25,7 @@
   - `five_sim`
   - 本地 `mock`
 - 支持 routing plans、余额查询、价格获取、日志与激活记录
+- 匿名使用统计，通过 Cloudflare Worker + D1 聚合
 - 支持通过 manifest 的 `ui`、`behavior` 和 profile 配置扩展 provider
 
 ## 目录结构
@@ -32,6 +33,8 @@
 ```text
 .
 ├── apps/daemon/              # 本地 HTTP / Unix socket 进程入口
+├── cloudflare/
+│   └── stats-worker/         # Cloudflare Worker + D1 统计聚合服务
 ├── crates/
 │   ├── plugin-sdk/           # Provider manifest 与协议配置模型
 │   ├── sms-core/             # 统一领域模型、provider trait、服务层
@@ -93,6 +96,29 @@ docker compose -f docker-compose.prod.yml up -d
 ```
 
 已发布的 Docker 镜像支持 `linux/amd64` 和 `linux/arm64`。
+
+### Cloudflare Worker（统计聚合）
+
+`cloudflare/stats-worker/` 目录包含一个 Cloudflare Worker + D1 服务，用于接收应用上报的匿名统计事件并返回聚合汇总。
+
+```bash
+cd cloudflare/stats-worker
+npm install
+```
+
+本地开发：
+
+```bash
+npm run dev
+```
+
+部署到 Cloudflare：
+
+```bash
+npm run deploy
+```
+
+部署前需要在 `wrangler.jsonc` 中填入真实的 D1 `database_id` 和 `API_TOKEN`。详见 [cloudflare/stats-worker/README.md](../cloudflare/stats-worker/README.md)。
 
 ## 运行时说明
 
@@ -157,6 +183,7 @@ curl http://127.0.0.1:7822/api/provider-manifests
 - [Routing Plans](./routing-plans.md)
 - [开发与验证说明](./development.md)
 - [Docker 部署说明](./docker.zh-CN.md)
+- [Cloudflare Stats Worker](../cloudflare/stats-worker/README.md)
 - [发布说明](./release.md)
 - [贡献指南](../CONTRIBUTING.md)
 
