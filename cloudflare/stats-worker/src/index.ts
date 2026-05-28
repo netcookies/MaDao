@@ -98,6 +98,20 @@ type SummaryResponse = {
   items: SummaryItem[];
 };
 
+type DashboardLanguage = 'en' | 'zh';
+
+type DashboardQuery = {
+  lookbackHours: number;
+  service: string | null;
+  language: DashboardLanguage;
+};
+
+type DashboardServiceOption = {
+  service: string;
+  label: string;
+  total: number;
+};
+
 type SummaryRow = {
   provider: string;
   service: string;
@@ -154,11 +168,29 @@ function errorMessage(error: unknown) {
   return error instanceof Error ? error.message : String(error);
 }
 
-function dashboardCacheKey(request: Request) {
+function buildDashboardQuery(request: Request): DashboardQuery {
+  const url = new URL(request.url);
+  const requestedLookback = Number(url.searchParams.get('lookback_hours') ?? '24');
+  const lookbackHours = PRECOMPUTED_SUMMARY_LOOKBACK_HOURS.includes(requestedLookback as typeof PRECOMPUTED_SUMMARY_LOOKBACK_HOURS[number])
+    ? requestedLookback
+    : 24;
+  const rawService = url.searchParams.get('service')?.trim() ?? '';
+  const rawLanguage = url.searchParams.get('lang')?.trim().toLowerCase();
+  return {
+    lookbackHours,
+    service: rawService && rawService.toLowerCase() !== 'all' ? rawService : null,
+    language: rawLanguage === 'zh' ? 'zh' : 'en',
+  };
+}
+
+function dashboardCacheKeyFor(request: Request, lookbackHours: number, service: string | null, language: DashboardLanguage) {
   const url = new URL(request.url);
   url.pathname = '/';
-  url.search = '';
   url.hash = '';
+  url.search = '';
+  url.searchParams.set('lookback_hours', String(lookbackHours));
+  url.searchParams.set('lang', language);
+  if (service) url.searchParams.set('service', service);
   return new Request(url.toString(), { method: 'GET' });
 }
 
@@ -287,13 +319,20 @@ async function getDashboardSnapshot(env: Env): Promise<DashboardSnapshot> {
 }
 
 async function renderDashboard(request: Request, env: Env, ctx: ExecutionContext) {
-  const cacheKey = dashboardCacheKey(request);
-  const cached = await defaultCache().match(cacheKey);
-  if (cached) return cached;
+  const query = buildDashboardQuery(request);
+  const shouldUseHtmlCache = query.service == null;
+  const cacheKey = dashboardCacheKeyFor(request, query.lookbackHours, null, query.language);
+  if (shouldUseHtmlCache) {
+    const cached = await defaultCache().match(cacheKey);
+    if (cached) return cached;
+  }
 
   const snapshot = await getDashboardSnapshot(env);
-  const response = renderDashboardSnapshot(snapshot);
-  ctx.waitUntil(defaultCache().put(cacheKey, response.clone()));
+  const summary = await loadSummarySnapshot(env, query.lookbackHours);
+  const response = renderDashboardSnapshot(snapshot, summary, query);
+  if (shouldUseHtmlCache) {
+    ctx.waitUntil(defaultCache().put(cacheKey, response.clone()));
+  }
   return response;
 }
 
@@ -303,7 +342,11 @@ async function refreshDashboard(request: Request, env: Env) {
   }
   await refreshCommonSnapshots(env);
   const snapshot = await getDashboardSnapshot(env);
-  await defaultCache().delete(dashboardCacheKey(request));
+  await Promise.all(PRECOMPUTED_SUMMARY_LOOKBACK_HOURS.flatMap((lookbackHours) =>
+    (['en', 'zh'] as const).map((language) =>
+      defaultCache().delete(dashboardCacheKeyFor(request, lookbackHours, null, language))
+    )
+  ));
   return json({
     refreshed_at: snapshot.refreshed_at,
     total_events: snapshot.totals.total_events,
@@ -399,70 +442,906 @@ function isMissingSnapshotTableError(error: unknown) {
   return message.includes('no such table') && message.includes('stats_snapshots');
 }
 
-function renderDashboardSnapshot(snapshot: DashboardSnapshot) {
+const DASHBOARD_I18N: Record<DashboardLanguage, Record<string, string>> = {
+  en: {
+    all_countries: 'All countries',
+    all_services: 'All services',
+    any_operator: 'Any operator',
+    attempts_count: '{count} attempts',
+    best_routes: 'Best Routes',
+    cheapest_routes: 'Cheapest Routes',
+    choose_service: 'Choose Service',
+    choose_service_subtitle: 'Switch the route ranking service.',
+    close: 'Close',
+    fastest_routes: 'Fastest Routes',
+    language: 'Language',
+    local_country: 'Local',
+    lookback_period: 'Lookback period',
+    more_services: 'More Services',
+    no_route_data: 'No route data yet',
+    no_services_yet: 'No services yet',
+    page_title: 'Stats Dashboard',
+    pending: 'pending',
+    routes_pending: 'Routes pending',
+    service_status: 'Service status',
+    service_status_aria: 'Service status {status}',
+    snapshot_ready: 'Snapshot ready',
+    source_users: 'Source users',
+    source_users_aria: 'Source users {count}',
+    users_chip: '{count} users',
+    subtitle: 'Shared route quality telemetry for MaDao clients. Refreshed {refreshed}. {summary}. {totals}.',
+    summary_pending: '24h route snapshot is not ready',
+    summary_ready: '{hours}h route snapshot',
+    theme: 'Theme',
+    theme_auto: 'Auto',
+    theme_dark: 'Dark',
+    theme_light: 'Light',
+    totals_note: '{users} users, {tickets} tickets, {events} events in 7d',
+  },
+  zh: {
+    all_countries: '全部国家',
+    all_services: '全部服务',
+    any_operator: '任意线路',
+    attempts_count: '{count} 次尝试',
+    best_routes: '最佳路线',
+    cheapest_routes: '最低成本路线',
+    choose_service: '选择服务',
+    choose_service_subtitle: '切换路线排名使用的服务。',
+    close: '关闭',
+    fastest_routes: '最快路线',
+    language: '语言',
+    local_country: '本地',
+    lookback_period: '统计周期',
+    more_services: '更多服务',
+    no_route_data: '暂无路线数据',
+    no_services_yet: '暂无服务',
+    page_title: '统计仪表盘',
+    pending: '待生成',
+    routes_pending: '路线待生成',
+    service_status: '服务状态',
+    service_status_aria: '服务状态 {status}',
+    snapshot_ready: '快照已就绪',
+    source_users: '数据用户',
+    source_users_aria: '数据来源用户 {count}',
+    users_chip: '{count} 用户',
+    subtitle: 'MaDao 客户端共享路线质量统计。刷新于 {refreshed}。{summary}。{totals}。',
+    summary_pending: '24h 路线快照尚未就绪',
+    summary_ready: '{hours}h 路线快照',
+    theme: '主题',
+    theme_auto: '自动',
+    theme_dark: '深色',
+    theme_light: '浅色',
+    totals_note: '7 天内 {users} 个用户，{tickets} 个 ticket，{events} 条事件',
+  },
+};
+
+function t(language: DashboardLanguage, key: string, values: Record<string, string> = {}) {
+  let template = DASHBOARD_I18N[language][key] ?? DASHBOARD_I18N.en[key] ?? key;
+  for (const [name, value] of Object.entries(values)) {
+    template = template.replaceAll(`{${name}}`, value);
+  }
+  return template;
+}
+
+function renderDashboardSnapshot(snapshot: DashboardSnapshot, summary: SummaryResponse | null, query: DashboardQuery) {
   const { totals } = snapshot;
-  const firstEvent = totals.first_event ?? '-';
-  const lastEvent = totals.last_event ?? '-';
-
-  const providerRows = snapshot.top_providers
-    .map((r) => `<tr><td>${esc(r.provider)}</td><td>${r.tickets}</td><td>${r.users}</td></tr>`)
-    .join('');
-
-  const serviceRows = snapshot.top_services
-    .map((r) => `<tr><td>${esc(r.service)}</td><td>${r.tickets}</td></tr>`)
-    .join('');
-
-  const userRows = snapshot.recent_users
-    .map((r) => `<tr><td title="${esc(r.app_instance_id)}">${esc(r.app_instance_id.slice(0, 8))}...</td><td>${esc(r.app_version)}</td><td>${esc(r.last_seen)}</td><td>${r.event_count}</td></tr>`)
-    .join('');
+  const summaryItems = summary?.items ?? [];
+  const language = query.language;
+  const serviceOptions = buildDashboardServiceOptions(summaryItems);
+  const selectedServiceOption = query.service
+    ? serviceOptions.find((option) => normalizeToken(option.service) === normalizeToken(query.service ?? '')) ?? null
+    : null;
+  const selectedService = selectedServiceOption?.service ?? null;
+  const selectedServiceLabel = selectedServiceOption?.label ?? t(language, 'all_services');
+  const visibleItems = selectedService
+    ? summaryItems.filter((item) => normalizeToken(item.service) === normalizeToken(selectedService))
+    : summaryItems;
+  const routeSnapshotLabel = summary ? `${lookbackLabel(summary.lookback_hours)} · ${selectedServiceLabel}` : `${lookbackLabel(query.lookbackHours)} ${t(language, 'pending')}`;
+  const bestRoutes = [...visibleItems]
+    .sort((a, b) => b.success_rate - a.success_rate || b.total - a.total)
+    .slice(0, 5);
+  const cheapestRoutes = [...visibleItems]
+    .filter((item) => item.avg_effective_price != null)
+    .sort((a, b) => a.avg_effective_price! - b.avg_effective_price! || b.success_rate - a.success_rate)
+    .slice(0, 5);
+  const fastestRoutes = [...visibleItems]
+    .filter((item) => item.avg_receive_time_secs != null)
+    .sort((a, b) => a.avg_receive_time_secs! - b.avg_receive_time_secs! || b.success_rate - a.success_rate)
+    .slice(0, 5);
+  const totalsNote = t(language, 'totals_note', {
+    users: formatCount(totals.total_users),
+    tickets: formatCount(totals.total_tickets),
+    events: formatCount(totals.total_events),
+  });
+  const summaryNote = summary
+    ? t(language, 'summary_ready', { hours: String(summary.lookback_hours) })
+    : t(language, 'summary_pending');
+  const statusLabel = summary ? t(language, 'snapshot_ready') : t(language, 'routes_pending');
+  const serviceStatusClass = summary ? 'info-chip status-chip' : 'info-chip status-chip pending';
 
   return html(`<!DOCTYPE html>
-<html lang="en">
+<html lang="${language === 'zh' ? 'zh-CN' : 'en'}">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
-<title>MaDao Stats</title>
+<title>${esc(t(language, 'page_title'))}</title>
+<script>
+(() => {
+  try {
+    const theme = localStorage.getItem('madao-stats-dashboard-theme');
+    if (theme === 'light' || theme === 'dark') document.documentElement.dataset.theme = theme;
+    const params = new URLSearchParams(location.search);
+    const language = params.get('lang') || localStorage.getItem('madao-stats-dashboard-lang');
+    if (!params.has('lang') && (language === 'en' || language === 'zh')) {
+      params.set('lang', language);
+      location.replace(location.pathname + '?' + params.toString());
+    }
+  } catch {}
+})();
+</script>
 <style>
+:root{
+  color-scheme:light dark;
+  --page-bg:#e8ecf0;
+  --surface:rgba(255,255,255,.70);
+  --surface-subtle:rgba(255,255,255,.45);
+  --border:rgba(0,0,0,.08);
+  --text:#1d1d1f;
+  --muted:#6e6e73;
+  --accent:#007aff;
+  --accent-soft:rgba(0,122,255,.10);
+  --success:#27c93f;
+  --danger:#ff5f57;
+  --shadow:0 2px 8px rgba(0,0,0,.06);
+  --card-shadow:0 2px 2px rgba(0,0,0,.06);
+  --hover-subtle:rgba(0,122,255,.07);
+  --overlay-bg:rgba(232,236,240,.42);
+  --modal-bg:rgba(255,255,255,.92);
+  --modal-shadow:0 8px 40px rgba(0,0,0,.14),0 0 0 .5px rgba(255,255,255,.5);
+  --text-soft:rgba(29,29,31,.72);
+  --text-faint:rgba(29,29,31,.52);
+  --text-subtle:rgba(29,29,31,.45);
+  --rank-text:rgba(29,29,31,.30);
+}
+@media (prefers-color-scheme:dark){
+  :root:not([data-theme="light"]){
+    color-scheme:dark;
+    --page-bg:#1a1a1c;
+    --surface:rgba(44,44,48,.80);
+    --surface-subtle:rgba(52,52,56,.58);
+    --border:rgba(255,255,255,.10);
+    --text:#f5f5f7;
+    --muted:#a1a1a6;
+    --accent:#0a84ff;
+    --accent-soft:rgba(10,132,255,.16);
+    --success:#30d158;
+    --danger:#ff453a;
+    --shadow:0 2px 10px rgba(0,0,0,.22);
+    --card-shadow:0 2px 8px rgba(0,0,0,.18);
+    --hover-subtle:rgba(10,132,255,.13);
+    --overlay-bg:rgba(26,26,28,.50);
+    --modal-bg:rgba(52,52,56,.92);
+    --modal-shadow:0 8px 40px rgba(0,0,0,.34),0 0 0 .5px rgba(255,255,255,.12);
+    --text-soft:rgba(245,245,247,.76);
+    --text-faint:rgba(245,245,247,.56);
+    --text-subtle:rgba(245,245,247,.44);
+    --rank-text:rgba(245,245,247,.30);
+  }
+}
+:root[data-theme="light"]{color-scheme:light}
+:root[data-theme="dark"]{
+  color-scheme:dark;
+  --page-bg:#1a1a1c;
+  --surface:rgba(44,44,48,.80);
+  --surface-subtle:rgba(52,52,56,.58);
+  --border:rgba(255,255,255,.10);
+  --text:#f5f5f7;
+  --muted:#a1a1a6;
+  --accent:#0a84ff;
+  --accent-soft:rgba(10,132,255,.16);
+  --success:#30d158;
+  --danger:#ff453a;
+  --shadow:0 2px 10px rgba(0,0,0,.22);
+  --card-shadow:0 2px 8px rgba(0,0,0,.18);
+  --hover-subtle:rgba(10,132,255,.13);
+  --overlay-bg:rgba(26,26,28,.50);
+  --modal-bg:rgba(52,52,56,.92);
+  --modal-shadow:0 8px 40px rgba(0,0,0,.34),0 0 0 .5px rgba(255,255,255,.12);
+  --text-soft:rgba(245,245,247,.76);
+  --text-faint:rgba(245,245,247,.56);
+  --text-subtle:rgba(245,245,247,.44);
+  --rank-text:rgba(245,245,247,.30);
+}
 *{margin:0;padding:0;box-sizing:border-box}
-body{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;background:#0d1117;color:#c9d1d9;padding:24px;min-height:100vh}
-h1{font-size:20px;font-weight:600;margin-bottom:24px;color:#f0f6fc}
-.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(160px,1fr));gap:12px;margin-bottom:32px}
-.card{background:#161b22;border:1px solid #30363d;border-radius:8px;padding:16px}
-.card .label{font-size:11px;text-transform:uppercase;letter-spacing:0.5px;color:#8b949e;margin-bottom:6px}
-.card .value{font-size:24px;font-weight:700;color:#f0f6fc}
-.card .sub{font-size:11px;color:#8b949e;margin-top:4px}
-h2{font-size:14px;font-weight:600;color:#f0f6fc;margin:24px 0 12px}
-table{width:100%;border-collapse:collapse;background:#161b22;border:1px solid #30363d;border-radius:8px;overflow:hidden;margin-bottom:24px}
-th,td{padding:10px 14px;text-align:left;font-size:13px;border-bottom:1px solid #21262d}
-th{background:#0d1117;color:#8b949e;font-weight:500;font-size:11px;text-transform:uppercase;letter-spacing:0.3px}
-td{color:#c9d1d9}
-tr:last-child td{border-bottom:none}
-.muted{color:#8b949e}
+body{
+  min-height:100vh;
+  font-family:-apple-system,BlinkMacSystemFont,"SF Pro Display","Segoe UI",Roboto,sans-serif;
+  background:var(--page-bg);
+  color:var(--text);
+  padding:40px 28px 56px;
+}
+.content{width:min(1160px,100%);margin:0 auto}
+.hero{
+  display:grid;
+  grid-template-columns:minmax(0,1fr) auto;
+  align-items:flex-start;
+  justify-content:space-between;
+  gap:20px;
+  margin-bottom:24px;
+}
+h1{font-size:28px;line-height:1.12;font-weight:650;letter-spacing:0}
+.subtitle{margin-top:8px;font-size:13px;line-height:1.45;color:var(--muted)}
+.hero-actions{
+  display:flex;
+  align-items:center;
+  justify-content:flex-end;
+  gap:8px;
+  flex-wrap:wrap;
+  max-width:660px;
+}
+.info-chip{
+  display:inline-flex;
+  align-items:center;
+  gap:8px;
+  min-height:34px;
+  border:1px solid var(--border);
+  border-radius:999px;
+  background:var(--surface);
+  padding:8px 12px;
+  font-size:12px;
+  font-weight:650;
+  color:var(--muted);
+  box-shadow:var(--shadow);
+  -webkit-backdrop-filter:blur(20px);
+  backdrop-filter:blur(20px);
+  white-space:nowrap;
+}
+.info-chip strong{font-size:13px;color:var(--text)}
+.status-chip.pending .status-dot{background:var(--danger);box-shadow:0 0 0 4px rgba(255,95,87,.12)}
+.status-dot,.source-dot{width:8px;height:8px;border-radius:50%;background:var(--success);box-shadow:0 0 0 4px rgba(39,201,63,.12)}
+.toolbar{
+  display:flex;
+  align-items:center;
+  justify-content:space-between;
+  gap:12px;
+  margin-bottom:24px;
+}
+.toolbar-actions{display:flex;align-items:center;justify-content:flex-end;gap:8px;min-width:0}
+.lookback-segment,.theme-segment,.language-segment{
+  display:inline-flex;
+  align-items:center;
+  border:1px solid var(--border);
+  border-radius:8px;
+  background:var(--surface-subtle);
+  padding:2px;
+  -webkit-backdrop-filter:blur(12px);
+  backdrop-filter:blur(12px);
+}
+.segment-link,.theme-button,.language-link{
+  display:inline-flex;
+  align-items:center;
+  justify-content:center;
+  min-width:42px;
+  height:26px;
+  border-radius:6px;
+  color:var(--text-faint);
+  font-size:12px;
+  font-weight:650;
+  text-decoration:none;
+}
+.theme-button{
+  border:0;
+  background:transparent;
+  cursor:pointer;
+  font-family:inherit;
+  font-size:12px;
+  font-weight:650;
+  padding:0 8px;
+}
+.language-link{text-decoration:none}
+.segment-link.active,.theme-button.active,.language-link.active{
+  background:var(--surface);
+  color:var(--text);
+  box-shadow:0 1px 2px rgba(0,0,0,.08);
+}
+.control-button{
+  min-height:32px;
+  border:1px solid var(--border);
+  border-radius:8px;
+  background:var(--surface);
+  color:var(--text-soft);
+  padding:0 11px;
+  font:inherit;
+  font-size:12px;
+  font-weight:650;
+  box-shadow:var(--card-shadow);
+  cursor:pointer;
+  -webkit-backdrop-filter:blur(20px);
+  backdrop-filter:blur(20px);
+}
+.control-button:hover{border-color:var(--text-subtle);color:var(--text)}
+.selected-service{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:12px;font-weight:650;color:var(--text-faint)}
+.route-card{
+  border:1px solid var(--border);
+  border-radius:8px;
+  background:var(--surface);
+  box-shadow:var(--card-shadow);
+  -webkit-backdrop-filter:blur(20px);
+  backdrop-filter:blur(20px);
+}
+.routes-stack{display:flex;flex-direction:column;gap:24px}
+.route-section{display:flex;flex-direction:column;gap:12px}
+.section-header{
+  display:flex;
+  align-items:baseline;
+  justify-content:space-between;
+  gap:12px;
+}
+h2{font-size:13px;font-weight:650;color:var(--text-soft)}
+.section-note{font-size:12px;color:var(--text-subtle)}
+.route-grid{display:grid;grid-template-columns:repeat(5,minmax(150px,1fr));gap:10px}
+.route-card{min-height:120px;display:grid;grid-template-rows:auto 1fr auto;gap:12px;padding:12px}
+.route-top,.route-bottom{display:flex;align-items:flex-start;justify-content:space-between;gap:10px;min-width:0}
+.route-bottom{align-items:flex-end}
+.provider{display:flex;min-width:0;flex:1 1 auto;align-items:center;gap:6px;color:var(--text)}
+.provider-icon{
+  display:inline-grid;
+  place-items:center;
+  width:20px;
+  height:20px;
+  border:1px solid var(--border);
+  border-radius:5px;
+  background:var(--surface-subtle);
+  color:var(--text);
+  font-size:10px;
+  font-weight:760;
+  line-height:1;
+  flex:0 0 auto;
+  box-shadow:0 1px 2px rgba(0,0,0,.05);
+}
+.provider-icon svg{width:100%;height:100%;display:block}
+.provider-icon-fivesim{background:#fff;color:#1f6feb}
+.provider-icon-herosms{background:rgba(249,115,22,.12);color:#ea580c}
+.provider-icon-smsbower{background:#fff;color:#0f766e}
+.provider-meta{min-width:0;display:flex;flex-direction:column;gap:2px}
+.provider-text{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:11px;font-weight:650;line-height:1.1}
+.service-text{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:10px;font-weight:550;line-height:1.1;color:var(--muted)}
+.route-label{max-width:46%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;text-align:right;font-size:10px;font-weight:550;line-height:1.2;color:var(--text-faint)}
+.main-value{display:flex;align-items:center;justify-content:center;font-size:22px;font-weight:750;line-height:1;color:var(--success);letter-spacing:0}
+.main-value.accent{color:var(--accent)}
+.country{display:flex;min-width:0;align-items:center;gap:6px;color:var(--text)}
+.flag{font-size:16px;line-height:1;filter:saturate(1.08)}
+.country-name{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:11px;font-weight:650}
+.rank{font-size:10px;font-weight:650;color:var(--rank-text)}
+.empty-routes{min-height:120px;border:1px solid var(--border);border-radius:8px;background:var(--surface);padding:18px;color:var(--muted);font-size:13px;box-shadow:var(--card-shadow);-webkit-backdrop-filter:blur(20px);backdrop-filter:blur(20px)}
+.modal-overlay[hidden]{display:none}
+.modal-overlay{
+  position:fixed;
+  inset:0;
+  display:grid;
+  place-items:center;
+  padding:20px;
+  background:var(--overlay-bg);
+  -webkit-backdrop-filter:blur(14px);
+  backdrop-filter:blur(14px);
+  z-index:10;
+}
+.modal{
+  width:min(420px,100%);
+  max-height:min(560px,calc(100vh - 40px));
+  display:flex;
+  flex-direction:column;
+  overflow:hidden;
+  border:1px solid var(--border);
+  border-radius:12px;
+  background:var(--modal-bg);
+  box-shadow:var(--modal-shadow);
+  -webkit-backdrop-filter:blur(20px);
+  backdrop-filter:blur(20px);
+}
+.modal-header{display:flex;align-items:flex-start;justify-content:space-between;gap:16px;padding:16px 18px 12px}
+.modal-title{font-size:15px;font-weight:700;color:var(--text)}
+.modal-subtitle{margin-top:3px;font-size:12px;color:var(--muted)}
+.modal-close{
+  display:inline-grid;
+  place-items:center;
+  width:28px;
+  height:28px;
+  border:1px solid var(--border);
+  border-radius:8px;
+  background:var(--surface-subtle);
+  color:var(--muted);
+  cursor:pointer;
+}
+.service-list{overflow:auto;padding:4px 0 12px}
+.service-option{
+  display:flex;
+  align-items:center;
+  justify-content:space-between;
+  gap:12px;
+  min-height:42px;
+  padding:8px 18px;
+  color:var(--text);
+  text-decoration:none;
+  border-left:2px solid transparent;
+}
+.service-option:hover{background:var(--hover-subtle)}
+.service-option.selected{border-left-color:var(--accent);background:var(--accent-soft)}
+.service-left{display:flex;align-items:center;gap:9px;min-width:0}
+.service-glyph{
+  display:inline-grid;
+  place-items:center;
+  width:24px;
+  height:24px;
+  border:1px solid var(--border);
+  border-radius:7px;
+  background:var(--surface-subtle);
+  color:var(--accent);
+  font-size:10px;
+  font-weight:800;
+  box-shadow:0 1px 2px rgba(0,0,0,.05);
+}
+.service-name{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:13px;font-weight:650}
+.service-count{flex:0 0 auto;font-size:11px;color:var(--muted)}
+@media (max-width:1080px){
+  body{padding:28px 24px 44px}
+  .hero{grid-template-columns:1fr}
+  .hero-actions{justify-content:flex-start;max-width:none}
+  .route-grid{grid-template-columns:repeat(2,minmax(0,1fr))}
+}
+@media (max-width:640px){
+  body{padding:24px 16px 40px}
+  h1{font-size:24px}
+  .info-chip{align-self:flex-start}
+  .toolbar{align-items:stretch;flex-direction:column}
+  .toolbar-actions{justify-content:flex-end;flex-wrap:wrap}
+  .lookback-segment{flex:1 1 150px}
+  .segment-link{flex:1}
+  .theme-segment{flex:1 1 180px}
+  .theme-button{flex:1}
+  .language-segment{flex:0 0 auto}
+  .language-link{flex:1}
+  .route-grid{grid-template-columns:1fr}
+}
 </style>
 </head>
 <body>
-<h1>MaDao Stats Dashboard</h1>
-<div class="grid">
-  <div class="card"><div class="label">Users (7d)</div><div class="value">${totals.total_users}</div><div class="sub">Retained window</div></div>
-  <div class="card"><div class="label">Active (24h)</div><div class="value">${totals.active_24h}</div></div>
-  <div class="card"><div class="label">Active (7d)</div><div class="value">${totals.active_7d}</div></div>
-  <div class="card"><div class="label">Events (7d)</div><div class="value">${totals.total_events}</div></div>
-  <div class="card"><div class="label">Tickets (7d)</div><div class="value">${totals.total_tickets}</div></div>
-</div>
-<p class="muted" style="margin-bottom:24px;font-size:12px">Refreshed: ${esc(snapshot.refreshed_at)} · First event: ${esc(firstEvent)} · Last event: ${esc(lastEvent)}</p>
+<main class="content">
+  <header class="hero">
+    <div>
+      <h1>${esc(t(language, 'page_title'))}</h1>
+      <p class="subtitle">${esc(t(language, 'subtitle', {
+        refreshed: formatDateTime(snapshot.refreshed_at, language),
+        summary: summaryNote,
+        totals: totalsNote,
+      }))}</p>
+    </div>
+    <div class="hero-actions">
+      <div class="${serviceStatusClass}" title="${esc(t(language, 'service_status_aria', { status: statusLabel }))}" aria-label="${esc(t(language, 'service_status_aria', { status: statusLabel }))}"><span class="status-dot"></span><strong>${esc(statusLabel)}</strong></div>
+      <div class="info-chip source-chip" title="${esc(t(language, 'source_users_aria', { count: formatCount(totals.total_users) }))}" aria-label="${esc(t(language, 'source_users_aria', { count: formatCount(totals.total_users) }))}"><span class="source-dot"></span><strong>${esc(t(language, 'users_chip', { count: formatCount(totals.total_users) }))}</strong></div>
+      ${renderThemeSegment(language)}
+      ${renderLanguageSegment(query)}
+    </div>
+  </header>
 
-<h2>Top Providers (7d)</h2>
-<table><thead><tr><th>Provider</th><th>Tickets</th><th>Users</th></tr></thead><tbody>${providerRows || '<tr><td colspan="3" class="muted">No data</td></tr>'}</tbody></table>
+  <div class="toolbar">
+    <div class="selected-service">${esc(selectedServiceLabel)}</div>
+    <div class="toolbar-actions">
+      ${renderLookbackSegment(query.lookbackHours, selectedService, language)}
+      <button class="control-button" type="button" data-open-service-modal aria-haspopup="dialog" aria-controls="service-modal">${esc(t(language, 'more_services'))}</button>
+    </div>
+  </div>
 
-<h2>Top Services (7d)</h2>
-<table><thead><tr><th>Service</th><th>Tickets</th></tr></thead><tbody>${serviceRows || '<tr><td colspan="2" class="muted">No data</td></tr>'}</tbody></table>
+  <div class="routes-stack">
+    ${renderRouteSection(t(language, 'best_routes'), routeSnapshotLabel, bestRoutes, (item) => `${(item.success_rate * 100).toFixed(1)}%`, 'success', language)}
+    ${renderRouteSection(t(language, 'cheapest_routes'), routeSnapshotLabel, cheapestRoutes, (item) => formatCurrency(item.avg_effective_price, language), 'accent', language)}
+    ${renderRouteSection(t(language, 'fastest_routes'), routeSnapshotLabel, fastestRoutes, (item) => formatDuration(item.avg_receive_time_secs), 'accent', language)}
+  </div>
 
-<h2>Recent Users</h2>
-<table><thead><tr><th>Instance</th><th>Version</th><th>Last Seen</th><th>Events</th></tr></thead><tbody>${userRows || '<tr><td colspan="4" class="muted">No data</td></tr>'}</tbody></table>
+  ${renderServiceModal(serviceOptions, selectedService, query.lookbackHours, language)}
+</main>
+<script>
+(() => {
+  const themeKey = 'madao-stats-dashboard-theme';
+  const languageKey = 'madao-stats-dashboard-lang';
+  const root = document.documentElement;
+  const themeButtons = document.querySelectorAll('[data-theme-choice]');
+  const languageLinks = document.querySelectorAll('[data-language-choice]');
+  const applyTheme = (theme) => {
+    if (theme === 'light' || theme === 'dark') {
+      root.dataset.theme = theme;
+      localStorage.setItem(themeKey, theme);
+    } else {
+      root.removeAttribute('data-theme');
+      localStorage.setItem(themeKey, 'auto');
+      theme = 'auto';
+    }
+    themeButtons.forEach((button) => {
+      const active = button.getAttribute('data-theme-choice') === theme;
+      button.classList.toggle('active', active);
+      button.setAttribute('aria-pressed', active ? 'true' : 'false');
+    });
+  };
+  applyTheme(localStorage.getItem(themeKey) || 'auto');
+  themeButtons.forEach((button) => {
+    button.addEventListener('click', () => applyTheme(button.getAttribute('data-theme-choice') || 'auto'));
+  });
+  const activeLanguage = new URLSearchParams(location.search).get('lang') || '${language}';
+  if (activeLanguage === 'en' || activeLanguage === 'zh') localStorage.setItem(languageKey, activeLanguage);
+  languageLinks.forEach((link) => {
+    link.addEventListener('click', () => {
+      const language = link.getAttribute('data-language-choice');
+      if (language === 'en' || language === 'zh') localStorage.setItem(languageKey, language);
+    });
+  });
+
+  const modal = document.querySelector('[data-service-modal]');
+  const openButton = document.querySelector('[data-open-service-modal]');
+  const closeButtons = document.querySelectorAll('[data-close-service-modal]');
+  if (!modal || !openButton) return;
+  const open = () => {
+    modal.hidden = false;
+    document.body.style.overflow = 'hidden';
+    modal.querySelector('[data-close-service-modal]')?.focus();
+  };
+  const close = () => {
+    modal.hidden = true;
+    document.body.style.overflow = '';
+    openButton.focus();
+  };
+  openButton.addEventListener('click', open);
+  closeButtons.forEach((button) => button.addEventListener('click', close));
+  modal.addEventListener('click', (event) => {
+    if (event.target === modal) close();
+  });
+  document.addEventListener('keydown', (event) => {
+    if (event.key === 'Escape' && !modal.hidden) close();
+  });
+})();
+</script>
 </body>
 </html>`, 200, {
     'cache-control': `max-age=${DASHBOARD_CACHE_TTL_SECONDS}`,
   });
+}
+
+function buildDashboardServiceOptions(items: SummaryItem[]): DashboardServiceOption[] {
+  const byService = new Map<string, DashboardServiceOption>();
+  for (const item of items) {
+    const key = normalizeToken(item.service);
+    const existing = byService.get(key) ?? {
+      service: item.service,
+      label: formatServiceLabel(item.service),
+      total: 0,
+    };
+    existing.total += item.total;
+    byService.set(key, existing);
+  }
+  return [...byService.values()].sort((a, b) => b.total - a.total || a.label.localeCompare(b.label));
+}
+
+function renderLookbackSegment(activeLookback: number, service: string | null, language: DashboardLanguage) {
+  return `
+      <div class="lookback-segment" role="group" aria-label="${esc(t(language, 'lookback_period'))}">
+        ${renderLookbackLink(24, activeLookback, service, language)}
+        ${renderLookbackLink(72, activeLookback, service, language)}
+        ${renderLookbackLink(168, activeLookback, service, language)}
+      </div>`;
+}
+
+function renderLookbackLink(lookbackHours: number, activeLookback: number, service: string | null, language: DashboardLanguage) {
+  const activeClass = lookbackHours === activeLookback ? ' active' : '';
+  return `<a class="segment-link${activeClass}" href="${esc(dashboardHref(lookbackHours, service, language))}">${esc(lookbackLabel(lookbackHours))}</a>`;
+}
+
+function renderThemeSegment(language: DashboardLanguage) {
+  return `
+      <div class="theme-segment" role="group" aria-label="${esc(t(language, 'theme'))}">
+        <button class="theme-button active" type="button" data-theme-choice="auto" aria-pressed="true">${esc(t(language, 'theme_auto'))}</button>
+        <button class="theme-button" type="button" data-theme-choice="light" aria-pressed="false">${esc(t(language, 'theme_light'))}</button>
+        <button class="theme-button" type="button" data-theme-choice="dark" aria-pressed="false">${esc(t(language, 'theme_dark'))}</button>
+      </div>`;
+}
+
+function renderLanguageSegment(query: DashboardQuery) {
+  return `
+      <div class="language-segment" role="group" aria-label="${esc(t(query.language, 'language'))}">
+        ${renderLanguageLink('en', query)}
+        ${renderLanguageLink('zh', query)}
+      </div>`;
+}
+
+function renderLanguageLink(language: DashboardLanguage, query: DashboardQuery) {
+  const activeClass = language === query.language ? ' active' : '';
+  const label = language === 'zh' ? '中文' : 'EN';
+  return `<a class="language-link${activeClass}" data-language-choice="${language}" href="${esc(dashboardHref(query.lookbackHours, query.service, language))}">${label}</a>`;
+}
+
+function renderServiceModal(options: DashboardServiceOption[], selectedService: string | null, lookbackHours: number, language: DashboardLanguage) {
+  const allSelected = selectedService == null;
+  const serviceRows = options
+    .map((option) => renderServiceOption(option, selectedService, lookbackHours, language))
+    .join('');
+  const totalAttempts = formatCount(options.reduce((sum, option) => sum + option.total, 0));
+  return `
+  <div class="modal-overlay" data-service-modal id="service-modal" hidden>
+    <section class="modal" role="dialog" aria-modal="true" aria-labelledby="service-modal-title">
+      <div class="modal-header">
+        <div>
+          <div class="modal-title" id="service-modal-title">${esc(t(language, 'choose_service'))}</div>
+          <div class="modal-subtitle">${esc(t(language, 'choose_service_subtitle'))}</div>
+        </div>
+        <button class="modal-close" type="button" data-close-service-modal aria-label="${esc(t(language, 'close'))}">x</button>
+      </div>
+      <div class="service-list">
+        <a class="service-option${allSelected ? ' selected' : ''}" href="${esc(dashboardHref(lookbackHours, null, language))}">
+          <span class="service-left"><span class="service-glyph">ALL</span><span class="service-name">${esc(t(language, 'all_services'))}</span></span>
+          <span class="service-count">${esc(t(language, 'attempts_count', { count: totalAttempts }))}</span>
+        </a>
+        ${serviceRows || `<div class="service-option"><span class="service-left"><span class="service-glyph">--</span><span class="service-name">${esc(t(language, 'no_services_yet'))}</span></span></div>`}
+      </div>
+    </section>
+  </div>`;
+}
+
+function renderServiceOption(option: DashboardServiceOption, selectedService: string | null, lookbackHours: number, language: DashboardLanguage) {
+  const selected = selectedService != null && normalizeToken(option.service) === normalizeToken(selectedService);
+  return `
+        <a class="service-option${selected ? ' selected' : ''}" href="${esc(dashboardHref(lookbackHours, option.service, language))}">
+          <span class="service-left"><span class="service-glyph">${initials(option.service)}</span><span class="service-name">${esc(option.label)}</span></span>
+          <span class="service-count">${esc(t(language, 'attempts_count', { count: formatCount(option.total) }))}</span>
+        </a>`;
+}
+
+function dashboardHref(lookbackHours: number, service: string | null, language: DashboardLanguage) {
+  const params = new URLSearchParams();
+  params.set('lookback_hours', String(lookbackHours));
+  params.set('lang', language);
+  if (service) params.set('service', service);
+  return `/?${params.toString()}`;
+}
+
+function lookbackLabel(lookbackHours: number) {
+  if (lookbackHours === 24) return '24h';
+  if (lookbackHours === 72) return '3d';
+  if (lookbackHours === 168) return '7d';
+  return `${lookbackHours}h`;
+}
+
+function renderRouteSection(
+  title: string,
+  note: string,
+  items: SummaryItem[],
+  value: (item: SummaryItem) => string,
+  tone: 'success' | 'accent',
+  language: DashboardLanguage,
+) {
+  const cards = items
+    .map((item, index) => renderRouteCard(item, index + 1, value(item), tone, language))
+    .join('');
+  return `
+  <section class="route-section">
+    <div class="section-header"><h2>${esc(title)}</h2><span class="section-note">${esc(note)}</span></div>
+    ${cards ? `<div class="route-grid">${cards}</div>` : `<div class="empty-routes">${esc(t(language, 'no_route_data'))}</div>`}
+  </section>`;
+}
+
+function renderRouteCard(item: SummaryItem, rank: number, value: string, tone: 'success' | 'accent', language: DashboardLanguage) {
+  const operator = formatOperatorLabel(item.operator, language);
+  return `
+    <article class="route-card">
+      <div class="route-top">
+        <span class="provider">
+          ${providerIcon(item.provider)}
+          <span class="provider-meta">
+            <span class="provider-text">${esc(formatProviderLabel(item.provider))}</span>
+            <span class="service-text">${esc(formatServiceLabel(item.service))}</span>
+          </span>
+        </span>
+        <span class="route-label">${esc(operator)}</span>
+      </div>
+      <div class="main-value ${tone === 'accent' ? 'accent' : ''}">${esc(value)}</div>
+      <div class="route-bottom">
+        <span class="country">
+          <span class="flag">${countryFlag(item.country)}</span>
+          <span class="country-name">${esc(formatCountryLabel(item.country, language))}</span>
+        </span>
+        <span class="rank">#${rank}</span>
+      </div>
+    </article>`;
+}
+
+function formatCount(value: number) {
+  return new Intl.NumberFormat('en-US').format(Number(value ?? 0));
+}
+
+function formatDateTime(value: string, language: DashboardLanguage = 'en') {
+  if (!value || value === '-') return '-';
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return value;
+  return date.toLocaleString(language === 'zh' ? 'zh-CN' : 'en-US', {
+    month: 'short',
+    day: '2-digit',
+    hour: '2-digit',
+    minute: '2-digit',
+  });
+}
+
+function formatCurrency(value: number | null, language: DashboardLanguage = 'zh') {
+  if (value == null || !Number.isFinite(value)) return '-';
+  return new Intl.NumberFormat(language === 'zh' ? 'zh-CN' : 'en-US', {
+    style: 'currency',
+    currency: 'CNY',
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2,
+  }).format(value);
+}
+
+function formatDuration(value: number | null) {
+  if (value == null || !Number.isFinite(value)) return '-';
+  const seconds = Math.max(0, Math.round(value));
+  if (seconds < 60) return `${seconds}s`;
+  const minutes = Math.floor(seconds / 60);
+  const remainder = seconds % 60;
+  if (minutes < 60) return remainder > 0 ? `${minutes}m ${remainder}s` : `${minutes}m`;
+  const hours = Math.floor(minutes / 60);
+  const minuteRemainder = minutes % 60;
+  return minuteRemainder > 0 ? `${hours}h ${minuteRemainder}m` : `${hours}h`;
+}
+
+function formatTokenLabel(value: string) {
+  return value
+    .replace(/[_-]+/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim()
+    .split(' ')
+    .map((part) => {
+      if (!part) return part;
+      if (part.length === 2 && /^[a-zA-Z]{2}$/.test(part)) return part.toUpperCase();
+      return part[0]!.toUpperCase() + part.slice(1).toLowerCase();
+    })
+    .join(' ');
+}
+
+function formatServiceLabel(value: string) {
+  const normalized = normalizeToken(value);
+  const labels: Record<string, string> = {
+    apple: 'Apple',
+    aol: 'AOL',
+    claude: 'Claude',
+    claudeai: 'Claude',
+    discord: 'Discord',
+    dr: 'OpenAI (GPT)',
+    microsoft: 'Microsoft',
+    openai: 'OpenAI (GPT)',
+    paypal: 'PayPal',
+    telegram: 'Telegram',
+    tg: 'Telegram',
+    twitter: 'Twitter/X',
+    uber: 'Uber',
+    wa: 'WhatsApp',
+    wechat: 'WeChat',
+    whatsapp: 'WhatsApp',
+    yahoo: 'Yahoo',
+  };
+  return labels[normalized] ?? formatTokenLabel(value);
+}
+
+function formatProviderLabel(value: string) {
+  const normalized = normalizeToken(value);
+  const labels: Record<string, string> = {
+    five_sim: 'FiveSim',
+    fivesim: 'FiveSim',
+    herosms: 'HeroSMS',
+    mock: 'Mock',
+    smsbower: 'SMSBower',
+  };
+  return labels[normalized] ?? formatTokenLabel(value);
+}
+
+function formatOperatorLabel(value: string, language: DashboardLanguage = 'en') {
+  const normalized = normalizeToken(value);
+  if (!normalized || normalized === '*' || normalized === 'any') return t(language, 'any_operator');
+  return formatTokenLabel(value);
+}
+
+function normalizeToken(value: string) {
+  return value.trim().toLowerCase().replace(/[\s-]+/g, '_');
+}
+
+function canonicalCountryValue(country: string) {
+  const normalized = country.trim().toLowerCase().replace(/[_/-]+/g, ' ').replace(/\s+/g, ' ');
+  const aliases: Record<string, string> = {
+    america: 'US',
+    any: 'any',
+    argentina: 'AR',
+    austria: 'AT',
+    britain: 'GB',
+    canada: 'CA',
+    china: 'CN',
+    england: 'GB',
+    germany: 'DE',
+    japan: 'JP',
+    local: 'local',
+    russia: 'RU',
+    'russian federation': 'RU',
+    'south africa': 'ZA',
+    uk: 'GB',
+    'united kingdom': 'GB',
+    'united states': 'US',
+    unitedkingdom: 'GB',
+    unitedstates: 'US',
+    us: 'US',
+    usa: 'US',
+    vietnam: 'VN',
+    'viet nam': 'VN',
+  };
+  if (!normalized) return '';
+  if (aliases[normalized]) return aliases[normalized];
+  if (/^[a-z]{2}$/.test(normalized)) return normalized.toUpperCase();
+  return normalized;
+}
+
+function formatCountryLabel(country: string, language: DashboardLanguage = 'en') {
+  const canonical = canonicalCountryValue(country);
+  if (canonical === 'any') return t(language, 'all_countries');
+  if (canonical === 'local') return t(language, 'local_country');
+  if (/^[A-Z]{2}$/.test(canonical)) {
+    try {
+      return new Intl.DisplayNames([language === 'zh' ? 'zh-CN' : 'en'], { type: 'region' }).of(canonical) ?? canonical;
+    } catch {
+      return canonical;
+    }
+  }
+  if (/^\d+$/.test(canonical)) return `Country ${canonical}`;
+  return formatTokenLabel(country);
+}
+
+function providerIcon(provider: string) {
+  const normalized = normalizeToken(provider);
+  if (normalized === 'fivesim' || normalized === 'five_sim') {
+    return `<span class="provider-icon provider-icon-fivesim" aria-hidden="true">${fiveSimIconSvg()}</span>`;
+  }
+  if (normalized === 'herosms') {
+    return `<span class="provider-icon provider-icon-herosms" aria-hidden="true">${heroSmsIconSvg()}</span>`;
+  }
+  if (normalized === 'smsbower') {
+    return `<span class="provider-icon provider-icon-smsbower" aria-hidden="true">${smsBowerIconSvg()}</span>`;
+  }
+  return `<span class="provider-icon" aria-hidden="true">${initials(provider)}</span>`;
+}
+
+function fiveSimIconSvg() {
+  return '<svg viewBox="0 0 24 24" role="img"><rect x="3.5" y="4" width="17" height="16" rx="4" fill="currentColor" opacity=".14"/><path d="M8 7h8.2v2.2h-5.9l-.3 2h1.8c2.9 0 4.8 1.6 4.8 4 0 2.6-2.1 4.3-5.3 4.3-1.7 0-3.2-.4-4.3-1.1l.8-2.1c.9.6 2.1 1 3.3 1 1.5 0 2.5-.7 2.5-1.9 0-1.1-.8-1.8-2.8-1.8H7.2L8 7Z" fill="currentColor"/></svg>';
+}
+
+function heroSmsIconSvg() {
+  return '<svg viewBox="0 0 24 24" role="img"><path d="M12 3.4 19 6v5.1c0 4.5-2.9 8.3-7 9.5-4.1-1.2-7-5-7-9.5V6l7-2.6Z" fill="currentColor" opacity=".18"/><path d="M7.8 8h2.5v3h3.4V8h2.5v8.6h-2.5v-3.4h-3.4v3.4H7.8V8Z" fill="currentColor"/></svg>';
+}
+
+function smsBowerIconSvg() {
+  return '<svg viewBox="0 0 24 24" role="img"><rect x="4" y="5" width="16" height="14" rx="4" fill="currentColor" opacity=".14"/><path d="M7.5 8.5h5.6c1.8 0 2.9.9 2.9 2.3 0 .8-.4 1.5-1.1 1.9 1 .4 1.6 1.1 1.6 2.2 0 1.7-1.3 2.7-3.4 2.7H7.5V8.5Zm5.1 3.5c.7 0 1.1-.3 1.1-.8s-.4-.8-1.1-.8H10V12h2.6Zm.3 3.7c.8 0 1.3-.3 1.3-.9 0-.6-.5-.9-1.3-.9H10v1.8h2.9Z" fill="currentColor"/></svg>';
+}
+
+function countryFlag(country: string) {
+  const canonical = canonicalCountryValue(country);
+  if (/^[A-Z]{2}$/.test(canonical)) {
+    const first = canonical.charCodeAt(0) - 65 + 0x1f1e6;
+    const second = canonical.charCodeAt(1) - 65 + 0x1f1e6;
+    return String.fromCodePoint(first, second);
+  }
+  if (canonical === 'any') return '*';
+  if (canonical === 'local') return 'L';
+  return esc(formatCountryLabel(country).slice(0, 1).toUpperCase() || '?');
+}
+
+function initials(value: string) {
+  const label = formatTokenLabel(value);
+  const parts = label.split(/\s+/).filter(Boolean);
+  const text = parts.length >= 2
+    ? `${parts[0]![0]}${parts[1]![0]}`
+    : label.slice(0, 2);
+  return esc(text.toUpperCase());
 }
 
 function esc(s: string): string {
