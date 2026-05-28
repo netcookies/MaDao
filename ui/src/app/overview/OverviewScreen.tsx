@@ -20,6 +20,7 @@ export type OverviewScreenProps = {
   decorations?: Record<string, TicketDecoration>;
   onViewAll: () => void;
   statistics?: OverviewStatisticsProps;
+  statisticsLoading?: boolean;
 };
 
 export function OverviewScreen(props: OverviewScreenProps) {
@@ -37,7 +38,12 @@ export function OverviewScreen(props: OverviewScreenProps) {
         <StatCard title={t('Success Rate')} value={props.stats.successRate} caption={t('-0.1% from yesterday')} icon={<Check size={12} className="opacity-40" />} />
       </div>
 
-      {props.statistics && <OverviewStatistics {...props.statistics} />}
+      {props.statistics && (
+        <OverviewStatistics
+          {...props.statistics}
+          loading={props.statisticsLoading}
+        />
+      )}
 
       <div className="flex flex-col gap-4">
         <div className="flex items-center justify-between gap-4">

@@ -39,6 +39,7 @@ import {
   type ActivityEntry,
   type ActivationFormState,
   type OptionCatalog,
+  type OptionCatalogItem,
   type OptionItem,
   type PriceSortKey,
   type ProviderManifest,
@@ -66,6 +67,7 @@ import {
 import { LogsScreen } from './app/logs/LogsScreen';
 import { SettingsScreen } from './app/settings/SettingsScreen';
 import {
+  canonicalCountryValue,
   formatCountryLabel,
   normalizeTicketStatus,
   formatProviderLabel,
@@ -82,6 +84,7 @@ import {
   formatOperatorLabel,
   operatorCountryCacheKey,
 } from './app/utils';
+import { presentCountryOption, presentServiceOption } from './app/optionPresentation';
 import {
   selectorOptionFromCatalogItem,
   selectorOptionFromOptionItem,
@@ -642,46 +645,197 @@ export function App() {
   }
 
   const [overviewStatsSummary, setOverviewStatsSummary] = useState<import('./app/types').RemoteStatsSummaryResponse | null>(null);
+  const [overviewStatsLoading, setOverviewStatsLoading] = useState(false);
 
   useEffect(() => {
     if (activeScreen !== 'overview' || !runtimeSettings.stats_sync_enabled) {
+      setOverviewStatsSummary(null);
+      setOverviewStatsLoading(false);
       return;
     }
     const lookbackHours = overviewLookback === '24h' ? 24 : overviewLookback === '3d' ? 72 : 168;
     let cancelled = false;
+    setOverviewStatsLoading(true);
+    setOverviewStatsSummary(null);
     fetchRemoteStatsSummaryFromDaemon({ lookback_hours: lookbackHours })
       .then((res) => { if (!cancelled) setOverviewStatsSummary(res); })
-      .catch(() => { if (!cancelled) setOverviewStatsSummary(null); });
+      .catch(() => { if (!cancelled) setOverviewStatsSummary(null); })
+      .finally(() => { if (!cancelled) setOverviewStatsLoading(false); });
     return () => { cancelled = true; };
   }, [activeScreen, overviewLookback, runtimeSettings.stats_sync_enabled]);
 
   const overviewStatistics: OverviewStatisticsProps | undefined = (() => {
     if (!overviewStatsSummary || overviewStatsSummary.items.length === 0) return undefined;
-    const items = overviewStatsSummary.items;
+    const toOptionItem = (item: OptionCatalogItem, provider: string): OptionItem => ({
+      value: item.value,
+      label: item.label,
+      hint: item.hint,
+      provider_value: item.provider_values[provider] ?? item.value,
+      icon_url: item.icon_url,
+      provider_icon_url: item.provider_icon_urls?.[provider],
+    });
+    const findCatalogItem = (items: OptionCatalogItem[], value: string, provider: string) => {
+      const normalizedValue = value.trim().toLowerCase();
+      if (!normalizedValue) return undefined;
+      const exact = items.find((item) => item.value.trim().toLowerCase() === normalizedValue);
+      if (exact) return exact;
+      const providerMatch = items.find((item) => item.provider_values[provider]?.trim().toLowerCase() === normalizedValue);
+      if (providerMatch) return providerMatch;
+      return items.find((item) => Object.values(item.provider_values).some((providerValue) => (
+        providerValue.trim().toLowerCase() === normalizedValue
+      )));
+    };
+    const findProviderOption = (options: OptionItem[] | undefined, value: string) => {
+      const normalizedValue = value.trim().toLowerCase();
+      if (!normalizedValue) return undefined;
+      return options?.find((item) => (
+        item.value.trim().toLowerCase() === normalizedValue
+        || item.provider_value?.trim().toLowerCase() === normalizedValue
+      ));
+    };
+    const resolveService = (service: string, provider: string) => {
+      const catalogItem = findCatalogItem(optionCatalog.services, service, provider);
+      if (catalogItem) {
+        const presentation = presentServiceOption(toOptionItem(catalogItem, provider), language);
+        return {
+          value: catalogItem.value || service,
+          label: presentation.primary,
+          iconUrl: presentation.iconUrl ?? undefined,
+        };
+      }
+      const option = findProviderOption(providerOptions[provider]?.services, service);
+      if (option) {
+        const presentation = presentServiceOption(option, language);
+        return {
+          value: option.value || service,
+          label: presentation.primary,
+          iconUrl: presentation.iconUrl ?? undefined,
+        };
+      }
+      return {
+        value: service,
+        label: formatServiceLabel(service, language),
+        iconUrl: undefined,
+      };
+    };
+    const resolveCountry = (country: string, provider: string) => {
+      const catalogItem = findCatalogItem(optionCatalog.countries, country, provider);
+      if (catalogItem) {
+        const presentation = presentCountryOption(toOptionItem(catalogItem, provider), language);
+        return {
+          value: catalogItem.value || country,
+          label: presentation.primary,
+          iconUrl: presentation.iconUrl ?? undefined,
+        };
+      }
+      const option = findProviderOption(providerOptions[provider]?.countries, country);
+      if (option) {
+        const presentation = presentCountryOption(option, language);
+        return {
+          value: option.value || country,
+          label: presentation.primary,
+          iconUrl: presentation.iconUrl ?? undefined,
+        };
+      }
+      const canonical = canonicalCountryValue(country);
+      return {
+        value: canonical || country,
+        label: formatCountryLabel(canonical || country, language),
+        iconUrl: undefined,
+      };
+    };
 
-    const serviceMap = new Map<string, { total: number; success: number; fail: number }>();
+    const items = overviewStatsSummary.items
+      .map((item) => {
+        const total = Number(item.total);
+        const successCount = Number(item.success_count);
+        const successRate = Number(item.success_rate);
+        const avgEffectivePrice = item.avg_effective_price == null ? null : Number(item.avg_effective_price);
+        const avgReceiveTimeSecs = item.avg_receive_time_secs == null ? null : Number(item.avg_receive_time_secs);
+        const provider = String(item.provider || 'unknown');
+        const rawService = String(item.service || 'unknown');
+        const rawCountry = String(item.country || 'unknown');
+        const rawOperator = String(item.operator || 'any').trim();
+        const operator = rawOperator === '*' ? 'any' : rawOperator || 'any';
+        const service = resolveService(rawService, provider);
+        const country = resolveCountry(rawCountry, provider);
+        const providerManifest = manifestsById[provider];
+        const normalizedTotal = Number.isFinite(total) ? Math.max(0, total) : 0;
+        const normalizedSuccessCount = Number.isFinite(successCount)
+          ? Math.min(normalizedTotal, Math.max(0, successCount))
+          : 0;
+        return {
+          provider,
+          providerLabel: formatProviderLabel(providerManifest?.name ?? provider, language),
+          providerIconUrl: providerManifest?.ui?.icon_url ?? null,
+          providerBadgeLabel: providerManifest?.ui?.badge_label ?? null,
+          service: service.value,
+          serviceLabel: service.label,
+          serviceIconUrl: service.iconUrl ?? null,
+          country: country.value,
+          countryLabel: country.label,
+          countryIconUrl: country.iconUrl ?? null,
+          operator,
+          operatorLabel: formatOperatorLabel(operator, language),
+          total: normalizedTotal,
+          success_count: normalizedSuccessCount,
+          success_rate: Number.isFinite(successRate) ? Math.max(0, Math.min(1, successRate)) : 0,
+          avg_effective_price: Number.isFinite(avgEffectivePrice) ? avgEffectivePrice : null,
+          avg_receive_time_secs: Number.isFinite(avgReceiveTimeSecs) ? avgReceiveTimeSecs : null,
+        };
+      })
+      .filter((item) => item.total > 0);
+    if (items.length === 0) return undefined;
+
+    const serviceMap = new Map<string, {
+      service: string;
+      serviceLabel: string;
+      serviceIconUrl: string | null;
+      total: number;
+      success: number;
+      fail: number;
+    }>();
     for (const item of items) {
-      const entry = serviceMap.get(item.service) ?? { total: 0, success: 0, fail: 0 };
+      const serviceKey = item.service.toLowerCase();
+      const entry = serviceMap.get(serviceKey) ?? {
+        service: item.service,
+        serviceLabel: item.serviceLabel,
+        serviceIconUrl: item.serviceIconUrl,
+        total: 0,
+        success: 0,
+        fail: 0,
+      };
       entry.total += item.total;
       entry.success += item.success_count;
       entry.fail += item.total - item.success_count;
-      serviceMap.set(item.service, entry);
+      if (!entry.serviceIconUrl && item.serviceIconUrl) entry.serviceIconUrl = item.serviceIconUrl;
+      serviceMap.set(serviceKey, entry);
     }
-    const services = [...serviceMap.entries()].map(([service, v]) => ({
-      service,
+    const services = [...serviceMap.values()].map((v) => ({
+      service: v.service,
+      serviceLabel: v.serviceLabel,
+      serviceIconUrl: v.serviceIconUrl,
       totalAttempts: v.total,
       successCount: v.success,
       failCount: v.fail,
-    }));
+    })).sort((a, b) => b.totalAttempts - a.totalAttempts);
 
-    const selected = overviewSelectedService || services[0]?.service || '';
+    const selected = services.some((service) => service.service === overviewSelectedService)
+      ? overviewSelectedService
+      : services[0]?.service || '';
+    const selectedServiceLabel = services.find((service) => service.service === selected)?.serviceLabel ?? formatServiceLabel(selected, language);
     const filtered = items.filter((i) => i.service === selected);
 
     const toCard = (item: typeof items[0], rank: number, value: string) => ({
       country: item.country,
-      countryFlag: '',
+      countryLabel: item.countryLabel,
+      countryIconUrl: item.countryIconUrl,
       provider: item.provider,
-      route: `${item.country}/${item.operator || '*'}`,
+      providerLabel: item.providerLabel,
+      providerIconUrl: item.providerIconUrl,
+      providerBadgeLabel: item.providerBadgeLabel,
+      route: item.operator,
+      routeLabel: item.operatorLabel,
       value,
       rank,
     });
@@ -709,11 +863,33 @@ export function App() {
       cheapestRoutes,
       fastestRoutes,
       selectedService: selected,
+      selectedServiceLabel,
       onServiceSelect: setOverviewSelectedService,
       lookback: overviewLookback,
       onLookbackChange: setOverviewLookback,
+      loading: false,
+      layout: IS_DESKTOP_RUNTIME ? 'app' : 'web',
     };
   })();
+
+  const loadingOverviewStatistics: OverviewStatisticsProps | undefined = (
+    activeScreen === 'overview'
+    && runtimeSettings.stats_sync_enabled
+    && overviewStatsLoading
+    && !overviewStatistics
+  ) ? {
+      services: [],
+      bestRoutes: [],
+      cheapestRoutes: [],
+      fastestRoutes: [],
+      selectedService: overviewSelectedService,
+      selectedServiceLabel: overviewSelectedService ? formatServiceLabel(overviewSelectedService, language) : '',
+      onServiceSelect: setOverviewSelectedService,
+      lookback: overviewLookback,
+      onLookbackChange: setOverviewLookback,
+      loading: true,
+      layout: IS_DESKTOP_RUNTIME ? 'app' : 'web',
+    } : undefined;
 
   useEffect(() => {
     void getAppConfigDirectory()
@@ -2219,7 +2395,8 @@ export function App() {
                 activity={recentActivity}
                 providers={manifestsById}
                 decorations={ticketDecorations}
-                statistics={overviewStatistics}
+                statistics={overviewStatistics ?? loadingOverviewStatistics}
+                statisticsLoading={overviewStatsLoading && !overviewStatistics}
                 onViewAll={() => {
                   setLogsViewMode('activity');
                   setLogsFilter('all');

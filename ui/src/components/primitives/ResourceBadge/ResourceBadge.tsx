@@ -155,11 +155,13 @@ export function ResourceBadge(props: {
   className?: string;
   iconUrl?: string | null;
   fallbackLabel?: string;
+  chrome?: 'badge' | 'plain';
 }) {
   const [externalImageFailed, setExternalImageFailed] = useState(false);
   const sizeClass = props.size === 'sm'
     ? 'h-4 w-4 rounded-[4px]'
     : 'h-5 w-5 rounded-[5px]';
+  const chrome = props.chrome ?? 'badge';
 
   let glyph: ReactNode = null;
   if (props.iconUrl && !externalImageFailed) {
@@ -172,7 +174,8 @@ export function ResourceBadge(props: {
   return (
     <span
       className={cx(
-        'inline-flex shrink-0 items-center justify-center overflow-hidden border border-ds-border bg-ds-surface-subtle shadow-[0_1px_2px_rgba(0,0,0,0.06)]',
+        'inline-flex shrink-0 items-center justify-center overflow-hidden',
+        chrome === 'badge' && 'border border-ds-border bg-ds-surface-subtle shadow-[0_1px_2px_rgba(0,0,0,0.06)]',
         sizeClass,
         props.kind === 'service' && 'p-[3px]',
         props.className,

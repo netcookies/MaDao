@@ -584,6 +584,77 @@ function renderPageTarget(target: ScreenshotTarget, t: (key: string, options?: R
         activity={[]}
         providers={{}}
         decorations={{}}
+        statistics={{
+          services: [
+            {
+              service: 'openai',
+              serviceLabel: 'OpenAI (GPT)',
+              serviceIconUrl: null,
+              totalAttempts: 6,
+              successCount: 0,
+              failCount: 6,
+            },
+            {
+              service: 'telegram',
+              serviceLabel: 'Telegram',
+              serviceIconUrl: null,
+              totalAttempts: 4,
+              successCount: 3,
+              failCount: 1,
+            },
+          ],
+          bestRoutes: [
+            {
+              country: 'AT',
+              countryLabel: 'Austria',
+              countryIconUrl: null,
+              provider: 'herosms',
+              providerLabel: 'HeroSMS',
+              providerIconUrl: null,
+              providerBadgeLabel: 'H',
+              route: 'any',
+              routeLabel: t('Any operator'),
+              value: '0.0%',
+              rank: 1,
+            },
+          ],
+          cheapestRoutes: [
+            {
+              country: 'US',
+              countryLabel: 'United States',
+              countryIconUrl: null,
+              provider: 'fivesim',
+              providerLabel: 'FiveSim',
+              providerIconUrl: null,
+              providerBadgeLabel: '5',
+              route: 'any',
+              routeLabel: t('Any operator'),
+              value: '¥0.62',
+              rank: 1,
+            },
+          ],
+          fastestRoutes: [
+            {
+              country: 'GB',
+              countryLabel: 'United Kingdom',
+              countryIconUrl: null,
+              provider: 'smsbower',
+              providerLabel: 'SMSBower',
+              providerIconUrl: null,
+              providerBadgeLabel: 'S',
+              route: 'vodafone',
+              routeLabel: 'Vodafone',
+              value: '42s',
+              rank: 1,
+            },
+          ],
+          selectedService: 'openai',
+          selectedServiceLabel: 'OpenAI (GPT)',
+          onServiceSelect: noop,
+          lookback: '24h',
+          onLookbackChange: noop,
+          layout: 'app',
+        }}
         onViewAll={noop}
       />,
     );
@@ -882,7 +953,7 @@ function renderPageTarget(target: ScreenshotTarget, t: (key: string, options?: R
       t('Activity'),
       <LogsScreen
         logs={LOGS}
-        activity={ACTIVITY}
+        activity={OVERVIEW_ACTIVITY}
         providers={Object.fromEntries(PROVIDERS.map((provider) => [provider.id, provider]))}
         decorations={{}}
         viewMode="activity"
