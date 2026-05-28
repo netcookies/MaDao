@@ -149,9 +149,20 @@
       "harvested": false,
       "created_at": "2026-05-24T16:15:00+08:00",
       "completed_at": "2026-05-24T16:15:00+08:00"
+    },
+    {
+      "id": "ANL-20260528-stats-worker-cache-snapshot",
+      "type": "analyze",
+      "scope": "macro",
+      "status": "completed",
+      "path": ".workflow/.csv-wave/20260528-analyze-stats-worker-cache-snapshot",
+      "context_package": ".workflow/.csv-wave/20260528-analyze-stats-worker-cache-snapshot/context-package.json",
+      "harvested": false,
+      "created_at": "2026-05-28T12:28:00+08:00",
+      "completed_at": "2026-05-28T12:28:00+08:00"
     }
   ],
-  "last_updated": "2026-05-26T18:00:00+08:00",
+  "last_updated": "2026-05-28T12:28:00+08:00",
   "quick_tasks": [
     {
       "id": "quick-align-provider-workspace-screen-2026-05-07",

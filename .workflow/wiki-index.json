@@ -1,6 +1,6 @@
 {
   "version": 2,
-  "generatedAt": 1779822446135,
+  "generatedAt": 1779958488338,
   "entries": [
     {
       "id": "project-project",
@@ -920,7 +920,7 @@
       ],
       "status": "active",
       "created": "2026-05-05T18:22:16.853Z",
-      "updated": "2026-05-21T13:29:18.981Z",
+      "updated": "2026-05-28T06:44:40.099Z",
       "scope": "project",
       "category": "review",
       "createdBy": null,
@@ -935,19 +935,20 @@
     {
       "id": "spec:project:quality-rules-001",
       "type": "spec",
-      "title": "Detected Signals",
-      "summary": "- `package.json` defines a production `build` workflow for the frontend via `vite build`. - Rust workspace structure implies `cargo check` / `cargo test` quality gates for backend crates. - `tsconfig.json` has `strict: true`, which means Ty",
+      "title": "Free-tier Worker and D1 dashboard aggregation",
+      "summary": "### Free-tier Worker and D1 dashboard aggregation For Cloudflare Workers and D1 services running on free-tier assumptions, public dashboard or summary endpoints must not execute real-time full-table aggregation over event-detail tables. Pu",
       "tags": [
-        "quality",
-        "lint",
-        "rule",
-        "enforcement"
+        "worker",
+        "d1",
+        "free-tier",
+        "dashboard",
+        "preaggregation"
       ],
       "status": "active",
       "created": "2026-05-05T18:22:16.853Z",
-      "updated": "2026-05-21T13:29:18.981Z",
+      "updated": "2026-05-28T06:44:40.099Z",
       "scope": "project",
-      "category": "review",
+      "category": "quality",
       "createdBy": null,
       "sourceRef": null,
       "parent": "spec:project:quality-rules",
@@ -960,8 +961,8 @@
     {
       "id": "spec:project:quality-rules-002",
       "type": "spec",
-      "title": "Expected Validation",
-      "summary": "- Frontend changes should at minimum pass `npm run build`. - Rust/runtime changes should run the most relevant `cargo test` or `cargo check` target when touched. - API contract changes should be validated across UI types and Rust response m",
+      "title": "Detected Signals",
+      "summary": "- `package.json` defines a production `build` workflow for the frontend via `vite build`. - Rust workspace structure implies `cargo check` / `cargo test` quality gates for backend crates. - `tsconfig.json` has `strict: true`, which means Ty",
       "tags": [
         "quality",
         "lint",
@@ -970,7 +971,7 @@
       ],
       "status": "active",
       "created": "2026-05-05T18:22:16.853Z",
-      "updated": "2026-05-21T13:29:18.981Z",
+      "updated": "2026-05-28T06:44:40.099Z",
       "scope": "project",
       "category": "review",
       "createdBy": null,
@@ -985,8 +986,8 @@
     {
       "id": "spec:project:quality-rules-003",
       "type": "spec",
-      "title": "Review Priorities",
-      "summary": "- Catch UI state drift between local draft state and runtime truth. - Catch provider-specific regressions around enable/disable flows, release rules, and routing. - Prefer small, atomic changes with clear user-visible verification paths.",
+      "title": "Expected Validation",
+      "summary": "- Frontend changes should at minimum pass `npm run build`. - Rust/runtime changes should run the most relevant `cargo test` or `cargo check` target when touched. - API contract changes should be validated across UI types and Rust response m",
       "tags": [
         "quality",
         "lint",
@@ -995,7 +996,7 @@
       ],
       "status": "active",
       "created": "2026-05-05T18:22:16.853Z",
-      "updated": "2026-05-21T13:29:18.981Z",
+      "updated": "2026-05-28T06:44:40.099Z",
       "scope": "project",
       "category": "review",
       "createdBy": null,
@@ -1010,6 +1011,31 @@
     {
       "id": "spec:project:quality-rules-004",
       "type": "spec",
+      "title": "Review Priorities",
+      "summary": "- Catch UI state drift between local draft state and runtime truth. - Catch provider-specific regressions around enable/disable flows, release rules, and routing. - Prefer small, atomic changes with clear user-visible verification paths.",
+      "tags": [
+        "quality",
+        "lint",
+        "rule",
+        "enforcement"
+      ],
+      "status": "active",
+      "created": "2026-05-05T18:22:16.853Z",
+      "updated": "2026-05-28T06:44:40.099Z",
+      "scope": "project",
+      "category": "review",
+      "createdBy": null,
+      "sourceRef": null,
+      "parent": "spec:project:quality-rules",
+      "related": [],
+      "source": {
+        "kind": "file",
+        "path": "specs/quality-rules.md"
+      }
+    },
+    {
+      "id": "spec:project:quality-rules-005",
+      "type": "spec",
       "title": "Uncertain Areas",
       "summary": "- No dedicated ESLint or Prettier config was detected in the repo root. Mark formatting/lint rules as convention-driven rather than tool-enforced. - No CI workflow directory was detected locally. Treat local build/test commands as the prima",
       "tags": [
@@ -1020,7 +1046,7 @@
       ],
       "status": "active",
       "created": "2026-05-05T18:22:16.853Z",
-      "updated": "2026-05-21T13:29:18.981Z",
+      "updated": "2026-05-28T06:44:40.099Z",
       "scope": "project",
       "category": "review",
       "createdBy": null,
