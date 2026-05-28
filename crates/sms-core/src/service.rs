@@ -307,7 +307,9 @@ impl SmsService {
             runtime_settings.stats_sync_base_url = DEFAULT_STATS_SYNC_BASE_URL.to_string();
             runtime_settings_repaired = true;
         }
-        if runtime_settings.stats_sync_api_token.trim().is_empty() {
+        if runtime_settings.stats_sync_api_token.trim().is_empty()
+            && !DEFAULT_STATS_SYNC_API_TOKEN.is_empty()
+        {
             runtime_settings.stats_sync_api_token = DEFAULT_STATS_SYNC_API_TOKEN.to_string();
             runtime_settings_repaired = true;
         }

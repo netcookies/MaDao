@@ -110,6 +110,7 @@ jobs:
         uses: tauri-apps/tauri-action@v0
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          STATS_SYNC_API_TOKEN: ${{ secrets.STATS_SYNC_API_TOKEN }}
         with:
           tagName: ${{ needs.release_meta.outputs.current_tag }}
           releaseName: ${{ needs.release_meta.outputs.release_name }}

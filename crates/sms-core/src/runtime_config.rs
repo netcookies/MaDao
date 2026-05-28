@@ -10,8 +10,11 @@ pub const RUNTIME_DB_FILE_NAME: &str = "runtime.db";
 pub const RUNTIME_SETTINGS_FILE_NAME: &str = "runtime-settings.json";
 pub const PROVIDER_OPTIONS_CACHE_FILE_NAME: &str = "provider-options-cache.json";
 pub const PROVIDER_OPTIONS_RAW_AUDIT_FILE_NAME: &str = "provider-options-raw.json";
-pub const DEFAULT_STATS_SYNC_BASE_URL: &str = "https://madao-stats.example.workers.dev";
-pub const DEFAULT_STATS_SYNC_API_TOKEN: &str = "replace-me";
+pub const DEFAULT_STATS_SYNC_BASE_URL: &str = "https://madao-stats.nznd.org";
+pub const DEFAULT_STATS_SYNC_API_TOKEN: &str = match option_env!("STATS_SYNC_API_TOKEN") {
+    Some(v) => v,
+    None => "",
+};
 
 #[derive(Debug, Clone)]
 pub struct AppPersistencePaths {
