@@ -4,6 +4,8 @@ import { useTranslation } from 'react-i18next';
 import { AppButton, PageHeader } from '../ui-bridge';
 import type { ActivityEntry, ProviderManifest, TicketDecoration } from '../types';
 import { ActivityTable } from '../activity/ActivityTable';
+import type { OverviewStatisticsProps } from './OverviewStatistics';
+import { OverviewStatistics } from './OverviewStatistics';
 
 export type OverviewStats = {
   totalMessages: string;
@@ -17,6 +19,7 @@ export type OverviewScreenProps = {
   providers?: Record<string, ProviderManifest>;
   decorations?: Record<string, TicketDecoration>;
   onViewAll: () => void;
+  statistics?: OverviewStatisticsProps;
 };
 
 export function OverviewScreen(props: OverviewScreenProps) {
@@ -33,6 +36,8 @@ export function OverviewScreen(props: OverviewScreenProps) {
         <StatCard title={t('Active Providers')} value={props.stats.activeProviders} caption={t('All systems operational')} positive icon={<Server size={12} className="opacity-40" />} />
         <StatCard title={t('Success Rate')} value={props.stats.successRate} caption={t('-0.1% from yesterday')} icon={<Check size={12} className="opacity-40" />} />
       </div>
+
+      {props.statistics && <OverviewStatistics {...props.statistics} />}
 
       <div className="flex flex-col gap-4">
         <div className="flex items-center justify-between gap-4">

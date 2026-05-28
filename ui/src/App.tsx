@@ -29,6 +29,7 @@ import { ManifestModal } from './app/overlays/ManifestModal';
 import { SearchSelectorModal } from './app/overlays/SearchSelectorModal';
 import { HttpLoginScreen } from './app/auth/HttpLoginScreen';
 import { OverviewScreen } from './app/overview/OverviewScreen';
+import type { LookbackPeriod, OverviewStatisticsProps } from './app/overview/OverviewStatistics';
 import { ProviderWorkspaceScreen } from './app/providers/ProviderWorkspaceScreen';
 import { ProvidersListScreen } from './app/providers/ProvidersListScreen';
 import { RoutingScreen } from './app/routing/RoutingScreen';
@@ -186,6 +187,8 @@ export function App() {
     lookbackHours: 24,
   });
   const [remoteStatsSummary, setRemoteStatsSummary] = useState<import('./app/types').RemoteStatsSummaryResponse | null>(null);
+  const [overviewLookback, setOverviewLookback] = useState<LookbackPeriod>('24h');
+  const [overviewSelectedService, setOverviewSelectedService] = useState('');
   const [runtimeAccessInfo, setRuntimeAccessInfo] = useState({
     http_port: 7822,
     http_secret_overridden: false,
@@ -637,6 +640,80 @@ export function App() {
       setBusyAction('');
     }
   }
+
+  const [overviewStatsSummary, setOverviewStatsSummary] = useState<import('./app/types').RemoteStatsSummaryResponse | null>(null);
+
+  useEffect(() => {
+    if (activeScreen !== 'overview' || !runtimeSettings.stats_sync_enabled) {
+      return;
+    }
+    const lookbackHours = overviewLookback === '24h' ? 24 : overviewLookback === '3d' ? 72 : 168;
+    let cancelled = false;
+    fetchRemoteStatsSummaryFromDaemon({ lookback_hours: lookbackHours })
+      .then((res) => { if (!cancelled) setOverviewStatsSummary(res); })
+      .catch(() => { if (!cancelled) setOverviewStatsSummary(null); });
+    return () => { cancelled = true; };
+  }, [activeScreen, overviewLookback, runtimeSettings.stats_sync_enabled]);
+
+  const overviewStatistics: OverviewStatisticsProps | undefined = (() => {
+    if (!overviewStatsSummary || overviewStatsSummary.items.length === 0) return undefined;
+    const items = overviewStatsSummary.items;
+
+    const serviceMap = new Map<string, { total: number; success: number; fail: number }>();
+    for (const item of items) {
+      const entry = serviceMap.get(item.service) ?? { total: 0, success: 0, fail: 0 };
+      entry.total += item.total;
+      entry.success += item.success_count;
+      entry.fail += item.total - item.success_count;
+      serviceMap.set(item.service, entry);
+    }
+    const services = [...serviceMap.entries()].map(([service, v]) => ({
+      service,
+      totalAttempts: v.total,
+      successCount: v.success,
+      failCount: v.fail,
+    }));
+
+    const selected = overviewSelectedService || services[0]?.service || '';
+    const filtered = items.filter((i) => i.service === selected);
+
+    const toCard = (item: typeof items[0], rank: number, value: string) => ({
+      country: item.country,
+      countryFlag: '',
+      provider: item.provider,
+      route: `${item.country}/${item.operator || '*'}`,
+      value,
+      rank,
+    });
+
+    const bestRoutes = [...filtered]
+      .sort((a, b) => b.success_rate - a.success_rate)
+      .slice(0, 5)
+      .map((item, i) => toCard(item, i + 1, `${(item.success_rate * 100).toFixed(1)}%`));
+
+    const cheapestRoutes = [...filtered]
+      .filter((i) => i.avg_effective_price != null)
+      .sort((a, b) => a.avg_effective_price! - b.avg_effective_price!)
+      .slice(0, 5)
+      .map((item, i) => toCard(item, i + 1, `¥${item.avg_effective_price!.toFixed(2)}`));
+
+    const fastestRoutes = [...filtered]
+      .filter((i) => i.avg_receive_time_secs != null)
+      .sort((a, b) => a.avg_receive_time_secs! - b.avg_receive_time_secs!)
+      .slice(0, 5)
+      .map((item, i) => toCard(item, i + 1, `${item.avg_receive_time_secs!.toFixed(0)}s`));
+
+    return {
+      services,
+      bestRoutes,
+      cheapestRoutes,
+      fastestRoutes,
+      selectedService: selected,
+      onServiceSelect: setOverviewSelectedService,
+      lookback: overviewLookback,
+      onLookbackChange: setOverviewLookback,
+    };
+  })();
 
   useEffect(() => {
     void getAppConfigDirectory()
@@ -2142,6 +2219,7 @@ export function App() {
                 activity={recentActivity}
                 providers={manifestsById}
                 decorations={ticketDecorations}
+                statistics={overviewStatistics}
                 onViewAll={() => {
                   setLogsViewMode('activity');
                   setLogsFilter('all');
@@ -2314,8 +2392,6 @@ export function App() {
                 httpSecret={runtimeSettings.http_secret}
                 httpSecretOverridden={runtimeAccessInfo.http_secret_overridden}
                 statsSyncEnabled={runtimeSettings.stats_sync_enabled}
-                statsSyncBaseUrl={runtimeSettings.stats_sync_base_url}
-                statsSyncApiToken={runtimeSettings.stats_sync_api_token}
                 statsSyncPendingEvents={statsSyncStatus?.pending_events}
                 statsSyncLastAttemptAt={statsSyncStatus?.last_attempt_at ?? null}
                 statsSyncLastSuccessAt={statsSyncStatus?.last_success_at ?? null}
@@ -2344,21 +2420,8 @@ export function App() {
                   void updateRuntimeSettings(buildRuntimeSettingsUpdate({
                     stats_sync_enabled: enabled,
                   }))}
-                onStatsSyncBaseUrlChange={(value) =>
-                  void updateRuntimeSettings(buildRuntimeSettingsUpdate({
-                    stats_sync_base_url: value,
-                  }))}
-                onStatsSyncApiTokenChange={(value) =>
-                  void updateRuntimeSettings(buildRuntimeSettingsUpdate({
-                    stats_sync_api_token: value,
-                  }))}
                 onSyncStatsNow={() => void handleSyncStatsNow()}
                 syncStatsBusy={busyAction === 'sync-ticket-stats'}
-                remoteStatsQuery={remoteStatsQuery}
-                onRemoteStatsQueryChange={handleRemoteStatsQueryChange}
-                onFetchRemoteStatsSummary={() => void handleFetchRemoteStatsSummary()}
-                remoteStatsSummaryBusy={busyAction === 'fetch-remote-stats-summary'}
-                remoteStatsSummary={remoteStatsSummary}
                 onRegenerateHttpSecret={() =>
                   void refreshHttpSecret().then((info) => {
                     if (info) setRuntimeAccessInfo(info);

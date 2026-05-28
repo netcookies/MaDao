@@ -864,6 +864,10 @@ function renderPageTarget(target: ScreenshotTarget, t: (key: string, options?: R
         onRegenerateHttpSecret={noop}
         regenerateSecretBusy={false}
         onCheckForUpdates={noop}
+        statsSyncEnabled
+        onStatsSyncEnabledChange={noop}
+        onSyncStatsNow={noop}
+        syncStatsBusy={false}
         apiBase="http://127.0.0.1:7822"
         socketPath="/tmp/madao-sms.sock"
         configDirectory="~/Library/Application Support/com.madao.sms"
