@@ -9,6 +9,12 @@
       "database_id": "16446b23-4cc2-4238-975b-d85dfc56d01b"
     }
   ],
+  "triggers": {
+    "crons": [
+      "55 2 * * *",
+      "0 * * * *"
+    ]
+  },
   // API_TOKEN is set via `npx wrangler secret put API_TOKEN`
   "vars": {}
 }
