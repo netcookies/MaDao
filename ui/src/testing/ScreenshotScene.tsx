@@ -52,6 +52,7 @@ import type {
   ScreenId,
   TicketRecord,
   LanguageCode,
+  UpdateCheckResult,
 } from '../app/types';
 
 export type ScreenshotTarget =
@@ -510,9 +511,20 @@ function notificationMeta(scope: string, time: string) {
   );
 }
 
-function buildToolbarActions(t: (key: string, options?: Record<string, unknown>) => string) {
+function buildToolbarActions(
+  t: (key: string, options?: Record<string, unknown>) => string,
+  updateCheckResult?: UpdateCheckResult,
+) {
   return (
     <>
+      {updateCheckResult?.has_update ? (
+        <button
+          type="button"
+          className="inline-flex min-h-control-compact items-center rounded-pill bg-[var(--ds-color-state-warning-soft)] px-3 py-1.5 font-text text-[12px] font-semibold leading-none text-ds-state-warning"
+        >
+          {t('Update v{{version}}', { version: updateCheckResult.latest_version })}
+        </button>
+      ) : null}
       <div className="relative">
         <IconButton
           variant="toolbar"
@@ -533,6 +545,17 @@ function buildToolbarActions(t: (key: string, options?: Record<string, unknown>)
   );
 }
 
+function getDemoUpdateCheckResult(): UpdateCheckResult {
+  return {
+    current_version: '0.1.20',
+    latest_version: '0.1.21',
+    has_update: true,
+    release_name: 'v0.1.21',
+    release_url: 'https://github.com/netcookies/MaDao/releases/tag/v0.1.21',
+    published_at: '2026-05-29T00:00:00Z',
+  };
+}
+
 function buildShell(
   t: (key: string, options?: Record<string, unknown>) => string,
   screen: ScreenId,
@@ -541,6 +564,7 @@ function buildShell(
   options?: {
     navigation?: React.ReactNode;
     compact?: boolean;
+    updateCheckResult?: UpdateCheckResult;
   },
 ) {
   return (
@@ -559,7 +583,7 @@ function buildShell(
         <AppToolbar
           title={title}
           navigation={options?.navigation ?? <PanelLeft size={16} className="opacity-60" />}
-          actions={buildToolbarActions(t)}
+          actions={buildToolbarActions(t, options?.updateCheckResult)}
         />
       )}
       compact={options?.compact}
@@ -922,6 +946,7 @@ function renderPageTarget(target: ScreenshotTarget, t: (key: string, options?: R
         onlyShowOpenAiSmsCountries={false}
         checkUpdatesOnLaunch
         updateCheckBusy={false}
+        updateCheckResult={getDemoUpdateCheckResult()}
         isDesktopRuntime
         isWebRuntime={false}
         httpPort={7822}
@@ -931,6 +956,7 @@ function renderPageTarget(target: ScreenshotTarget, t: (key: string, options?: R
         onOptionCachePollIntervalChange={noop}
         onOnlyShowOpenAiSmsCountriesChange={noop}
         onCheckUpdatesOnLaunchChange={noop}
+        onOpenUpdateRelease={noop}
         onHttpPortChange={noop}
         onRegenerateHttpSecret={noop}
         regenerateSecretBusy={false}
@@ -943,6 +969,7 @@ function renderPageTarget(target: ScreenshotTarget, t: (key: string, options?: R
         socketPath="/tmp/madao-sms.sock"
         configDirectory="~/Library/Application Support/com.madao.sms"
       />,
+      { updateCheckResult: getDemoUpdateCheckResult() },
     );
   }
 

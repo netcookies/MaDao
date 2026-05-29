@@ -1,5 +1,5 @@
 import type { ReactNode } from 'react';
-import { Minus, Moon, Plus, Sun } from 'lucide-react';
+import { ExternalLink, Minus, Moon, Plus, Sun } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import {
   AppButton,
@@ -13,6 +13,7 @@ import {
 import type {
   LanguageCode as AppLanguageCode,
   OptionCacheOverview,
+  UpdateCheckResult,
 } from '../types';
 
 export type AppearanceTheme = 'light' | 'dark' | 'system';
@@ -34,6 +35,7 @@ export type SettingsScreenProps = {
   onlyShowOpenAiSmsCountries: boolean;
   checkUpdatesOnLaunch: boolean;
   updateCheckBusy: boolean;
+  updateCheckResult: UpdateCheckResult | null;
   isDesktopRuntime: boolean;
   isWebRuntime: boolean;
   httpPort: number;
@@ -48,6 +50,7 @@ export type SettingsScreenProps = {
   onOptionCachePollIntervalChange: (minutes: number) => void;
   onOnlyShowOpenAiSmsCountriesChange: (enabled: boolean) => void;
   onCheckUpdatesOnLaunchChange: (enabled: boolean) => void;
+  onOpenUpdateRelease: () => void;
   onHttpPortChange: (port: number) => void;
   onStatsSyncEnabledChange: (enabled: boolean) => void;
   onSyncStatsNow: () => void;
@@ -105,6 +108,11 @@ export function SettingsScreen(props: SettingsScreenProps) {
     props.statsSyncLastSuccessAt ? `${t('Last success')}: ${props.statsSyncLastSuccessAt}` : null,
     props.statsSyncLastAttemptAt ? `${t('Last attempt')}: ${props.statsSyncLastAttemptAt}` : null,
   ].filter(Boolean).join(' · ');
+  const updateStatus = props.updateCheckResult
+    ? props.updateCheckResult.has_update
+      ? t('Update available: v{{latest}}', { latest: props.updateCheckResult.latest_version })
+      : t('Up to date')
+    : t('Not checked yet');
 
   return (
     <div className="flex flex-col gap-8">
@@ -258,9 +266,32 @@ export function SettingsScreen(props: SettingsScreenProps) {
             <ToggleSwitch checked={props.checkUpdatesOnLaunch} onChange={props.onCheckUpdatesOnLaunchChange} ariaLabel={t('Toggle check for updates on launch')} />
           </ServerConfigRow>
           <ServerConfigRow label={t('Check for updates')}>
-            <AppButton variant="outline" size="utility" onClick={props.onCheckForUpdates} disabled={props.updateCheckBusy}>
-              {props.updateCheckBusy ? t('Checking…') : t('Check now')}
-            </AppButton>
+            <div className="flex max-w-full flex-col items-stretch gap-2 min-[560px]:flex-row min-[560px]:items-center min-[560px]:justify-end">
+              <span
+                className={[
+                  'inline-flex min-h-control-compact items-center rounded-sm border px-3 py-2 font-text text-[13px] font-medium leading-none',
+                  props.updateCheckResult?.has_update
+                    ? 'border-[rgba(255,149,0,0.32)] bg-[var(--ds-color-state-warning-soft)] text-ds-state-warning'
+                    : 'border-ds-border bg-ds-surface-subtle text-ds-text-secondary',
+                ].join(' ')}
+              >
+                {updateStatus}
+              </span>
+              {props.updateCheckResult?.has_update ? (
+                <AppButton
+                  variant="primary"
+                  size="utility"
+                  onClick={props.onOpenUpdateRelease}
+                  className="shrink-0"
+                >
+                  <ExternalLink size={14} />
+                  <span>{t('View release')}</span>
+                </AppButton>
+              ) : null}
+              <AppButton variant="outline" size="utility" onClick={props.onCheckForUpdates} disabled={props.updateCheckBusy} className="shrink-0">
+                {props.updateCheckBusy ? t('Checking…') : t('Check now')}
+              </AppButton>
+            </div>
           </ServerConfigRow>
         </div>
 

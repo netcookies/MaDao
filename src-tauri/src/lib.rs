@@ -588,6 +588,33 @@ async fn open_app_config_directory(app: tauri::AppHandle) -> Result<(), String> 
 }
 
 #[tauri::command]
+async fn open_external_url(url: String) -> Result<(), String> {
+    let trimmed_url = url.trim();
+    if !(trimmed_url.starts_with("https://") || trimmed_url.starts_with("http://")) {
+        return Err("unsupported external URL scheme".to_string());
+    }
+
+    let mut command = if cfg!(target_os = "macos") {
+        let mut command = std::process::Command::new("open");
+        command.arg(trimmed_url);
+        command
+    } else if cfg!(target_os = "windows") {
+        let mut command = std::process::Command::new("explorer");
+        command.arg(trimmed_url);
+        command
+    } else {
+        let mut command = std::process::Command::new("xdg-open");
+        command.arg(trimmed_url);
+        command
+    };
+
+    command
+        .spawn()
+        .map_err(|err| format!("open external URL failed: {err}"))?;
+    Ok(())
+}
+
+#[tauri::command]
 async fn window_action(window: WebviewWindow, action: String) -> Result<(), String> {
     match action.as_str() {
         "minimize" => window.minimize().map_err(|err| err.to_string()),
@@ -848,6 +875,7 @@ pub fn run() {
             desktop_http_access_info,
             desktop_http_secret,
             open_app_config_directory,
+            open_external_url,
             window_action,
             set_window_title,
             socket_request

@@ -383,6 +383,11 @@ export function App() {
     }
   }
 
+  function openUpdateRelease() {
+    const releaseUrl = updateCheckResult?.release_url || 'https://github.com/netcookies/MaDao/releases';
+    openExternalUrl(releaseUrl);
+  }
+
   const snackbarTone = useMemo(() => getSnackbarTone(statusMessage), [statusMessage]);
   const statsSyncStatus = snapshot?.stats_sync_status ?? null;
   const {
@@ -2246,10 +2251,10 @@ export function App() {
       {updateCheckResult?.has_update ? (
         <button
           type="button"
-          className="inline-flex min-h-0 items-center rounded-pill bg-ds-state-danger px-2 py-1 text-[10px] font-semibold uppercase tracking-[0.12em] text-white transition-opacity duration-fast ease-[var(--ds-motion-transition-fast)] hover:opacity-85"
-          onClick={() => void openExternalUrl('https://github.com/netcookies/MaDao/releases')}
+          className="inline-flex min-h-control-compact items-center rounded-pill bg-[var(--ds-color-state-warning-soft)] px-3 py-1.5 font-text text-[12px] font-semibold leading-none text-ds-state-warning transition-opacity duration-fast ease-[var(--ds-motion-transition-fast)] hover:opacity-85 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ds-accent-focus"
+          onClick={openUpdateRelease}
         >
-          NEW
+          {t('Update v{{version}}', { version: updateCheckResult.latest_version })}
         </button>
       ) : null}
       <div ref={notificationsPopoverRef} className="relative">
@@ -2576,6 +2581,7 @@ export function App() {
                 onlyShowOpenAiSmsCountries={runtimeSettings.only_show_openai_sms_countries}
                 checkUpdatesOnLaunch={runtimeSettings.check_updates_on_launch}
                 updateCheckBusy={updateCheckBusy}
+                updateCheckResult={updateCheckResult}
                 isDesktopRuntime={IS_DESKTOP_RUNTIME}
                 isWebRuntime={IS_WEB_RUNTIME}
                 httpPort={runtimeSettings.http_port}
@@ -2602,6 +2608,7 @@ export function App() {
                   void updateRuntimeSettings(buildRuntimeSettingsUpdate({
                     check_updates_on_launch: enabled,
                   }))}
+                onOpenUpdateRelease={openUpdateRelease}
                 onHttpPortChange={(port) =>
                   void updateRuntimeSettings(buildRuntimeSettingsUpdate({
                     http_port: port,

@@ -27,5 +27,14 @@ export async function setAppThemePreference(theme: AppearanceTheme) {
 }
 
 export async function openExternalUrl(url: string) {
-  window.open(url, '_blank', 'noopener,noreferrer');
+  if (!IS_DESKTOP_RUNTIME) {
+    window.open(url, '_blank', 'noopener,noreferrer');
+    return;
+  }
+
+  try {
+    await invoke('open_external_url', { url });
+  } catch {
+    window.open(url, '_blank', 'noopener,noreferrer');
+  }
 }
