@@ -14037,15 +14037,26 @@
                         },
                         {
                           "type": "frame",
-                          "id": "vFWAH",
+                          "id": "CGgd1",
                           "name": "syncBtnRow",
                           "width": "fill_container",
-                          "gap": 12,
+                          "justifyContent": "space_between",
                           "alignItems": "center",
                           "children": [
                             {
+                              "type": "text",
+                              "id": "K7QuO3",
+                              "name": "syncHint",
+                              "opacity": 0.4,
+                              "fill": "#1d1d1f",
+                              "content": "Manually push pending events to the remote worker.",
+                              "fontFamily": "Inter",
+                              "fontSize": 11,
+                              "fontWeight": "normal"
+                            },
+                            {
                               "type": "frame",
-                              "id": "uXz30",
+                              "id": "WZmUJ",
                               "name": "syncNowBtn",
                               "fill": "#007aff",
                               "cornerRadius": 6,
@@ -14056,7 +14067,7 @@
                               "children": [
                                 {
                                   "type": "text",
-                                  "id": "niwb2",
+                                  "id": "X5KOTg",
                                   "fill": "#ffffff",
                                   "content": "Sync Now",
                                   "fontFamily": "Inter",
@@ -14064,17 +14075,6 @@
                                   "fontWeight": "600"
                                 }
                               ]
-                            },
-                            {
-                              "type": "text",
-                              "id": "L94qLq",
-                              "name": "syncHint",
-                              "opacity": 0.4,
-                              "fill": "#1d1d1f",
-                              "content": "Manually push pending events to the remote worker.",
-                              "fontFamily": "Inter",
-                              "fontSize": 11,
-                              "fontWeight": "normal"
                             }
                           ]
                         }
