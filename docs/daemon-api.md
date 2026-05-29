@@ -32,6 +32,8 @@ http://127.0.0.1:7822
 - `tickets[].same_activation_retry_expires_at`
 - `reuse_pool[]`
 
+`providers[]` 是生产运行态 provider 列表，不包含内置 `mock` provider；需要查看或编辑完整 manifest（包括 `mock`）时使用 `/api/provider-manifests` 或 `/api/providers/{provider}/manifest`。
+
 `RuntimeSettings` 当前包括：
 
 - `routing_strategy`
@@ -83,6 +85,8 @@ provider manifest 的复用配置当前包括：
 - 未配置时返回 `invalid request: provider \`...\` requires api_key before resource discovery`
 - `/api/providers/{provider}/options` 已移除；需要完整动态选项时，调用方按 `countries -> operators -> services` 级联获取
 - daemon 内部 option cache 也通过这 3 条资源链路聚合结果，不再依赖旧 `options` 端点
+- 资源项统一返回 `value`、`label`、`hint`、`provider_value`：`value` 是 MaDao canonical 主键，`provider_value` 是 provider 原生值
+- 国家项额外返回 `label_zh`（简体中文显示名）；服务和运营商继续使用现有 `label` 显示名，不额外提供中文名
 
 ### Routing plan
 
@@ -117,6 +121,9 @@ provider manifest 的复用配置当前包括：
 - `5SIM` 的服务发现是级联的，依赖 `country + operator`
 - `HeroSMS` / `SmsBower` 当前服务发现不依赖 `country/operator`
 - 所有对外 `country` 主字段现在统一使用 `ISO 3166-1 alpha-2` 大写码；旧 slug / 国家名 / provider 数字值仍可兼容读取
+- `/countries` 响应中的 `items[].value` 同样使用 ISO / sentinel canonical 值；例如 5SIM 原生 `england` 会返回 `value: "GB"`、`label: "United Kingdom"`、`label_zh: "英国"`、`provider_value: "england"`
+- `/services` 与 `/operators` 响应中的 `items[].value` 使用 MaDao canonical key，`provider_value` 保留 provider 原生 key
+- `/prices` 响应中的 `items[].country` 使用 ISO / sentinel canonical 值，`display_name` 保持英文/默认显示名，`display_name_zh` 在可映射国家时返回中文显示名，`provider_country` 保留 provider 原生值
 - UI 侧对 `5SIM` 会按国家下的 operator 列表逐个探测 products，再合并成 service 列表；
   不再依赖 `operator=any` 的单点请求结果
 

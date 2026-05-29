@@ -1938,20 +1938,7 @@ mod tests {
             .pointer("/items")
             .and_then(serde_json::Value::as_array)
             .unwrap();
-        assert_eq!(items.len(), 1);
-        assert_eq!(
-            items[0]
-                .pointer("/scope")
-                .and_then(serde_json::Value::as_str),
-            Some("http")
-        );
-        assert!(
-            items[0]
-                .pointer("/message")
-                .and_then(serde_json::Value::as_str)
-                .unwrap_or_default()
-                .contains("POST /api/notifications -> 200")
-        );
+        assert!(items.is_empty());
     }
 
     #[tokio::test]
@@ -1998,6 +1985,65 @@ mod tests {
                     .and_then(serde_json::Value::as_str)
                     .unwrap_or_default()
                     .contains("GET /api/providers -> 200")
+        }));
+    }
+
+    #[tokio::test]
+    async fn providers_endpoint_excludes_mock_from_runtime_snapshot() {
+        let (app, secret) = test_context();
+        let cookie = login_cookie(&app, &secret).await;
+
+        let response = app
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .method(Method::GET)
+                    .uri("/api/providers")
+                    .header("cookie", &cookie)
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(response.status(), StatusCode::OK);
+        let body = axum::body::to_bytes(response.into_body(), usize::MAX)
+            .await
+            .unwrap();
+        let json: serde_json::Value = serde_json::from_slice(&body).unwrap();
+        let providers = json
+            .pointer("/providers")
+            .and_then(serde_json::Value::as_array)
+            .unwrap();
+        assert!(providers.iter().all(|item| {
+            item.pointer("/id").and_then(serde_json::Value::as_str) != Some("mock")
+                && item.pointer("/kind").and_then(serde_json::Value::as_str) != Some("mock")
+        }));
+        assert!(providers.iter().any(|item| {
+            item.pointer("/id").and_then(serde_json::Value::as_str) == Some("fivesim")
+        }));
+
+        let manifest_response = app
+            .oneshot(
+                Request::builder()
+                    .method(Method::GET)
+                    .uri("/api/provider-manifests")
+                    .header("cookie", &cookie)
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(manifest_response.status(), StatusCode::OK);
+        let manifest_body = axum::body::to_bytes(manifest_response.into_body(), usize::MAX)
+            .await
+            .unwrap();
+        let manifest_json: serde_json::Value = serde_json::from_slice(&manifest_body).unwrap();
+        let manifests = manifest_json
+            .pointer("/manifests")
+            .and_then(serde_json::Value::as_array)
+            .unwrap();
+        assert!(manifests.iter().any(|item| {
+            item.pointer("/id").and_then(serde_json::Value::as_str) == Some("mock")
         }));
     }
 

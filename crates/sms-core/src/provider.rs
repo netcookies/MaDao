@@ -228,6 +228,7 @@ impl SmsProvider for MockProvider {
         Ok(vec![ProviderPriceItem {
             country: self.manifest.defaults.country.clone(),
             display_name: "Mock Country".to_string(),
+            display_name_zh: None,
             operator: "mock".to_string(),
             operator_label: Some("Mock".to_string()),
             provider_country: Some(self.manifest.defaults.country.clone()),
@@ -246,6 +247,7 @@ impl SmsProvider for MockProvider {
             value: "local".into(),
             label: "Local".into(),
             hint: "local".into(),
+            label_zh: None,
             provider_value: Some("local".into()),
             icon_url: None,
             provider_icon_url: None,
@@ -260,6 +262,7 @@ impl SmsProvider for MockProvider {
             value: "openai".into(),
             label: "OpenAI".into(),
             hint: "openai".into(),
+            label_zh: None,
             provider_value: Some("openai".into()),
             icon_url: None,
             provider_icon_url: None,
@@ -274,6 +277,7 @@ impl SmsProvider for MockProvider {
             value: "mock".into(),
             label: "Mock".into(),
             hint: "mock".into(),
+            label_zh: None,
             provider_value: Some("mock".into()),
             icon_url: None,
             provider_icon_url: None,
@@ -370,6 +374,7 @@ impl HeroSmsProvider {
                 let code = item.value.clone();
                 if let Some(faq) = faq_map.as_ref().and_then(|items| items.get(&code)) {
                     OptionItem {
+                        label_zh: None,
                         provider_value: item.provider_value,
                         icon_url: faq
                             .img_path
@@ -455,6 +460,7 @@ impl HeroSmsProvider {
                 items.push(ProviderPriceItem {
                     country: country.clone(),
                     display_name: country.clone(),
+                    display_name_zh: None,
                     operator: "any".to_string(),
                     operator_label: Some("Any operator".to_string()),
                     provider_country: Some(country.clone()),
@@ -549,6 +555,7 @@ impl SmsBowerProvider {
             .clone()
             .or_else(|| Some(item.value.clone()));
         OptionItem {
+            label_zh: None,
             provider_value,
             icon_url: faq
                 .img_path
@@ -628,6 +635,7 @@ impl SmsBowerProvider {
                 items.push(ProviderPriceItem {
                     country: country_id.clone(),
                     display_name: country_id.clone(),
+                    display_name_zh: None,
                     operator: provider_id.clone(),
                     operator_label: Some(format!("Provider #{provider_id}")),
                     provider_country: Some(country_id.clone()),
@@ -766,6 +774,7 @@ impl SharedHandlerApiProvider {
                     .or(iso_code.as_deref())
                     .unwrap_or(&value);
                 Some(OptionItem {
+                    label_zh: None,
                     provider_value: Some(value.clone()),
                     icon_url: Some(
                         faq.map(|item| item.icon_url.clone()).unwrap_or_else(|| {
@@ -809,6 +818,7 @@ impl SharedHandlerApiProvider {
                                 .map(ToOwned::to_owned)
                                 .unwrap_or_else(|| value.clone());
                             Some(OptionItem {
+                                label_zh: None,
                                 provider_value: Some(value.clone()),
                                 icon_url: None,
                                 provider_icon_url: None,
@@ -857,6 +867,7 @@ impl SharedHandlerApiProvider {
                         value: operator.to_string(),
                         label: operator.to_string(),
                         hint: format!("country={country_id}"),
+                        label_zh: None,
                         provider_value: Some(operator.to_string()),
                         icon_url: None,
                         provider_icon_url: None,
@@ -921,6 +932,7 @@ impl SharedHandlerApiProvider {
             items.push(ProviderPriceItem {
                 country: country.clone(),
                 display_name: country.clone(),
+                display_name_zh: None,
                 operator,
                 operator_label: None,
                 provider_country: Some(country.clone()),
@@ -1204,6 +1216,7 @@ impl SmsProvider for HeroSmsProvider {
                 value: "any".into(),
                 label: "Any Operator".into(),
                 hint: "any".into(),
+                label_zh: None,
                 provider_value: Some("any".into()),
                 icon_url: None,
                 provider_icon_url: None,
@@ -1404,6 +1417,7 @@ impl FiveSimProvider {
                     .and_then(coerce_f64)
                     .unwrap_or(0.0);
                 OptionItem {
+                    label_zh: None,
                     provider_value: Some(value.clone()),
                     value: value.clone(),
                     label: value,
@@ -1483,6 +1497,7 @@ impl FiveSimProvider {
                 value: provider_value.clone(),
                 label,
                 hint: "5SIM static products list".to_string(),
+                label_zh: None,
                 provider_value: Some(provider_value),
                 icon_url: None,
                 provider_icon_url: None,
@@ -1752,6 +1767,7 @@ impl SmsProvider for FiveSimProvider {
                     items.push(ProviderPriceItem {
                         country: country.clone(),
                         display_name: country.clone(),
+                        display_name_zh: None,
                         operator: operator_name.clone(),
                         operator_label: None,
                         provider_country: Some(country.clone()),
@@ -1790,6 +1806,7 @@ impl SmsProvider for FiveSimProvider {
                     value: country.clone(),
                     label,
                     hint,
+                    label_zh: None,
                     provider_value: Some(country),
                     icon_url: None,
                     provider_icon_url: None,
@@ -1824,6 +1841,7 @@ impl SmsProvider for FiveSimProvider {
                 value: operator.clone(),
                 label: operator.clone(),
                 hint: "5SIM operator".to_string(),
+                label_zh: None,
                 provider_value: Some(operator),
                 icon_url: None,
                 provider_icon_url: None,
@@ -2361,6 +2379,7 @@ mod tests {
                 value: "dr".to_string(),
                 label: "Legacy OpenAI".to_string(),
                 hint: "dr".to_string(),
+                label_zh: None,
                 provider_value: Some("dr".to_string()),
                 icon_url: None,
                 provider_icon_url: None,

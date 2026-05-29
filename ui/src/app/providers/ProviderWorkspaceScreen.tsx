@@ -449,6 +449,11 @@ function WorkspaceStore(props: {
   const selectedCountryOption = findMatchingOption(props.countryOptions, currentCountryValue);
   const resolvedServiceValue = selectedServiceOption?.value ?? currentServiceValue;
   const resolvedCountryValue = selectedCountryOption?.value ?? currentCountryValue;
+  const priceCountryLabel = (item: ProviderPriceItem) => (
+    language === 'zh' && item.display_name_zh
+      ? item.display_name_zh
+      : formatCountryLabel(item.country, language)
+  );
   return (
     <div className={cx('flex flex-col gap-5', props.compact && 'gap-4')}>
       <div className={cx('flex items-start justify-between gap-6', props.compact && 'gap-4')}>
@@ -548,7 +553,7 @@ function WorkspaceStore(props: {
             >
               <span className="inline-flex min-w-0 items-center gap-2.5">
                 <ResourceBadge kind="country" value={item.country} size="sm" iconUrl={props.countryIconUrls?.[item.country]} />
-                <span className="min-w-0 overflow-hidden text-ellipsis whitespace-nowrap">{formatCountryLabel(item.country, language)}</span>
+                <span className="min-w-0 overflow-hidden text-ellipsis whitespace-nowrap">{priceCountryLabel(item)}</span>
               </span>
               <span className="text-[13px] text-ds-text-secondary">{item.operator_label || formatOperatorLabel(item.operator || 'any', language)}</span>
               <span className="text-left font-medium tabular-nums min-[760px]:text-right">${item.price.toFixed(3)}</span>

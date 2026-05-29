@@ -196,6 +196,7 @@ export type ProviderBalance = { provider: string; amount: number; currency: stri
 export type ProviderPriceItem = {
   country: string;
   display_name: string;
+  display_name_zh?: string | null;
   operator: string;
   operator_label?: string | null;
   provider_country?: string | null;
@@ -210,6 +211,7 @@ export type OptionItem = {
   value: string;
   label: string;
   hint: string;
+  label_zh?: string | null;
   provider_value?: string | null;
   icon_url?: string | null;
   provider_icon_url?: string | null;
@@ -221,6 +223,7 @@ export type OptionCatalogItem = {
   hint: string;
   providers: string[];
   provider_values: Record<string, string>;
+  label_zh?: string | null;
   icon_url?: string | null;
   provider_icon_urls?: Record<string, string>;
 };

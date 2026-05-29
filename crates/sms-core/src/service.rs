@@ -20,9 +20,10 @@ use crate::options::{
     FileProviderMetadataCacheRepository, OptionKind, ProviderMetadataCacheBatch,
     ProviderMetadataCacheRepository, ProviderMetadataCacheState, ProviderOptionCacheStore,
     ProviderRawOptionAuditStore, build_cache_overview, cache_state, canonical_country_key,
-    canonical_service_key, normalize_loaded_provider_options, normalize_operator_options,
-    normalize_price_items, normalize_provider_options, normalize_ticket_record,
-    operator_country_cache_key, resolve_provider_operator_value, resolve_provider_value,
+    canonical_service_key, normalize_country_options, normalize_loaded_provider_options,
+    normalize_operator_options, normalize_price_items, normalize_provider_options,
+    normalize_service_options, normalize_ticket_record, operator_country_cache_key,
+    resolve_provider_country_option_value, resolve_provider_operator_value, resolve_provider_value,
     with_cache_state,
 };
 use crate::registry::ProviderRegistry;
@@ -2739,18 +2740,26 @@ impl SmsService {
                 &aliased_service,
             )
         };
-        let country = query.country.as_ref().and_then(|value| {
+        let country = if let Some(country) = query.country.as_ref().and_then(|value| {
             let trimmed = value.trim();
             if trimmed.is_empty() {
                 None
             } else {
-                Some(resolve_provider_value(
-                    cached_options.as_ref().map(|entry| &entry.options),
-                    OptionKind::Country,
-                    trimmed,
-                ))
+                Some(trimmed.to_string())
             }
-        });
+        }) {
+            Some(
+                self.resolve_provider_country_value(
+                    &query.provider,
+                    cached_options.as_ref().map(|entry| &entry.options),
+                    &country,
+                )
+                .await
+                .map_err(|error| ProviderPricesRuntimeError { error, uow: None })?,
+            )
+        } else {
+            None
+        };
         let operator = query.operator.as_ref().and_then(|value| {
             let trimmed = value.trim();
             if trimmed.is_empty() {
@@ -2848,7 +2857,7 @@ impl SmsService {
                 "provider `{provider_id}` requires api_key before resource discovery"
             )));
         }
-        let items = provider.list_countries().await?;
+        let items = normalize_country_options(provider.list_countries().await?);
         Ok(OptionListResponse {
             provider: provider_id.to_string(),
             items,
@@ -2860,9 +2869,9 @@ impl SmsService {
         provider_id: &str,
         mut query: ProviderServicesQuery,
     ) -> Result<OptionListResponse, SmsError> {
-        let provider = {
+        let (manifest, provider) = {
             let registry = self.registry.read();
-            registry.get(provider_id)?
+            (registry.manifest(provider_id)?, registry.get(provider_id)?)
         };
         if !provider.manifest().has_configured_api_key() {
             return Err(SmsError::InvalidRequest(format!(
@@ -2883,13 +2892,16 @@ impl SmsService {
                 Some(trimmed.to_string())
             }
         }) {
-            query.country = Some(resolve_provider_value(
-                cached_options.as_ref().map(|entry| &entry.options),
-                OptionKind::Country,
-                &country,
-            ));
+            query.country = Some(
+                self.resolve_provider_country_value(
+                    provider_id,
+                    cached_options.as_ref().map(|entry| &entry.options),
+                    &country,
+                )
+                .await?,
+            );
         }
-        let items = provider.list_services(query).await?;
+        let items = normalize_service_options(&manifest, provider.list_services(query).await?);
         Ok(OptionListResponse {
             provider: provider_id.to_string(),
             items,
@@ -2946,11 +2958,14 @@ impl SmsService {
                     }
                 }
             }
-            query.country = Some(resolve_provider_value(
-                cached_options.as_ref().map(|entry| &entry.options),
-                OptionKind::Country,
-                &country,
-            ));
+            query.country = Some(
+                self.resolve_provider_country_value(
+                    provider_id,
+                    cached_options.as_ref().map(|entry| &entry.options),
+                    &country,
+                )
+                .await?,
+            );
         }
         let raw_items = provider.list_operators(query.clone()).await?;
         let items = normalize_operator_options(raw_items.clone());
@@ -2983,6 +2998,39 @@ impl SmsService {
             provider: provider_id.to_string(),
             items,
         })
+    }
+
+    async fn resolve_provider_country_value(
+        &self,
+        provider_id: &str,
+        cached_options: Option<&ProviderDynamicOptions>,
+        country: &str,
+    ) -> Result<String, SmsError> {
+        let cached_value = resolve_provider_country_option_value(cached_options, country);
+        if cached_value != country {
+            return Ok(cached_value);
+        }
+
+        let provider = {
+            let registry = self.registry.read();
+            registry.get(provider_id)?
+        };
+        let countries = normalize_country_options(provider.list_countries().await?);
+        Ok(resolve_provider_country_option_value(
+            Some(&ProviderDynamicOptions {
+                provider: provider_id.to_string(),
+                raw_services: Vec::new(),
+                raw_countries: Vec::new(),
+                raw_operators: Vec::new(),
+                services: Vec::new(),
+                countries,
+                operators: Vec::new(),
+                operators_by_country: BTreeMap::new(),
+                cache_state: OptionCacheState::Missing,
+                fetched_at: None,
+            }),
+            country,
+        ))
     }
 
     pub fn list_tickets(&self) -> TicketListResponse {
@@ -3947,6 +3995,7 @@ impl SmsService {
         let balance_cache = self.provider_balance_cache.read().clone();
         let providers = registry
             .manifests()
+            .filter(|manifest| manifest.kind != plugin_sdk::ProviderKind::Mock)
             .map(|manifest| ProviderSummary {
                 id: manifest.id.clone(),
                 name: manifest.name.clone(),
@@ -3974,8 +4023,7 @@ impl SmsService {
                 balance_fetched_at: balance_cache
                     .get(&manifest.id)
                     .map(|entry| entry.fetched_at),
-                can_enable: matches!(manifest.kind, plugin_sdk::ProviderKind::Mock)
-                    || !settings.option_cache_enabled
+                can_enable: !settings.option_cache_enabled
                     || self.provider_option_cache_state_with_settings(&manifest.id, &settings)
                         == OptionCacheState::Fresh,
                 reuse_capabilities: ProviderCapabilityMatrix::new()
@@ -4895,6 +4943,7 @@ fn default_service_option(manifest: &ProviderManifest) -> OptionItem {
         value: manifest.defaults.service.clone(),
         label: manifest.defaults.service.clone(),
         hint: manifest.defaults.service.clone(),
+        label_zh: None,
         provider_value: Some(manifest.defaults.service.clone()),
         icon_url: None,
         provider_icon_url: None,
@@ -4906,6 +4955,7 @@ fn default_country_option(manifest: &ProviderManifest) -> OptionItem {
         value: manifest.defaults.country.clone(),
         label: manifest.defaults.country.clone(),
         hint: manifest.defaults.country.clone(),
+        label_zh: None,
         provider_value: Some(manifest.defaults.country.clone()),
         icon_url: None,
         provider_icon_url: None,
@@ -4933,6 +4983,7 @@ fn default_operator_option(manifest: &ProviderManifest) -> OptionItem {
         value: value.clone(),
         label,
         hint: value.clone(),
+        label_zh: None,
         provider_value: Some(value),
         icon_url: None,
         provider_icon_url: None,
@@ -6101,6 +6152,7 @@ codes = ["123456"]
                             value: "dr".to_string(),
                             label: "OpenAI (ChatGPT)".to_string(),
                             hint: "dr".to_string(),
+                            label_zh: None,
                             provider_value: Some("247".to_string()),
                             icon_url: Some("https://smsbower.app/img/services/247.svg".to_string()),
                             provider_icon_url: Some(
@@ -6113,6 +6165,7 @@ codes = ["123456"]
                             value: "openai".to_string(),
                             label: "OpenAI (GPT)".to_string(),
                             hint: "dr".to_string(),
+                            label_zh: None,
                             provider_value: Some("247".to_string()),
                             icon_url: Some("https://smsbower.app/img/services/247.svg".to_string()),
                             provider_icon_url: Some(
@@ -6173,6 +6226,7 @@ codes = ["123456"]
                             value: "usa".to_string(),
                             label: "United States".to_string(),
                             hint: "50".to_string(),
+                            label_zh: None,
                             provider_value: Some("usa".to_string()),
                             icon_url: None,
                             provider_icon_url: None,
@@ -6181,6 +6235,7 @@ codes = ["123456"]
                             value: "fallback".to_string(),
                             label: "Fallback".to_string(),
                             hint: String::new(),
+                            label_zh: None,
                             provider_value: Some("fallback".to_string()),
                             icon_url: None,
                             provider_icon_url: None,
@@ -6192,6 +6247,7 @@ codes = ["123456"]
                                     value: "cached-carrier".to_string(),
                                     label: "Cached Carrier".to_string(),
                                     hint: String::new(),
+                                    label_zh: None,
                                     provider_value: Some("cached-carrier".to_string()),
                                     icon_url: None,
                                     provider_icon_url: None,
@@ -6200,6 +6256,7 @@ codes = ["123456"]
                                     value: "cached carrier".to_string(),
                                     label: "Cached Carrier".to_string(),
                                     hint: String::new(),
+                                    label_zh: None,
                                     provider_value: Some("cached-carrier".to_string()),
                                     icon_url: None,
                                     provider_icon_url: None,
@@ -6229,6 +6286,47 @@ codes = ["123456"]
         assert_eq!(
             response.items[0].provider_value.as_deref(),
             Some("cached-carrier")
+        );
+    }
+
+    #[tokio::test]
+    async fn list_provider_options_returns_canonical_values() {
+        let service = make_service();
+
+        let countries = service.list_provider_countries("mock").await.unwrap();
+        assert_eq!(countries.provider, "mock");
+        assert_eq!(countries.items.len(), 1);
+        assert_eq!(countries.items[0].value, "local");
+        assert_eq!(countries.items[0].label, "Local");
+        assert_eq!(countries.items[0].label_zh.as_deref(), Some("本地"));
+        assert_eq!(countries.items[0].provider_value.as_deref(), Some("local"));
+
+        let services = service
+            .list_provider_services("mock", ProviderServicesQuery::default())
+            .await
+            .unwrap();
+        assert_eq!(services.provider, "mock");
+        assert_eq!(services.items.len(), 1);
+        assert_eq!(services.items[0].value, "openai");
+        assert_eq!(services.items[0].label, "OpenAI (GPT)");
+        assert_eq!(services.items[0].label_zh, None);
+        assert_eq!(services.items[0].provider_value.as_deref(), Some("openai"));
+    }
+
+    #[test]
+    fn runtime_snapshot_excludes_mock_provider() {
+        let service = make_service();
+        let snapshot = service.runtime_snapshot();
+
+        assert!(snapshot.providers.iter().all(|item| item.id != "mock"));
+        assert!(snapshot.providers.iter().all(|item| item.kind != "mock"));
+        assert!(snapshot.providers.iter().any(|item| item.id == "fivesim"));
+        assert!(
+            service
+                .list_provider_manifests()
+                .manifests
+                .iter()
+                .any(|item| item.id == "mock")
         );
     }
 

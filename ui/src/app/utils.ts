@@ -110,6 +110,7 @@ function mergeCatalogItems(source: Map<string, OptionCatalogItem>, providerId: s
       }
       if (!existing.icon_url && item.icon_url) existing.icon_url = item.icon_url;
       if (!existing.label && item.label) existing.label = item.label;
+      if (!existing.label_zh && item.label_zh) existing.label_zh = item.label_zh;
       if (!existing.hint && item.hint) existing.hint = item.hint;
       return;
     }
@@ -119,6 +120,7 @@ function mergeCatalogItems(source: Map<string, OptionCatalogItem>, providerId: s
       hint: item.hint,
       providers: [providerId],
       provider_values: { [providerId]: providerValue },
+      label_zh: item.label_zh,
       icon_url: item.icon_url,
       provider_icon_urls: providerIconUrl ? { [providerId]: providerIconUrl } : {},
     });

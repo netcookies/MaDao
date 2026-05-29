@@ -38,6 +38,10 @@ import { refreshMenuBar } from '../services/menuBarApi';
 import { i18n } from '../app/i18n';
 import { formatProviderErrorMessage } from '../app/providerErrors';
 
+function priceCountryLabel(item: ProviderPriceItem, language: LanguageCode) {
+  return language === 'zh' && item.display_name_zh ? item.display_name_zh : item.display_name;
+}
+
 function normalizeOptionToken(value: string | null | undefined) {
   return (value ?? '').trim().toLowerCase();
 }
@@ -180,7 +184,7 @@ export function useProviderRuntime(
       if (query.operator && item.operator !== query.operator) return false;
       if (!query.search.trim()) return true;
       const term = query.search.trim().toLowerCase();
-      return [item.display_name, item.country, item.operator].some((value) => value.toLowerCase().includes(term));
+      return [item.display_name, item.display_name_zh ?? '', item.country, item.operator].some((value) => value.toLowerCase().includes(term));
     });
     return [...filtered].sort((left, right) => {
       const direction = sort.dir === 'asc' ? 1 : -1;
@@ -191,7 +195,7 @@ export function useProviderRuntime(
           return (left.stock - right.stock) * direction;
         case 'country':
         default:
-          return left.display_name.localeCompare(right.display_name) * direction;
+          return priceCountryLabel(left, ui.language).localeCompare(priceCountryLabel(right, ui.language)) * direction;
       }
     });
   }, [
@@ -201,6 +205,7 @@ export function useProviderRuntime(
     selectedManifest?.defaults.service,
     selectedPrices,
     ui.selectedProvider,
+    ui.language,
     normalizedSelectedStoreQuery,
   ]);
 

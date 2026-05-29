@@ -30,6 +30,8 @@ http://127.0.0.1:7822
 - `tickets[].same_activation_retry_expires_at`
 - `reuse_pool[]`
 
+`GET /api/providers` 是生产运行态视图，只返回可用于真实下单链路的 provider；内置 `mock` provider 仍可通过 manifest 管理接口读取，但不会出现在运行态 `providers[]` 中。
+
 当前 provider manifest 的复用控制字段包括：
 
 - `defaults.reuse_phone`
@@ -70,6 +72,15 @@ http://127.0.0.1:7822
 - `POST /api/providers/{provider}/services`
 - `POST /api/providers/{provider}/prices`
 - `GET /api/providers/{provider}/balance`
+
+资源项使用统一语义：
+
+- `value`：MaDao canonical 主键；国家为 ISO 3166-1 alpha-2 大写码或 `local` / `any` sentinel
+- `label`：英文/默认显示名
+- `label_zh`：国家项的简体中文显示名；服务和运营商不额外提供中文名
+- `provider_value`：provider 原生值，用于兼容上游请求
+
+价格项中 `country` 同样使用 canonical 国家值，`display_name` 是英文/默认显示名，`display_name_zh` 在可映射国家时提供中文显示名，`provider_country` 保留 provider 原生值。
 
 ### 激活与验证码
 

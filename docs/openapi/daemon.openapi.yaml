@@ -1292,6 +1292,9 @@ components:
           type: string
         display_name:
           type: string
+        display_name_zh:
+          type: string
+          description: Simplified Chinese display name for the country when available.
         operator:
           type: string
         operator_label:
@@ -1313,12 +1316,18 @@ components:
       properties:
         value:
           type: string
+          description: Canonical option key exposed by MaDao. Countries use ISO 3166-1 alpha-2 uppercase codes or supported sentinels such as `local` / `any`; services and operators use canonical MaDao keys.
         label:
           type: string
+          description: English/default display label for the canonical option.
         hint:
           type: string
+        label_zh:
+          type: string
+          description: Simplified Chinese display label when MaDao has a localized label. Currently populated for country options.
         provider_value:
           type: string
+          description: Provider-native raw value to send upstream when it differs from `value`.
         icon_url:
           type: string
         provider_icon_url:
@@ -1822,6 +1831,7 @@ components:
       properties:
         providers:
           type: array
+          description: Production runtime providers. Built-in mock providers are excluded; use provider manifest endpoints for configuration views that need mock entries.
           items:
             $ref: '#/components/schemas/ProviderSummary'
         tickets:

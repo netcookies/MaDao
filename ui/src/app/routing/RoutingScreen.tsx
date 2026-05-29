@@ -914,7 +914,8 @@ function RoutingItemEditorModal(props: {
     const operatorTerm = editor.operator.trim().toLowerCase();
     if (countryTerm) {
       const matchesCountry = item.country.toLowerCase().includes(countryTerm)
-        || formatCountryLabel(item.country).toLowerCase().includes(countryTerm);
+        || formatCountryLabel(item.country, props.language).toLowerCase().includes(countryTerm)
+        || (item.display_name_zh ?? '').toLowerCase().includes(countryTerm);
       if (!matchesCountry) return false;
     }
     if (operatorTerm && !item.operator.toLowerCase().includes(operatorTerm)) return false;
@@ -955,6 +956,12 @@ function RoutingItemEditorModal(props: {
       country: item.country,
       operator: normalizeSelectableOperator(item.operator),
     });
+  }
+
+  function priceCountryLabel(item: ProviderPriceItem) {
+    return props.language === 'zh' && item.display_name_zh
+      ? item.display_name_zh
+      : formatCountryLabel(item.country, props.language);
   }
 
   return (
@@ -1103,7 +1110,7 @@ function RoutingItemEditorModal(props: {
                       title={t('Select Candidate Country')}
                     >
                       <ResourceBadge kind="country" value={item.country} size="sm" iconUrl={props.countryIconUrls?.[item.country]} />
-                      <span className="truncate">{formatCountryLabel(item.country, props.language)}</span>
+                      <span className="truncate">{priceCountryLabel(item)}</span>
                     </button>
                     <button
                       type="button"

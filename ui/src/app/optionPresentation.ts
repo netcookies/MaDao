@@ -30,7 +30,9 @@ export function presentServiceOption(option: OptionItem, language: 'en' | 'zh'):
 }
 
 export function presentCountryOption(option: OptionItem, language: 'en' | 'zh'): OptionPresentation {
-  const translatedLabel = formatCountryLabel(option.value, language);
+  const translatedLabel = language === 'zh'
+    ? clean(option.label_zh) || formatCountryLabel(option.value, language)
+    : formatCountryLabel(option.value, language);
   const primary = translatedLabel || clean(option.label);
   const rawHint = clean(option.hint);
   const secondary = isMostlyNumeric(rawHint) && rawHint.length <= 4

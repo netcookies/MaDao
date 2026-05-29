@@ -116,6 +116,7 @@ export function selectorOptionFromCatalogItem(args: {
           ? formatCountryLabel(item.value, language)
           : item.value),
     hint: item.hint,
+    label_zh: item.label_zh,
     provider_value: providerId ? (item.provider_values[providerId] ?? item.provider_values[item.providers[0]]) : item.provider_values[item.providers[0]],
     icon_url: scopedIconUrl,
     provider_icon_url: scopedIconUrl,

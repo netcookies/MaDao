@@ -165,6 +165,8 @@ pub struct ProviderPriceQuery {
 pub struct ProviderPriceItem {
     pub country: String,
     pub display_name: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub display_name_zh: Option<String>,
     pub operator: String,
     #[serde(default)]
     pub operator_label: Option<String>,
@@ -188,6 +190,8 @@ pub struct OptionItem {
     pub value: String,
     pub label: String,
     pub hint: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub label_zh: Option<String>,
     #[serde(default)]
     pub provider_value: Option<String>,
     #[serde(default)]

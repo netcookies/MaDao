@@ -231,51 +231,8 @@ pub fn normalize_provider_options(
     let raw_services = raw.services.clone();
     let raw_countries = raw.countries.clone();
     let raw_operators = raw.operators.clone();
-    raw.services = dedup_options(
-        raw_services
-            .iter()
-            .cloned()
-            .into_iter()
-            .map(|item| {
-                let raw_value = item
-                    .provider_value
-                    .clone()
-                    .unwrap_or_else(|| item.value.clone());
-                let canonical = canonical_service_value(manifest, &raw_value, Some(&item.label));
-                OptionItem {
-                    value: canonical.clone(),
-                    label: resolved_service_label(&canonical, &item.label),
-                    hint: item.hint,
-                    provider_value: Some(raw_value),
-                    icon_url: item.icon_url,
-                    provider_icon_url: item.provider_icon_url,
-                }
-            })
-            .collect(),
-    );
-    raw.countries = dedup_options(
-        raw_countries
-            .iter()
-            .cloned()
-            .into_iter()
-            .map(|item| {
-                let raw_value = item
-                    .provider_value
-                    .clone()
-                    .unwrap_or_else(|| item.value.clone());
-                let canonical =
-                    canonical_country_value(&raw_value, Some(&item.label), Some(&item.hint));
-                OptionItem {
-                    value: canonical.clone(),
-                    label: resolved_country_label(&canonical, &item.label, &item.hint),
-                    hint: item.hint,
-                    provider_value: Some(raw_value),
-                    icon_url: item.icon_url,
-                    provider_icon_url: item.provider_icon_url,
-                }
-            })
-            .collect(),
-    );
+    raw.services = normalize_service_options(manifest, raw_services.clone());
+    raw.countries = normalize_country_options(raw_countries.clone());
     raw.operators = normalize_operator_options(raw_operators.clone());
     raw.operators_by_country = raw
         .operators_by_country
@@ -318,6 +275,61 @@ pub fn normalize_operator_options(raw_operators: Vec<OptionItem>) -> Vec<OptionI
                     value: canonical.clone(),
                     label: resolved_operator_label(&canonical, &item.label),
                     hint: item.hint,
+                    label_zh: None,
+                    provider_value: Some(raw_value),
+                    icon_url: item.icon_url,
+                    provider_icon_url: item.provider_icon_url,
+                }
+            })
+            .collect(),
+    )
+}
+
+pub fn normalize_country_options(raw_countries: Vec<OptionItem>) -> Vec<OptionItem> {
+    dedup_options(
+        raw_countries
+            .into_iter()
+            .map(|item| {
+                let raw_value = item
+                    .provider_value
+                    .clone()
+                    .unwrap_or_else(|| item.value.clone());
+                let canonical =
+                    canonical_country_value(&raw_value, Some(&item.label), Some(&item.hint));
+                let label_en = country_label(&canonical);
+                OptionItem {
+                    value: canonical.clone(),
+                    label: label_en.clone(),
+                    hint: item.hint,
+                    label_zh: country_label_zh(&canonical),
+                    provider_value: Some(raw_value),
+                    icon_url: item.icon_url,
+                    provider_icon_url: item.provider_icon_url,
+                }
+            })
+            .collect(),
+    )
+}
+
+pub fn normalize_service_options(
+    manifest: &ProviderManifest,
+    raw_services: Vec<OptionItem>,
+) -> Vec<OptionItem> {
+    dedup_options(
+        raw_services
+            .into_iter()
+            .map(|item| {
+                let raw_value = item
+                    .provider_value
+                    .clone()
+                    .unwrap_or_else(|| item.value.clone());
+                let canonical = canonical_service_value(manifest, &raw_value, Some(&item.label));
+                let label_en = resolved_service_label(&canonical, &item.label);
+                OptionItem {
+                    value: canonical.clone(),
+                    label: label_en.clone(),
+                    hint: item.hint,
+                    label_zh: None,
                     provider_value: Some(raw_value),
                     icon_url: item.icon_url,
                     provider_icon_url: item.provider_icon_url,
@@ -330,6 +342,8 @@ pub fn normalize_operator_options(raw_operators: Vec<OptionItem>) -> Vec<OptionI
 #[derive(Debug, Clone, Deserialize)]
 struct CountryMetadata {
     labels: BTreeMap<String, String>,
+    #[serde(default)]
+    labels_zh: BTreeMap<String, String>,
     aliases: BTreeMap<String, String>,
 }
 
@@ -360,11 +374,13 @@ pub fn normalize_price_items(
             if let Some(mapped) = country_map.get(&normalize_token(&raw_country)) {
                 item.country = mapped.value.clone();
                 item.display_name = mapped.label.clone();
+                item.display_name_zh = mapped.label_zh.clone();
             } else {
                 let canonical =
                     canonical_country_value(&raw_country, Some(&item.display_name), None);
                 item.country = canonical.clone();
                 item.display_name = resolved_country_label(&canonical, &item.display_name, "");
+                item.display_name_zh = country_label_zh(&canonical);
             }
 
             let raw_operator = item.operator.clone();
@@ -480,6 +496,43 @@ pub fn resolve_provider_value(
                 .and_then(|item| item.provider_value.clone())
         })
         .unwrap_or_else(|| canonical_value.to_string())
+}
+
+pub fn resolve_provider_country_option_value(
+    options: Option<&ProviderDynamicOptions>,
+    country: &str,
+) -> String {
+    let raw_lookup = normalize_token(country);
+    if raw_lookup.is_empty() {
+        return String::new();
+    }
+    let canonical = canonical_country_key(country, Some(country), None);
+    let canonical_lookup = normalize_token(&canonical);
+
+    options
+        .and_then(|entry| {
+            entry.countries.iter().find(|item| {
+                normalize_token(&item.value) == canonical_lookup
+                    || item
+                        .provider_value
+                        .as_ref()
+                        .map(|value| normalize_token(value) == raw_lookup)
+                        .unwrap_or(false)
+                    || normalize_token(&item.label) == raw_lookup
+                    || item
+                        .label_zh
+                        .as_ref()
+                        .map(|value| normalize_token(value) == raw_lookup)
+                        .unwrap_or(false)
+                    || normalize_token(&item.hint) == raw_lookup
+            })
+        })
+        .map(|item| {
+            item.provider_value
+                .clone()
+                .unwrap_or_else(|| item.value.clone())
+        })
+        .unwrap_or_else(|| country.to_string())
 }
 
 pub fn resolve_provider_operator_value(
@@ -834,6 +887,16 @@ fn country_label(canonical: &str) -> String {
         .unwrap_or_else(|| title_case_token(canonical))
 }
 
+fn country_label_zh(canonical: &str) -> Option<String> {
+    if canonical.eq_ignore_ascii_case("any") {
+        return Some("全部国家".to_string());
+    }
+    if canonical.eq_ignore_ascii_case("local") {
+        return Some("本地".to_string());
+    }
+    country_metadata().labels_zh.get(canonical).cloned()
+}
+
 fn resolved_country_label(canonical: &str, source_label: &str, source_hint: &str) -> String {
     let fallback_label = source_label.trim();
     let fallback_hint = source_hint.trim();
@@ -911,7 +974,8 @@ mod tests {
         FileProviderMetadataCacheRepository, ProviderMetadataCacheBatch,
         ProviderMetadataCacheRepository, ProviderOptionCacheStore, ProviderRawOptionAuditStore,
         canonical_country_value, canonical_service_value, normalize_loaded_provider_options,
-        normalize_ticket_record, resolve_provider_operator_value,
+        normalize_provider_options, normalize_ticket_record, resolve_provider_country_option_value,
+        resolve_provider_operator_value,
     };
     use crate::models::ProviderRawOptionAuditEntry;
     use crate::models::{
@@ -998,6 +1062,7 @@ mod tests {
                 value: "12".to_string(),
                 label: "Ukraine".to_string(),
                 hint: "380".to_string(),
+                label_zh: None,
                 provider_value: Some("12".to_string()),
                 icon_url: None,
                 provider_icon_url: None,
@@ -1011,10 +1076,68 @@ mod tests {
         let normalized = normalize_loaded_provider_options(&manifest, options);
         assert_eq!(normalized.countries[0].value, "UA");
         assert_eq!(normalized.countries[0].label, "Ukraine");
+        assert_eq!(normalized.countries[0].label_zh.as_deref(), Some("乌克兰"));
         assert_eq!(
             normalized.countries[0].provider_value.as_deref(),
             Some("12")
         );
+    }
+
+    #[test]
+    fn normalize_provider_options_exposes_country_zh_label_only() {
+        let manifest = test_manifest();
+        let fetched_at = Utc::now();
+        let options = ProviderDynamicOptions {
+            provider: "test".to_string(),
+            raw_services: Vec::new(),
+            raw_countries: Vec::new(),
+            raw_operators: Vec::new(),
+            services: vec![OptionItem {
+                value: "dr".to_string(),
+                label: "OpenAI".to_string(),
+                hint: "dr".to_string(),
+                label_zh: None,
+                provider_value: None,
+                icon_url: None,
+                provider_icon_url: None,
+            }],
+            countries: vec![OptionItem {
+                value: "england".to_string(),
+                label: "United Kingdom".to_string(),
+                hint: "44".to_string(),
+                label_zh: None,
+                provider_value: None,
+                icon_url: None,
+                provider_icon_url: None,
+            }],
+            operators: vec![OptionItem {
+                value: "any".to_string(),
+                label: "Any Operator".to_string(),
+                hint: String::new(),
+                label_zh: None,
+                provider_value: None,
+                icon_url: None,
+                provider_icon_url: None,
+            }],
+            operators_by_country: BTreeMap::new(),
+            cache_state: crate::models::OptionCacheState::Missing,
+            fetched_at: None,
+        };
+
+        let normalized = normalize_provider_options(&manifest, options, fetched_at);
+
+        assert_eq!(normalized.countries[0].value, "GB");
+        assert_eq!(normalized.countries[0].label, "United Kingdom");
+        assert_eq!(normalized.countries[0].label_zh.as_deref(), Some("英国"));
+        assert_eq!(
+            normalized.countries[0].provider_value.as_deref(),
+            Some("england")
+        );
+        assert_eq!(normalized.services[0].value, "openai");
+        assert_eq!(normalized.services[0].label, "OpenAI (GPT)");
+        assert_eq!(normalized.services[0].label_zh, None);
+        assert_eq!(normalized.operators[0].value, "any");
+        assert_eq!(normalized.operators[0].label_zh, None);
     }
 
     #[test]
@@ -1046,6 +1169,7 @@ mod tests {
                 value: "openai".to_string(),
                 label: "OpenAI (GPT)".to_string(),
                 hint: "dr".to_string(),
+                label_zh: None,
                 provider_value: Some("dr".to_string()),
                 icon_url: None,
                 provider_icon_url: None,
@@ -1054,6 +1178,7 @@ mod tests {
                 value: "US".to_string(),
                 label: "United States".to_string(),
                 hint: "50".to_string(),
+                label_zh: None,
                 provider_value: Some("50".to_string()),
                 icon_url: None,
                 provider_icon_url: None,
@@ -1091,6 +1216,7 @@ mod tests {
                 value: "verizon".to_string(),
                 label: "Verizon".to_string(),
                 hint: String::new(),
+                label_zh: None,
                 provider_value: Some("global-verizon".to_string()),
                 icon_url: None,
                 provider_icon_url: None,
@@ -1102,6 +1228,7 @@ mod tests {
                         value: "verizon".to_string(),
                         label: "Verizon".to_string(),
                         hint: String::new(),
+                        label_zh: None,
                         provider_value: Some("us-verizon".to_string()),
                         icon_url: None,
                         provider_icon_url: None,
@@ -1110,6 +1237,7 @@ mod tests {
                         value: "verizon".to_string(),
                         label: "Verizon".to_string(),
                         hint: String::new(),
+                        label_zh: None,
                         provider_value: Some("us-verizon".to_string()),
                         icon_url: None,
                         provider_icon_url: None,
@@ -1128,6 +1256,47 @@ mod tests {
         assert_eq!(
             resolve_provider_operator_value(Some(&options), "verizon", Some("CA")),
             "global-verizon"
+        );
+    }
+
+    #[test]
+    fn resolve_provider_country_option_value_accepts_canonical_label_and_native_values() {
+        let options = ProviderDynamicOptions {
+            provider: "test".to_string(),
+            raw_services: Vec::new(),
+            raw_countries: Vec::new(),
+            raw_operators: Vec::new(),
+            services: Vec::new(),
+            countries: vec![OptionItem {
+                value: "GB".to_string(),
+                label: "United Kingdom".to_string(),
+                hint: "44".to_string(),
+                label_zh: Some("英国".to_string()),
+                provider_value: Some("england".to_string()),
+                icon_url: None,
+                provider_icon_url: None,
+            }],
+            operators: Vec::new(),
+            operators_by_country: BTreeMap::new(),
+            cache_state: crate::models::OptionCacheState::Fresh,
+            fetched_at: None,
+        };
+
+        assert_eq!(
+            resolve_provider_country_option_value(Some(&options), "GB"),
+            "england"
+        );
+        assert_eq!(
+            resolve_provider_country_option_value(Some(&options), "United Kingdom"),
+            "england"
+        );
+        assert_eq!(
+            resolve_provider_country_option_value(Some(&options), "英国"),
+            "england"
+        );
+        assert_eq!(
+            resolve_provider_country_option_value(Some(&options), "england"),
+            "england"
         );
     }
 
@@ -1356,6 +1525,7 @@ mod tests {
                             value: "openai".to_string(),
                             label: "OpenAI".to_string(),
                             hint: String::new(),
+                            label_zh: None,
                             provider_value: Some("dr".to_string()),
                             icon_url: None,
                             provider_icon_url: None,
@@ -1379,6 +1549,7 @@ mod tests {
                         value: "dr".to_string(),
                         label: "OpenAI".to_string(),
                         hint: String::new(),
+                        label_zh: None,
                         provider_value: None,
                         icon_url: None,
                         provider_icon_url: None,
