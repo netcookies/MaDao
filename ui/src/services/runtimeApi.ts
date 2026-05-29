@@ -18,10 +18,12 @@ import type {
   RuntimeSettings,
   RuntimeSettingsUpdate,
   Snapshot,
+  UpdateInstallResult,
   UpdateCheckResult,
   RuntimeAccessInfo,
   RemoteStatsSummaryResponse,
 } from '../app/types';
+import type { Update } from '@tauri-apps/plugin-updater';
 import { API_BASE, SOCKET_PATH } from './runtimeEnv';
 export {
   API_BASE,
@@ -101,6 +103,9 @@ async function readJson<T>(response: Response): Promise<T> {
 }
 
 let desktopHttpSecretPromise: Promise<string> | null = null;
+let pendingDesktopUpdate: Update | null = null;
+
+const GITHUB_RELEASES_URL = 'https://github.com/netcookies/MaDao/releases';
 
 async function getDesktopHttpSecret(): Promise<string> {
   if (!IS_DESKTOP_RUNTIME || USE_SOCKET_TRANSPORT) {
@@ -271,33 +276,87 @@ export async function fetchOpenAiSmsRegions(): Promise<OpenAiSmsRegionsCache> {
 }
 
 export async function checkForUpdates(currentVersion: string): Promise<UpdateCheckResult> {
-  const releaseApiUrl = 'https://api.github.com/repos/netcookies/MaDao/releases/latest';
-  const response = await fetch(releaseApiUrl, {
-    headers: {
-      Accept: 'application/vnd.github+json',
-    },
-  });
-  if (!response.ok) {
-    throw new Error(`Update check failed: ${response.status} ${response.statusText}`);
-  }
-  const payload = (await response.json()) as {
-    tag_name?: string;
-    name?: string;
-    html_url?: string;
-    published_at?: string;
-  };
-  const latestVersion = String(payload.tag_name ?? '').replace(/^v/, '').trim();
-  if (!latestVersion) {
-    throw new Error('Update check failed: latest release tag is missing.');
+  if (IS_DESKTOP_RUNTIME) {
+    return checkDesktopUpdate(currentVersion);
   }
   return {
     current_version: currentVersion,
-    latest_version: latestVersion,
-    has_update: latestVersion !== currentVersion,
-    release_name: payload.name ?? null,
-    release_url: payload.html_url ?? null,
-    published_at: payload.published_at ?? null,
+    latest_version: currentVersion,
+    has_update: false,
+    installable: false,
+    unsupported_reason: 'Automatic update checks are only available in the desktop app.',
+    release_url: GITHUB_RELEASES_URL,
   };
+}
+
+export async function installAvailableUpdate(currentVersion: string): Promise<UpdateInstallResult> {
+  if (!IS_DESKTOP_RUNTIME) {
+    throw new Error('Automatic update installation is only available in the desktop app.');
+  }
+  let update = pendingDesktopUpdate;
+  if (!update) {
+    const result = await checkForUpdates(currentVersion);
+    if (!result.has_update) {
+      throw new Error('No available update to install.');
+    }
+    update = pendingDesktopUpdate;
+  }
+  if (!update) {
+    throw new Error('No available update to install.');
+  }
+
+  await update.download();
+  await update.install();
+  pendingDesktopUpdate = null;
+  const quarantineClearResult = await invoke<import('../app/types').MacQuarantineClearResult>(
+    'clear_macos_quarantine_for_current_app',
+  );
+  return {
+    quarantine_clear_result: quarantineClearResult,
+  };
+}
+
+export async function relaunchApp(): Promise<void> {
+  const { relaunch } = await import('@tauri-apps/plugin-process');
+  await relaunch();
+}
+
+async function checkDesktopUpdate(currentVersion: string): Promise<UpdateCheckResult> {
+  const { check } = await import('@tauri-apps/plugin-updater');
+  if (pendingDesktopUpdate) {
+    void pendingDesktopUpdate.close().catch(() => {});
+    pendingDesktopUpdate = null;
+  }
+  const update = await check();
+  if (!update) {
+    return {
+      current_version: currentVersion,
+      latest_version: currentVersion,
+      has_update: false,
+      installable: true,
+      release_url: GITHUB_RELEASES_URL,
+    };
+  }
+  pendingDesktopUpdate = update;
+  return {
+    current_version: normalizeVersionTag(update.currentVersion || currentVersion),
+    latest_version: normalizeVersionTag(update.version),
+    has_update: true,
+    installable: true,
+    body: update.body ?? null,
+    release_name: readRawJsonString(update.rawJson, 'name'),
+    release_url: readRawJsonString(update.rawJson, 'release_url') ?? GITHUB_RELEASES_URL,
+    published_at: update.date ?? readRawJsonString(update.rawJson, 'pub_date'),
+  };
+}
+
+function normalizeVersionTag(value: string): string {
+  return String(value ?? '').replace(/^v/i, '').trim();
+}
+
+function readRawJsonString(rawJson: Record<string, unknown>, key: string): string | null {
+  const value = rawJson[key];
+  return typeof value === 'string' && value.trim() ? value : null;
 }
 
 export async function fetchOptionCacheOverview(): Promise<OptionCacheOverview> {

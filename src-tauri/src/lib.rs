@@ -45,6 +45,14 @@ const DEFAULT_CONFIG_RESOURCE_PATH: &str = "defaults/config/server.toml";
 const DEFAULT_PROVIDER_RESOURCE_DIR: &str = "defaults/providers";
 const DESKTOP_RUNTIME_OWNER_LOCK_FILE_NAME: &str = "desktop-runtime-owner.lock";
 
+#[derive(Debug, Clone, Serialize)]
+struct MacQuarantineClearResult {
+    attempted: bool,
+    app_path: Option<String>,
+    cleared: bool,
+    message: String,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 enum MenuAction {
     Noop,
@@ -615,6 +623,85 @@ async fn open_external_url(url: String) -> Result<(), String> {
 }
 
 #[tauri::command]
+async fn clear_macos_quarantine_for_current_app() -> Result<MacQuarantineClearResult, String> {
+    Ok(clear_macos_quarantine_for_current_app_impl())
+}
+
+#[cfg(target_os = "macos")]
+fn clear_macos_quarantine_for_current_app_impl() -> MacQuarantineClearResult {
+    let app_bundle = match current_app_bundle_path() {
+        Ok(path) => path,
+        Err(message) => {
+            return MacQuarantineClearResult {
+                attempted: false,
+                app_path: None,
+                cleared: false,
+                message,
+            };
+        }
+    };
+    let app_path = app_bundle.display().to_string();
+    let output = std::process::Command::new("/usr/bin/xattr")
+        .args(["-dr", "com.apple.quarantine"])
+        .arg(&app_bundle)
+        .output();
+
+    match output {
+        Ok(output) if output.status.success() => MacQuarantineClearResult {
+            attempted: true,
+            app_path: Some(app_path),
+            cleared: true,
+            message: "macOS quarantine attribute cleared.".to_string(),
+        },
+        Ok(output) => {
+            let stderr = String::from_utf8_lossy(&output.stderr).trim().to_string();
+            MacQuarantineClearResult {
+                attempted: true,
+                app_path: Some(app_path),
+                cleared: false,
+                message: if stderr.is_empty() {
+                    format!("xattr exited with status {}.", output.status)
+                } else {
+                    format!("xattr exited with status {}: {stderr}", output.status)
+                },
+            }
+        }
+        Err(err) => MacQuarantineClearResult {
+            attempted: true,
+            app_path: Some(app_path),
+            cleared: false,
+            message: format!("run xattr failed: {err}"),
+        },
+    }
+}
+
+#[cfg(target_os = "macos")]
+fn current_app_bundle_path() -> Result<PathBuf, String> {
+    let current_exe = std::env::current_exe()
+        .map_err(|err| format!("resolve current executable failed: {err}"))?;
+    current_exe
+        .ancestors()
+        .find(|path| path.extension().and_then(|value| value.to_str()) == Some("app"))
+        .map(Path::to_path_buf)
+        .ok_or_else(|| {
+            format!(
+                "current executable is not inside a .app bundle: {}",
+                current_exe.display()
+            )
+        })
+}
+
+#[cfg(not(target_os = "macos"))]
+fn clear_macos_quarantine_for_current_app_impl() -> MacQuarantineClearResult {
+    MacQuarantineClearResult {
+        attempted: false,
+        app_path: None,
+        cleared: false,
+        message: "macOS quarantine cleanup is not needed on this platform.".to_string(),
+    }
+}
+
+#[tauri::command]
 async fn window_action(window: WebviewWindow, action: String) -> Result<(), String> {
     match action.as_str() {
         "minimize" => window.minimize().map_err(|err| err.to_string()),
@@ -865,6 +952,8 @@ fn socket_command_from_payload(
 pub fn run() {
     tauri::Builder::default()
         .enable_macos_default_menu(false)
+        .plugin(tauri_plugin_process::init())
+        .plugin(tauri_plugin_updater::Builder::new().build())
         .invoke_handler(tauri::generate_handler![
             runtime_snapshot,
             list_provider_manifests,
@@ -876,6 +965,7 @@ pub fn run() {
             desktop_http_secret,
             open_app_config_directory,
             open_external_url,
+            clear_macos_quarantine_for_current_app,
             window_action,
             set_window_title,
             socket_request

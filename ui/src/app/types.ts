@@ -326,9 +326,21 @@ export type UpdateCheckResult = {
   current_version: string;
   latest_version: string;
   has_update: boolean;
+  installable?: boolean;
+  unsupported_reason?: string | null;
+  body?: string | null;
   release_name?: string | null;
   release_url?: string | null;
   published_at?: string | null;
+};
+export type MacQuarantineClearResult = {
+  attempted: boolean;
+  app_path?: string | null;
+  cleared: boolean;
+  message: string;
+};
+export type UpdateInstallResult = {
+  quarantine_clear_result?: MacQuarantineClearResult | null;
 };
 export type ProviderDynamicOptions = {
   provider: string;

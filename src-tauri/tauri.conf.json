@@ -24,6 +24,7 @@
   "bundle": {
     "active": true,
     "targets": "all",
+    "createUpdaterArtifacts": true,
     "resources": {
       "../config/server.toml": "defaults/config/server.toml",
       "../plugins/providers/": "defaults/providers/"
@@ -35,5 +36,16 @@
       "icons/128x128@2x.png",
       "icons/icon.icns"
     ]
+  },
+  "plugins": {
+    "updater": {
+      "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IDM0QkI5NjM3NUQ4M0REQzIKUldUQzNZTmRONWE3TkVlODN4OXEvMFRZY0xKWDZ1UFRhZ3FPL1N0RjAyM05LUklKb0NHc25QNFgK",
+      "endpoints": [
+        "https://github.com/netcookies/MaDao/releases/latest/download/latest.json"
+      ],
+      "windows": {
+        "installMode": "passive"
+      }
+    }
   }
 }

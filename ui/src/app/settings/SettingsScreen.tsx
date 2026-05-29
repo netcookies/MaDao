@@ -1,5 +1,5 @@
 import type { ReactNode } from 'react';
-import { ExternalLink, Minus, Moon, Plus, Sun } from 'lucide-react';
+import { Download, ExternalLink, Minus, Moon, Plus, Sun } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import {
   AppButton,
@@ -35,6 +35,7 @@ export type SettingsScreenProps = {
   onlyShowOpenAiSmsCountries: boolean;
   checkUpdatesOnLaunch: boolean;
   updateCheckBusy: boolean;
+  updateInstallBusy: boolean;
   updateCheckResult: UpdateCheckResult | null;
   isDesktopRuntime: boolean;
   isWebRuntime: boolean;
@@ -50,6 +51,7 @@ export type SettingsScreenProps = {
   onOptionCachePollIntervalChange: (minutes: number) => void;
   onOnlyShowOpenAiSmsCountriesChange: (enabled: boolean) => void;
   onCheckUpdatesOnLaunchChange: (enabled: boolean) => void;
+  onInstallUpdate: () => void;
   onOpenUpdateRelease: () => void;
   onHttpPortChange: (port: number) => void;
   onStatsSyncEnabledChange: (enabled: boolean) => void;
@@ -109,7 +111,9 @@ export function SettingsScreen(props: SettingsScreenProps) {
     props.statsSyncLastAttemptAt ? `${t('Last attempt')}: ${props.statsSyncLastAttemptAt}` : null,
   ].filter(Boolean).join(' · ');
   const updateStatus = props.updateCheckResult
-    ? props.updateCheckResult.has_update
+    ? props.updateCheckResult.unsupported_reason
+      ? t('Open releases for updates')
+      : props.updateCheckResult.has_update
       ? t('Update available: v{{latest}}', { latest: props.updateCheckResult.latest_version })
       : t('Up to date')
     : t('Not checked yet');
@@ -277,11 +281,24 @@ export function SettingsScreen(props: SettingsScreenProps) {
               >
                 {updateStatus}
               </span>
-              {props.updateCheckResult?.has_update ? (
+              {props.updateCheckResult?.has_update && props.updateCheckResult.installable ? (
                 <AppButton
                   variant="primary"
                   size="utility"
+                  onClick={props.onInstallUpdate}
+                  disabled={props.updateInstallBusy}
+                  className="shrink-0"
+                >
+                  <Download size={14} />
+                  <span>{props.updateInstallBusy ? t('Installing update…') : t('Install update')}</span>
+                </AppButton>
+              ) : null}
+              {props.updateCheckResult?.has_update || props.updateCheckResult?.unsupported_reason ? (
+                <AppButton
+                  variant={props.updateCheckResult.installable ? 'outline' : 'primary'}
+                  size="utility"
                   onClick={props.onOpenUpdateRelease}
+                  disabled={props.updateInstallBusy}
                   className="shrink-0"
                 >
                   <ExternalLink size={14} />

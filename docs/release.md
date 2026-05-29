@@ -93,6 +93,46 @@ cargo test -p sms-core
 
 通过后再调用 `tauri-apps/tauri-action` 打包各平台桌面产物，并把自动生成的发版说明写入 GitHub Release。
 
+桌面端也会生成 Tauri updater 所需的更新元数据和签名产物。应用内检查更新使用固定 endpoint：
+
+```text
+https://github.com/netcookies/MaDao/releases/latest/download/latest.json
+```
+
+客户端只内置 updater 公钥和 endpoint，不内置 GitHub token。公开仓库的 release asset 可以直接下载，因此检查更新和下载安装不需要客户端 token。
+
+## 桌面在线更新配置
+
+在线更新依赖 Tauri updater signing key。私钥必须只放在 GitHub Actions secrets 或本机安全目录，不要提交到仓库。
+
+当前本机生成的 signing key 建议放在：
+
+```text
+~/.tauri/madao-updater.key
+~/.tauri/madao-updater.key.pub
+```
+
+GitHub 仓库需要配置：
+
+- `TAURI_SIGNING_PRIVATE_KEY`：私钥文件完整内容。
+- `TAURI_SIGNING_PRIVATE_KEY_PASSWORD`：私钥密码；如果生成私钥时没有设置密码，可以留空或不配置。
+
+本地私钥建议收紧权限：
+
+```bash
+chmod 600 ~/.tauri/madao-updater.key
+```
+
+发布 workflow 会通过 `TAURI_SIGNING_PRIVATE_KEY` 生成 updater 签名。`src-tauri/tauri.conf.json` 中只保存公钥和 `latest.json` endpoint。
+
+macOS 目前仍未配置 Apple Developer ID 签名和 notarization。在线更新安装完成后，应用会在重启前 best-effort 执行：
+
+```bash
+xattr -dr com.apple.quarantine <当前 .app 路径>
+```
+
+该步骤只作为过渡兜底，用来减少 GitHub 下载产物被 Gatekeeper 隔离的概率；它不等同于正式签名或 notarization，也不保证覆盖所有 macOS 安全拦截场景。后续正式分发仍建议补齐 Apple 签名与 notarization。
+
 Docker Hub 工作流会基于同一个 `v*` tag 构建并推送两个镜像：
 
 - `DOCKERHUB_USERNAME/madao-daemon:<version>`
@@ -210,7 +250,7 @@ xattr -dr com.apple.quarantine ~/Downloads/码到.dmg
 把应用拖到 `Applications` 后，如果 `.app` 仍然被拦截，再执行：
 
 ```bash
-xattr -dr com.apple.quarantine /Applications/码到.app
+xattr -dr com.apple.quarantine /Applications/MaDao.app
 ```
 
 如果应用不在 `Applications`，把路径替换成实际位置即可。

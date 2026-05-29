@@ -1,1 +1,1 @@
-{"default":{"identifier":"default","description":"Default desktop capability for MaDao","local":true,"windows":["main"],"permissions":["core:default","core:app:allow-set-app-theme"]}}
+{"default":{"identifier":"default","description":"Default desktop capability for MaDao","local":true,"windows":["main"],"permissions":["core:default","core:app:allow-set-app-theme","updater:allow-check","updater:allow-download","updater:allow-install","process:allow-restart"]}}

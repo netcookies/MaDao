@@ -112,8 +112,10 @@ import {
   fetchProviderPrices,
   fetchHttpAuthStatus,
   syncTicketStats,
+  installAvailableUpdate,
   loginHttpAccess,
   logoutHttpAccess,
+  relaunchApp,
   saveRoutingPlan,
 } from './services/runtimeApi';
 import { getAppConfigDirectory, openAppConfigDirectory } from './services/appConfigApi';
@@ -181,6 +183,7 @@ export function App() {
   const [snackbarOpen, setSnackbarOpen] = useState(false);
   const [statusSequence, setStatusSequence] = useState(0);
   const [updateCheckBusy, setUpdateCheckBusy] = useState(false);
+  const [updateInstallBusy, setUpdateInstallBusy] = useState(false);
   const [runtimeSettingsLoaded, setRuntimeSettingsLoaded] = useState(false);
   const [updateCheckResult, setUpdateCheckResult] = useState<UpdateCheckResult | null>(null);
   const [remoteStatsQuery, setRemoteStatsQuery] = useState({
@@ -365,6 +368,8 @@ export function App() {
           latest: result.latest_version,
           current: result.current_version,
         }));
+      } else if (result.unsupported_reason && source === 'manual') {
+        pushStatusMessage(translate('update_check_not_supported'));
       } else if (source === 'manual') {
         pushStatusMessage(translate('already_latest_version', {
           current: result.current_version,
@@ -386,6 +391,27 @@ export function App() {
   function openUpdateRelease() {
     const releaseUrl = updateCheckResult?.release_url || 'https://github.com/netcookies/MaDao/releases';
     openExternalUrl(releaseUrl);
+  }
+
+  async function handleInstallUpdate() {
+    try {
+      setBusyAction('install-update');
+      setUpdateInstallBusy(true);
+      pushStatusMessage(translate('Installing update…'));
+      const result = await installAvailableUpdate(__APP_VERSION__);
+      if (result.quarantine_clear_result?.attempted && !result.quarantine_clear_result.cleared) {
+        pushStatusMessage(translate('macos_quarantine_cleanup_failed', {
+          error: result.quarantine_clear_result.message,
+        }));
+      }
+      pushStatusMessage(translate('Update downloaded. Restarting…'));
+      await relaunchApp();
+    } catch (error) {
+      pushStatusMessage(translate('update_install_failed', { error: formatError(error) }));
+    } finally {
+      setUpdateInstallBusy(false);
+      setBusyAction('');
+    }
   }
 
   const snackbarTone = useMemo(() => getSnackbarTone(statusMessage), [statusMessage]);
@@ -2252,10 +2278,11 @@ export function App() {
       {updateCheckResult?.has_update ? (
         <button
           type="button"
-          className="inline-flex min-h-control-compact items-center rounded-pill bg-[var(--ds-color-state-warning-soft)] px-3 py-1.5 font-text text-[12px] font-semibold leading-none text-ds-state-warning transition-opacity duration-fast ease-[var(--ds-motion-transition-fast)] hover:opacity-85 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ds-accent-focus"
-          onClick={openUpdateRelease}
+          className="inline-flex min-h-control-compact items-center rounded-pill bg-[var(--ds-color-state-warning-soft)] px-3 py-1.5 font-text text-[12px] font-semibold leading-none text-ds-state-warning transition-opacity duration-fast ease-[var(--ds-motion-transition-fast)] hover:opacity-85 disabled:cursor-not-allowed disabled:opacity-60 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ds-accent-focus"
+          onClick={updateCheckResult.installable ? () => void handleInstallUpdate() : openUpdateRelease}
+          disabled={updateInstallBusy}
         >
-          {t('Update v{{version}}', { version: updateCheckResult.latest_version })}
+          {updateInstallBusy ? t('Installing update…') : t('Update v{{version}}', { version: updateCheckResult.latest_version })}
         </button>
       ) : null}
       <div ref={notificationsPopoverRef} className="relative">
@@ -2584,6 +2611,7 @@ export function App() {
                 onlyShowOpenAiSmsCountries={runtimeSettings.only_show_openai_sms_countries}
                 checkUpdatesOnLaunch={runtimeSettings.check_updates_on_launch}
                 updateCheckBusy={updateCheckBusy}
+                updateInstallBusy={updateInstallBusy}
                 updateCheckResult={updateCheckResult}
                 isDesktopRuntime={IS_DESKTOP_RUNTIME}
                 isWebRuntime={IS_WEB_RUNTIME}
@@ -2611,6 +2639,7 @@ export function App() {
                   void updateRuntimeSettings(buildRuntimeSettingsUpdate({
                     check_updates_on_launch: enabled,
                   }))}
+                onInstallUpdate={() => void handleInstallUpdate()}
                 onOpenUpdateRelease={openUpdateRelease}
                 onHttpPortChange={(port) =>
                   void updateRuntimeSettings(buildRuntimeSettingsUpdate({

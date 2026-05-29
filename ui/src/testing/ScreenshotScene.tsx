@@ -550,6 +550,8 @@ function getDemoUpdateCheckResult(): UpdateCheckResult {
     current_version: '0.1.20',
     latest_version: '0.1.21',
     has_update: true,
+    installable: true,
+    unsupported_reason: null,
     release_name: 'v0.1.21',
     release_url: 'https://github.com/netcookies/MaDao/releases/tag/v0.1.21',
     published_at: '2026-05-29T00:00:00Z',
@@ -946,6 +948,7 @@ function renderPageTarget(target: ScreenshotTarget, t: (key: string, options?: R
         onlyShowOpenAiSmsCountries={false}
         checkUpdatesOnLaunch
         updateCheckBusy={false}
+        updateInstallBusy={false}
         updateCheckResult={getDemoUpdateCheckResult()}
         isDesktopRuntime
         isWebRuntime={false}
@@ -956,6 +959,7 @@ function renderPageTarget(target: ScreenshotTarget, t: (key: string, options?: R
         onOptionCachePollIntervalChange={noop}
         onOnlyShowOpenAiSmsCountriesChange={noop}
         onCheckUpdatesOnLaunchChange={noop}
+        onInstallUpdate={noop}
         onOpenUpdateRelease={noop}
         onHttpPortChange={noop}
         onRegenerateHttpSecret={noop}
