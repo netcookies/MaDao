@@ -1,59 +1,37 @@
 # API 联动指南
 
-本文档面向需要把 `码到` 后端接入现有系统、脚本或测试平台的开发者，说明如何通过 HTTP API 与本地 app / daemon 联动。
+面向需要把码到后端接入现有系统、脚本或测试平台的开发者。本文档侧重场景示例和快速上手；完整路由参考见 [daemon-api.md](daemon-api.md)。
 
-基础地址默认是：
-
-```text
-http://127.0.0.1:7822
-```
-
-如果你直接启动的是桌面 app，Tauri 会在后台内嵌启动同一套 HTTP 服务，默认仍监听这个地址。
+基础地址：`http://127.0.0.1:7822`（桌面 app 内嵌的 HTTP 服务使用相同地址）
 
 ## 联动模型
 
-典型联动链路如下：
+典型调用链路：
 
 1. 查询可用 provider 和运行时状态：`GET /api/providers`
 2. 读取或更新 provider manifest：`GET/PUT /api/providers/{id}/manifest`
 3. 清空指定 provider 的本地复用池：`POST /api/providers/{id}/reuse-pool`
-4. 动态发现国家 / 运营商 / 服务：`countries -> operators -> services`
+4. 动态发现资源：`countries → operators → services`
 5. 发起接码：`POST /api/acquire`
 6. 轮询或回调收码：`POST /api/poll` 或 `POST /api/tickets/{ticket_id}/callbacks`
-7. 成功后结束 / 失败后取消：`POST /api/release`
+7. 结束 / 取消：`POST /api/release`
 
-当前 `GET /api/providers` 返回的 `RuntimeSnapshot` 还会包含复用相关状态：
+`GET /api/providers` 返回的 `RuntimeSnapshot` 包含复用相关状态（`reuse_capabilities`、`acquire_path`、`same_activation_retry_supported`、`reuse_pool[]` 等）。该接口是生产运行态视图，只返回可用于真实下单的 provider；`mock` provider 通过 manifest 管理接口读取。
 
-- `providers[].reuse_capabilities`
-- `tickets[].acquire_path`
-- `tickets[].same_activation_retry_supported`
-- `tickets[].same_activation_retry_expires_at`
-- `reuse_pool[]`
+Manifest 复用控制字段：`defaults.reuse_phone`、`defaults.reuse_max`、`defaults.reuse_ttl_hours`
 
-`GET /api/providers` 是生产运行态视图，只返回可用于真实下单链路的 provider；内置 `mock` provider 仍可通过 manifest 管理接口读取，但不会出现在运行态 `providers[]` 中。
+国家字段约定：系统对外 `country` 主字段使用 ISO 3166-1 alpha-2 大写码（如 `US`、`GB`）。`local` / `any` 是合法 sentinel。旧 slug、国家名、provider 数字值仍可兼容读取，新写入统一落 canonical 值。
 
-当前 provider manifest 的复用控制字段包括：
+## 鉴权
 
-- `defaults.reuse_phone`
-- `defaults.reuse_max`
-- `defaults.reuse_ttl_hours`
-
-国家字段约定：
-
-- 系统对外 `country` 主字段默认使用 `ISO 3166-1 alpha-2` 大写码，例如 `US`、`GB`
-- `local` / `any` 仍是合法 sentinel，分别表示本地流与自动选择流
-- 旧 slug、国家名、provider 数字值仍可兼容读取，但新写入与回写统一落 canonical 值
-
-## 常用接口
-
-鉴权说明：
-
-- `GET /health`、`GET /auth/status`、`GET /auth/check`、`POST /auth/login`、`POST /auth/logout`、`GET /api/access-info` 为公开端点
-- 其余大多数 `/api/*` 端点需要鉴权
-- 推荐脚本 / 服务端调用方式：`Authorization: Bearer <http_secret>`
-- 另一种方式是先 `POST /auth/login`，再复用返回的 `madao_http_session` cookie
+- 公开端点：`GET /health`、`GET /auth/status`、`GET /auth/check`、`POST /auth/login`、`POST /auth/logout`、`GET /api/access-info`
+- 其余 `/api/*` 端点需要鉴权
+- 推荐方式：`Authorization: Bearer <http_secret>`
+- 备选方式：先 `POST /auth/login`，再复用 `madao_http_session` cookie
 
 完整机器可读规范见 [docs/openapi/daemon.openapi.yaml](openapi/daemon.openapi.yaml)。
+
+## 常用接口
 
 ### 运行时与配置
 
@@ -73,14 +51,9 @@ http://127.0.0.1:7822
 - `POST /api/providers/{provider}/prices`
 - `GET /api/providers/{provider}/balance`
 
-资源项使用统一语义：
+资源项统一语义：`value`（MaDao canonical 主键）、`label`（英文显示名）、`label_zh`（国家项中文名）、`provider_value`（provider 原生值）。
 
-- `value`：MaDao canonical 主键；国家为 ISO 3166-1 alpha-2 大写码或 `local` / `any` sentinel
-- `label`：英文/默认显示名
-- `label_zh`：国家项的简体中文显示名；服务和运营商不额外提供中文名
-- `provider_value`：provider 原生值，用于兼容上游请求
-
-价格项中 `country` 同样使用 canonical 国家值，`display_name` 是英文/默认显示名，`display_name_zh` 在可映射国家时提供中文显示名，`provider_country` 保留 provider 原生值。
+价格项中 `country` 使用 canonical 值，`display_name` / `display_name_zh` 提供显示名，`provider_country` 保留原生值。
 
 ### 激活与验证码
 
@@ -210,39 +183,29 @@ curl -X POST http://127.0.0.1:7822/api/providers/herosms/reuse-pool \
 
 ## 运行时设置联动
 
-你可以通过 `POST /api/settings/runtime` 调整部分运行时行为：
+通过 `POST /api/settings/runtime` 调整运行时行为：
 
 ```json
 {
-  "routing_strategy": "ordered_priority",
-  "auto_fallback": true,
-  "option_cache_enabled": true,
-  "option_cache_poll_interval_minutes": 30,
-  "only_show_openai_sms_countries": false,
-  "check_updates_on_launch": true
+  “routing_strategy”: “ordered_priority”,
+  “auto_fallback”: true,
+  “option_cache_enabled”: true,
+  “option_cache_poll_interval_minutes”: 30,
+  “only_show_openai_sms_countries”: false,
+  “check_updates_on_launch”: true
 }
 ```
 
-当前这组设置会持久化到用户配置目录下的 `runtime-settings.json`。
+设置持久化到用户配置目录下的 `runtime-settings.json`。
 
-其中 `only_show_openai_sms_countries` 的业务语义固定为：
+`only_show_openai_sms_countries` 语义：排除 whatsapp-only 国家，保留 `sms_regions` 中的国家。同时存在于两者中的国家仍然显示。
 
-```text
-当前平台支持国家 - (whatsapp_regions - sms_regions)
-```
+## 错误处理
 
-解释：
-
-- `sms_regions` 内的国家始终保留
-- 只排除 `whatsapp-only` 国家
-- 如果一个国家同时存在于 `sms_regions` 和 `whatsapp_regions`，仍然视为“可接收短信”，必须继续显示
-
-## 错误处理建议
-
-- 所有非 `2xx` 响应都应读取 JSON `message` 字段或原始文本。
-- `handler_api` 与 `five_sim` 的上游错误会被归一化后透传，不要只看 HTTP 状态码。
-- 资源发现接口依赖有效 `api_key`；未配置时会直接返回 `invalid request`。
-- callback 当前不是持久化重试队列，接入方需要自行处理幂等。
+- 所有非 `2xx` 响应都应读取 JSON `message` 字段或原始文本
+- `handler_api` 与 `five_sim` 的上游错误会被归一化后透传
+- 资源发现接口依赖有效 `api_key`，未配置时返回 `invalid request`
+- Callback 当前不是持久化重试队列，接入方需自行处理幂等
 
 ## 相关文档
 

@@ -2,194 +2,117 @@
 
 ## 目标
 
-`Routing Plans` 用来替代当前“按 provider 排序即自动路由”的旧语义。
+Routing Plan 替代旧的”按 provider 排序即自动路由”语义，提供更灵活的取码方案管理。
 
-新的主路由模型是：
+核心模型：
 
-1. 先创建一个**命名取码方案**，例如 `OpenGPT Plan 1`
-2. 该方案绑定一个 `service`
-3. 方案内有多条候选项，每条候选项对应：
-   - `provider`
-   - `country`
-   - `operator`
-   - `price mode`
-4. 执行策略为：
-   - `sequential`
-   - `random`
-5. 可选执行轮数：
-   - `1` 表示只跑一轮候选项
-   - `2` 表示候选项耗尽后再从头跑一轮
-   - `0` 表示无限轮
+1. 创建一个命名取码方案（如 `OpenGPT Plan 1`）
+2. 方案绑定一个 `service`
+3. 方案内包含多条候选项，每条指定 `provider`、`country`、`operator`、`price mode`
+4. 执行策略：`sequential`（顺序）或 `random`（随机）
+5. 执行轮数：`1` = 单轮，`2` = 两轮，`0` = 无限轮
 
 ## 数据模型
 
-每个 `RoutingPlan` 包含：
+**RoutingPlan：**
 
-- `id`
-- `name`
-- `service`
-- `enabled`
-- `execution_mode`
-- `execution_rounds`
-- `items[]`
+| 字段 | 说明 |
+|------|------|
+| `id` | 系统生成的随机值，用作稳定引用 |
+| `name` | 用户维护，用于界面展示和业务识别 |
+| `service` | 绑定的服务 |
+| `enabled` | 是否启用 |
+| `execution_mode` | `sequential` 或 `random` |
+| `execution_rounds` | 候选项耗尽后是否进入下一轮；`0` = 无限轮 |
+| `items[]` | 候选项列表 |
 
-补充说明：
+**RoutingPlanItem：**
 
-- `id` 由系统生成随机值，用作稳定引用
-- `name` 由用户维护，用于界面展示和业务识别
-- `execution_rounds` 控制候选项耗尽后是否进入下一轮；`0` 表示无限轮
-
-每个 `RoutingPlanItem` 包含：
-
-- `id`
-- `provider`
-- `country`
-- `operator`
-- `enabled`
-- `price_mode`
-- `min_price`
-- `max_price`
-- `fixed_price`
+| 字段 | 说明 |
+|------|------|
+| `id` | 候选项 ID |
+| `provider` / `country` / `operator` | 路由目标 |
+| `enabled` | 是否启用 |
+| `price_mode` | `any` / `range` / `fixed` |
+| `min_price` / `max_price` / `fixed_price` | 价格约束 |
 
 ## HTTP API
 
-### 1. 查询方案列表
+### 方案管理
 
-```http
-GET /api/routing-plans
-```
+| 方法 | 路径 | 说明 |
+|------|------|------|
+| `GET` | `/api/routing-plans` | 查询方案列表 |
+| `POST` | `/api/routing-plans` | 保存方案 |
+| `GET` | `/api/routing-plans/{plan_id}` | 查询单个方案 |
+| `DELETE` | `/api/routing-plans/{plan_id}` | 删除方案 |
 
-### 2. 保存方案
+保存约束：`name` 和 `service` 不能为空，至少包含 1 条候选项，启用的 plan 至少要有 1 条启用的候选项。
 
-```http
-POST /api/routing-plans
-Content-Type: application/json
-```
-
-请求体为一个完整 `RoutingPlan`。
-
-约束：
-
-- `name` 不能为空
-- `service` 不能为空
-- 必须至少包含 1 条候选项
-- 如果 plan 为 `enabled = true`，则至少要有 1 条 `enabled` 的候选项
-
-### 3. 查询单个方案
-
-```http
-GET /api/routing-plans/{plan_id}
-```
-
-### 4. 删除方案
-
-```http
-DELETE /api/routing-plans/{plan_id}
-```
-
-### 5. 按方案发起取码
+### 按方案发起取码
 
 ```http
 POST /api/acquire
 Content-Type: application/json
-```
 
-最小请求体：
-
-```json
 {
   "provider": "auto",
   "routing_plan_id": "openai-plan"
 }
 ```
 
-注意：
+被禁用的 routing plan 不能用于发起 acquire。
 
-- 被禁用的 routing plan 不能用于发起 acquire
+## Replace 与 Failover
 
-## Replace 与 Failover 语义
-
-如果调用方想要“换到下一条路由，同时收口当前 ticket”，优先使用：
+### Replace — 换号并收口当前 ticket
 
 ```http
 POST /api/routing/replace
-Content-Type: application/json
 ```
-
-请求体：
 
 ```json
 {
-  "ticket_id": "xxx",
-  "failed_item_id": "mock-first",
-  "reason": "sms timeout",
-  "release_action": "cancel"
+  “ticket_id”: “xxx”,
+  “failed_item_id”: “mock-first”,
+  “reason”: “sms timeout”,
+  “release_action”: “cancel”
 }
 ```
 
-返回体会同时包含：
+返回同时包含 `current_ticket_release`（当前 ticket 释放结果）和 `next_ticket`（下一条候选 ticket）。适用于不想手动拼接”先 failover 再 cancel/ban”两步流程的场景。
 
-- `current_ticket_release`：当前 ticket 的释放结果，可能是 `cancelled`，也可能因为 provider cooldown 进入 `cancel_pending`
-- `next_ticket`：继续沿当前 routing plan 命中的下一条候选 ticket
-
-适用场景：
-
-- 调用方需要“替换号码/候选”，不希望自己手动拼接“先 failover，再 cancel/ban 当前 ticket”的两步流程
-- 调用方需要保留 `cancel` 与 `ban` 的语义差异
-
-如果调用方只想推进到下一条候选，而**不**自动释放当前 ticket，可以继续使用 `failover`。
-
-## Failover 语义
-
-如果调用方判断当前命中的方案项无法继续使用，可以回调：
+### Failover — 推进到下一条候选
 
 ```http
 POST /api/routing/failover
-Content-Type: application/json
 ```
-
-请求体：
 
 ```json
 {
-  "ticket_id": "xxx",
-  "failed_item_id": "mock-first",
-  "reason": "upstream reject"
+  “ticket_id”: “xxx”,
+  “failed_item_id”: “mock-first”,
+  “reason”: “upstream reject”
 }
 ```
 
-服务端会按该方案的 `execution_mode` 继续尝试下一项；如果当前轮候选项耗尽且 `execution_rounds` 允许继续，则会进入下一轮；如果所有允许轮次都耗尽，则返回 routing failure。
+服务端按 `execution_mode` 继续尝试下一项。当前轮候选项耗尽且 `execution_rounds` 允许继续时进入下一轮，否则返回 routing failure。
 
-补充说明：
+说明：
 
-- `random` 模式下，每一轮都会基于稳定候选集生成该轮顺序。
-- `failover` 会沿着当前 ticket 已记录的候选顺序和轮次继续推进，不会回退到已尝试项之前。
+- `random` 模式下每一轮都会基于稳定候选集生成该轮顺序
+- `failover` 沿已记录的候选顺序和轮次继续推进，不会回退
 
-## 价格选择支持边界
+## 价格模式
 
-当前实现支持三种价格模式：
+支持三种价格模式：`any`、`range`、`fixed`。
 
-- `any`
-- `range`
-- `fixed`
+当前统一 provider 抽象稳定支持 `min_price / max_price` 过滤。`fixed` 的实际行为是把选中价格值转换成 `min_price == max_price` 的近似过滤。如果未来某个 provider 暴露”精确价格条目 ID 下单”能力，才适合升级成真正严格的 fixed-price reservation。
 
-但需要注意：
+## 已弃用的旧行为
 
-1. 当前统一 provider 抽象稳定支持的是 `min_price / max_price` 过滤。
-2. 当前系统**没有统一的 provider-specific 价格行 ID 锁定下单能力**。
-3. 因此 `fixed` 的实际行为是把选中的价格值转换成 `min_price == max_price` 的近似过滤。
+以下旧行为不再是产品主入口，前端应以 Routing Plans 作为唯一主配置界面：
 
-这意味着：
-
-- 如果上游 provider 本身支持按价格区间筛选，则当前实现可工作。
-- 如果未来某个 provider 暴露“精确价格条目 ID 下单”，才适合升级成真正严格的 fixed-price reservation。
-
-## 需要弃用的旧行为
-
-以下旧行为不再应被视为主路由入口：
-
-1. `Providers` 页面通过拖拽排序表达对外路由优先级
-2. `Settings` 页面里的全局 `routing_strategy` 作为主要用户路由配置
-3. `SmsService::acquire_code_auto` 仅按 provider priority 的单一自动路由语义
-
-这些旧行为不再是产品主入口，前端应以 `Routing Plans` 作为唯一主配置界面。
+- Providers 页面通过拖拽排序表达路由优先级
+- Settings 页面的全局 `routing_strategy`
+- `SmsService::acquire_code_auto` 仅按 provider priority 的单一自动路由

@@ -1,5 +1,7 @@
 # Provider Validation Hardening Plan
 
+> **Status: Planning** — 本文档为内部规划记录，描述 provider 返回值校验的改进方向。
+
 本文档用于统一规划 `HeroSMS`、`SmsBower`、`5SIM` 三类 provider 的返回值校验完善工作。
 
 ---

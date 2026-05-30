@@ -1,5 +1,7 @@
 # UI 现代化重构方案
 
+> **Status: Completed** — 本文档记录已落地的迁移决策，保留作为架构决策记录（ADR）。当前代码已完成迁移，后续修改直接参考 [ui-component-spec.md](ui-component-spec.md) 和源码。
+
 ## 结论
 
 当前前端已经完成从 `CSS Modules + CSS Variables + .d-* bridge` 向 `Tailwind CSS + design token` 的主路径迁移。

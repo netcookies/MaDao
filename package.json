@@ -1,6 +1,7 @@
 {
   "name": "madao-sms-platform",
   "version": "0.1.23",
+  "license": "AGPL-3.0-only",
   "private": true,
   "type": "module",
   "scripts": {

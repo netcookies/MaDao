@@ -2,14 +2,12 @@
 
 ## Overview
 
-MaDao now supports a dedicated Docker mode for browser-based access.
+MaDao supports a dedicated Docker mode for browser-based access. The stack includes:
 
-The Docker stack includes:
+- `daemon` — Rust backend service
+- `web` — static React frontend served by nginx
 
-- `daemon`: Rust backend service
-- `web`: static React frontend served by `nginx`
-
-The frontend calls the backend through the same origin, so users only need to expose one HTTP port.
+The frontend calls the backend through the same origin, so only one HTTP port needs to be exposed.
 
 ## Quick Start
 
@@ -28,7 +26,7 @@ If you changed `MADAO_WEB_PORT`, use that port instead.
 
 ## Use Prebuilt Docker Hub Images
 
-If you do not want to build on the deployment machine, you can pull the published Docker Hub images directly:
+Pull published images instead of building locally:
 
 ```bash
 cp .env.docker.example .env
@@ -36,140 +34,74 @@ docker compose -f docker-compose.prod.yml pull
 docker compose -f docker-compose.prod.yml up -d
 ```
 
-By default this pulls:
+Default images: `netcookies/madao-daemon:latest` and `netcookies/madao-web:latest` (multi-arch: `linux/amd64` + `linux/arm64`).
 
-- `netcookies/madao-daemon:latest`
-- `netcookies/madao-web:latest`
-
-These images are now published as multi-arch manifests containing:
-
-- `linux/amd64`
-- `linux/arm64`
-
-To pin to a specific release, set the following in `.env`:
+To pin a specific release:
 
 ```dotenv
 MADAO_IMAGE_NAMESPACE=netcookies
 MADAO_IMAGE_TAG=0.2.0
 ```
 
-`MADAO_IMAGE_TAG` uses the Docker image tag and does not include the leading `v`.
+`MADAO_IMAGE_TAG` uses the Docker image tag without the leading `v`.
 
 ## Environment Variables
 
-Current `.env` support:
-
 ```dotenv
-MADAO_WEB_PORT=8080
-MADAO_DAEMON_HTTP_PORT=7822
-MADAO_HTTP_SECRET=
-MADAO_IMAGE_NAMESPACE=netcookies
-MADAO_IMAGE_TAG=latest
+MADAO_WEB_PORT=8080              # Host port for web console
+MADAO_DAEMON_HTTP_PORT=7822      # Host port for direct daemon HTTP access
+MADAO_HTTP_SECRET=               # Overrides persisted secret (empty = use persisted)
+MADAO_IMAGE_NAMESPACE=netcookies # Docker Hub namespace (prod compose only)
+MADAO_IMAGE_TAG=latest           # Docker image tag (prod compose only)
 ```
 
-This controls the published browser port:
-
-- left side: host port
-- right side: container `nginx` port `80`
-
-Example:
+Example — change the web port:
 
 ```dotenv
 MADAO_WEB_PORT=18080
 ```
 
-Then the UI will be available at:
-
-```text
-http://127.0.0.1:18080
-```
-
-If `MADAO_HTTP_SECRET` is set, it overrides the persisted secret in `runtime-settings.json`.
-If it is empty or unset, the persisted secret is used.
-
-`MADAO_DAEMON_HTTP_PORT` controls the host-side published port for direct daemon HTTP access.
-The web console still enters through `MADAO_WEB_PORT`.
-
-`MADAO_IMAGE_NAMESPACE` and `MADAO_IMAGE_TAG` are only used by `docker-compose.prod.yml`.
-By default they pull the `latest` images from the `netcookies` namespace.
+Then access at `http://127.0.0.1:18080`.
 
 ## What Docker Mode Changes
 
-- Backend HTTP bind becomes `0.0.0.0:7822`
-- Runtime config directory becomes `/var/lib/madao`
-- Frontend runs in `web` mode instead of Tauri desktop mode
-- Tauri-only capabilities are downgraded gracefully in the browser
-- The web console requires HTTP secret login before the main app page is available
-- Protected HTTP routes rely on the authenticated session cookie
-- Persisted HTTP port changes take effect after daemon restart
-
-The direct daemon HTTP port published to the host can be configured separately with `MADAO_DAEMON_HTTP_PORT`.
+- Backend HTTP bind: `0.0.0.0:7822`
+- Runtime config directory: `/var/lib/madao`
+- Frontend runs in `web` mode (Tauri-only capabilities downgraded gracefully)
+- Web console requires HTTP secret login
+- Protected routes rely on authenticated session cookie
+- HTTP port changes take effect after daemon restart
 
 ## Persistent Data
 
-Docker mode persists runtime data in the named volume:
+Runtime data is stored in the named volume `madao-data`:
 
-```text
-madao-data
-```
-
-This volume stores:
-
-- generated `config.toml`
-- provider manifests under `providers/`
-- runtime settings
-- runtime state
-- option cache
-- routing plans
-
-Inspect the volume:
+- `config.toml`, `providers/`, runtime settings, runtime state, option cache, routing plans
 
 ```bash
-docker volume inspect madao_madao-data
+docker volume inspect madao_madao-data   # Inspect volume
+docker compose exec daemon sh            # Shell into container
 ```
 
-Open a shell in the daemon container:
-
-```bash
-docker compose exec daemon sh
-```
-
-Runtime files live under:
-
-```text
-/var/lib/madao
-```
+Runtime files live under `/var/lib/madao`.
 
 ## Upgrades
 
-Pull or edit the latest code, then rebuild:
-
 ```bash
-docker compose up -d --build
-```
-
-This keeps the named volume, so runtime data is preserved.
-
-If you are using the prebuilt Docker Hub images, upgrade with:
-
-```bash
-docker compose -f docker-compose.prod.yml pull
+docker compose up -d --build                          # Local build
+docker compose -f docker-compose.prod.yml pull        # Prebuilt images
 docker compose -f docker-compose.prod.yml up -d
 ```
 
+Named volume is preserved — runtime data is not lost.
+
 ## Reset
 
-If you want a clean runtime state:
-
 ```bash
-docker compose down -v
+docker compose down -v    # Remove containers and delete persistent volume
 ```
 
-This removes the containers and deletes the persistent volume.
-
-## Backup And Restore
-
-Create a backup by copying the runtime directory out of the daemon container:
+## Backup and Restore
 
 ```bash
 docker compose exec daemon sh -lc 'tar -czf /tmp/madao-backup.tar.gz -C /var/lib madao'
@@ -180,110 +112,39 @@ Restore by recreating the volume and extracting the archive back into `/var/lib`
 
 ## Common Commands
 
-Start:
-
-```bash
-docker compose up -d
-```
-
-Rebuild after code changes:
-
-```bash
-docker compose up -d --build
-```
-
-View logs:
-
-```bash
-docker compose logs -f
-```
-
-View daemon logs only:
-
-```bash
-docker compose logs -f daemon
-```
-
-View web logs only:
-
-```bash
-docker compose logs -f web
-```
-
-Stop:
-
-```bash
-docker compose down
-```
-
-Stop and remove volume:
-
-```bash
-docker compose down -v
-```
-
-Restart only the backend:
-
-```bash
-docker compose restart daemon
-```
-
-Restart only the web container:
-
-```bash
-docker compose restart web
-```
+| Action | Command |
+|--------|---------|
+| Start | `docker compose up -d` |
+| Rebuild | `docker compose up -d --build` |
+| All logs | `docker compose logs -f` |
+| Daemon logs | `docker compose logs -f daemon` |
+| Web logs | `docker compose logs -f web` |
+| Stop | `docker compose down` |
+| Stop + delete data | `docker compose down -v` |
+| Restart daemon | `docker compose restart daemon` |
+| Restart web | `docker compose restart web` |
 
 ## Troubleshooting
 
 If `http://127.0.0.1:8080` does not open:
 
-1. Check service status:
-
 ```bash
-docker compose ps
+docker compose ps                        # Check service status
+curl http://127.0.0.1:8080/health        # Check backend health
+docker compose logs --tail=100 daemon    # Read daemon logs
+docker compose logs --tail=100 web       # Read web logs
 ```
 
-2. Check backend health:
-
-```bash
-curl http://127.0.0.1:8080/health
-```
-
-3. Read daemon logs:
-
-```bash
-docker compose logs --tail=100 daemon
-```
-
-4. Read web logs:
-
-```bash
-docker compose logs --tail=100 web
-```
-
-If the port is occupied, change `.env`:
-
-```dotenv
-MADAO_WEB_PORT=18080
-```
-
-Then restart:
-
-```bash
-docker compose up -d
-```
+If the port is occupied, change `MADAO_WEB_PORT` in `.env` and restart.
 
 ## Browser Mode Notes
 
-The current UI is still the same main console used by the desktop app.
+The web UI is the same console used by the desktop app. In browser mode:
 
-In browser mode:
-
-- provider management, routing, logs, settings, prices, and activation flows remain available
-- desktop-only operations such as opening the local config folder are disabled
-- layout includes small-screen adjustments, but the primary target is still desktop-class browsers
-- Tauri menu events, native window actions, and local shell integrations are not available
+- Provider management, routing, logs, settings, prices, and activation flows remain available
+- Desktop-only operations (e.g., opening local config folder) are disabled
+- Layout includes small-screen adjustments, but primary target is desktop-class browsers
+- Tauri menu events and native window actions are not available
 
 ## Verification
 

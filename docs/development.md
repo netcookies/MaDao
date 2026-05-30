@@ -1,6 +1,6 @@
 # Development
 
-## 已验证状态
+## 验证状态
 
 当前仓库已验证通过：
 
@@ -10,31 +10,7 @@ cargo check --workspace
 npm run build
 ```
 
-并做过运行态冒烟：
-
-- `GET /health`
-- `GET /api/provider-manifests`
-- `GET /api/providers/mock/manifest`
-- `PUT /api/providers/mock/manifest`
-- `POST /api/provider-manifests/reload`
-
-## Git
-
-仓库已初始化 Git：
-
-```bash
-git init
-```
-
-当前仓库已经完成初始化提交，可继续按功能粒度提交后续修改。
-
-## 补充文档
-
-- app / daemon API 联动见 [docs/api-integration.md](api-integration.md)
-- daemon OpenAPI 规范见 [docs/openapi/daemon.openapi.yaml](openapi/daemon.openapi.yaml)
-- Swagger UI 静态页入口见 [docs/openapi/index.html](openapi/index.html)
-- 接入更多服务商与代码贡献见 [CONTRIBUTING.md](/Users/isulewli/Projects/MaDao/CONTRIBUTING.md)
-- 自动化多平台发布见 [docs/release.md](release.md)
+运行态冒烟已覆盖：`GET /health`、`GET /api/provider-manifests`、`GET /api/providers/mock/manifest`、`PUT /api/providers/mock/manifest`、`POST /api/provider-manifests/reload`。
 
 ## 常用命令
 
@@ -43,7 +19,10 @@ git init
 ```bash
 cargo check --workspace
 cargo test -p sms-core
+cargo run -p madao-sms-daemon
 ```
+
+Daemon 默认使用用户配置目录（macOS: `~/Library/Application Support/com.madao.sms`，Linux: `~/.config/com.madao.sms`）。显式传入路径可覆盖：`cargo run -p madao-sms-daemon -- /path/to/config.toml`。
 
 ### 前端
 
@@ -52,203 +31,109 @@ npm run build
 npm run check:openapi-sync
 ```
 
-如果你要以浏览器模式本地联调前端：
+浏览器模式本地联调：
 
 ```bash
 VITE_RUNTIME_MODE=web npm run dev
 ```
 
-默认会通过 Vite 代理把 `/api` 和 `/health` 转发到：
+Vite 代理会把 `/api` 和 `/health` 转发到 `http://0.0.0.0:7822`。
 
-```text
-http://0.0.0.0:7822
-```
+### 样式体系
 
-当前前端样式栈为：
-
-- `Tailwind CSS`
-- `PostCSS + Autoprefixer`
-- `design token + CSS variables`
+当前前端样式栈：Tailwind CSS + PostCSS + Autoprefixer + design token + CSS variables。
 
 关键配置文件：
 
-- `tailwind.config.cjs`
-- `postcss.config.cjs`
+- `tailwind.config.cjs` / `postcss.config.cjs`
 - `ui/src/tailwind.css`
 - `ui/src/design-system/theme.css`
 - `ui/src/design-system/tailwind-theme.cjs`
 
 ### 更新检查
 
-设置页支持：
-
-- `每次打开时检查更新`
-- `检查更新`
-- `仅显示 OpenAI 短信可用国家`
-
-其中 `仅显示 OpenAI 短信可用国家` 的实现语义固定为：
-
-```text
-当前平台支持国家 - (whatsapp_regions - sms_regions)
-```
-
-不要把它实现成“只保留 `sms_regions`”。项目约束是：`sms_regions` 优先于 `whatsapp_regions`，只有 `whatsapp-only` 国家才应被隐藏。
-
-更新信息来源于：
-
-```text
-https://github.com/netcookies/MaDao
-```
-
-前端实际请求 latest release API：
+设置页支持 `每次打开时检查更新` 和 `检查更新`。更新信息来源于 GitHub Release API：
 
 ```text
 https://api.github.com/repos/netcookies/MaDao/releases/latest
 ```
 
-### 启动 daemon
+### Manifest 操作
 
 ```bash
-cargo run -p madao-sms-daemon
-```
-
-默认情况下，daemon 会自动初始化并使用用户配置目录，而不是直接读写仓库内的 `config/` 与 `plugins/providers/`：
-
-- macOS：`~/Library/Application Support/com.madao.sms`
-- Linux：`$XDG_CONFIG_HOME/com.madao.sms` 或 `~/.config/com.madao.sms`
-
-如果你显式传入配置文件路径，例如 `cargo run -p madao-sms-daemon -- /path/to/config.toml`，则会按该路径运行。
-
-### 查看 provider manifests
-
-```bash
-curl http://127.0.0.1:7822/api/provider-manifests
-```
-
-### 读取单个 manifest
-
-```bash
-curl http://127.0.0.1:7822/api/providers/mock/manifest
-```
-
-### 保存单个 manifest
-
-```bash
+curl http://127.0.0.1:7822/api/provider-manifests          # 查看所有
+curl http://127.0.0.1:7822/api/providers/mock/manifest     # 读取单个
 curl -X PUT http://127.0.0.1:7822/api/providers/mock/manifest \
-  -H 'Content-Type: application/json' \
-  -d @manifest.json
-```
-
-### 热重载 manifests
-
-```bash
-curl -X POST http://127.0.0.1:7822/api/provider-manifests/reload
+  -H 'Content-Type: application/json' -d @manifest.json    # 保存
+curl -X POST http://127.0.0.1:7822/api/provider-manifests/reload  # 热重载
 ```
 
 ## Docker 模式
-
-一键启动：
 
 ```bash
 cp .env.docker.example .env
 docker compose up -d --build
 ```
 
-默认网页入口：
+默认网页入口：`http://127.0.0.1:8080`
 
-```text
-http://127.0.0.1:8080
-```
-
-Docker 模式最小验收：
+验收命令：
 
 ```bash
 curl http://127.0.0.1:8080/health
 curl http://127.0.0.1:8080/api/provider-manifests
 ```
 
-当前这套 `docker compose` 已实际验证通过：
-
-- `docker compose build`
-- `docker compose up -d`
-- `daemon` 健康检查通过
-- `web -> daemon` 反向代理链路正常
-
 ## OpenAPI / Swagger UI
 
-仓库内已维护 daemon API 的 OpenAPI 规范：
-
-```text
-docs/openapi/daemon.openapi.yaml
-```
-
-本地校验：
+规范文件：`docs/openapi/daemon.openapi.yaml`
 
 ```bash
-npm run check:openapi-sync
+npm run check:openapi-sync    # 校验路由同步
 ```
 
-该检查会核对：
+该检查核对 OpenAPI 是否包含当前所有 daemon HTTP 路由，防止”加了路由却忘了更新 OpenAPI”的漂移。
 
-- OpenAPI 中是否包含当前所有 daemon HTTP 路由
-- 路由总数是否与 `crates/sms-server/src/lib.rs` 一致
+### 部署
 
-这不是完整语义校验，但能阻止“加了路由却忘了更新 OpenAPI”的最常见漂移。
+仓库内置 GitHub Pages 自动部署（`.github/workflows/openapi-pages.yml`），也可部署到 Cloudflare Pages（Output directory: `docs/openapi`）。
 
-### 免费托管部署
-
-当前仓库已内置 GitHub Pages 自动部署 workflow：
-
-```text
-.github/workflows/openapi-pages.yml
-```
-
-它会在 `main` 分支的 OpenAPI 文档变更后，把以下静态资源部署到 GitHub Pages：
-
-- `docs/openapi/index.html`
-- `docs/openapi/swagger-initializer.js`
-- `docs/openapi/daemon.openapi.yaml`
-
-由于这套 Swagger UI 是纯静态文件，因此也可以直接部署到 Cloudflare Pages：
-
-- Framework preset：`None`
-- Build command：留空，或使用一个空命令
-- Output directory：`docs/openapi`
-
-如果后续你想把 Cloudflare Pages 也接成自动发布，只需要再补：
-
-- `CLOUDFLARE_API_TOKEN`
-- `CLOUDFLARE_ACCOUNT_ID`
-- 可选的 `wrangler` / Pages deploy workflow
-
-当前仓库默认先接入的是 GitHub Pages，因为它不需要额外依赖和外部密钥，维护成本最低。
-
-桌面模式下：
+### 桌面模式传输
 
 - macOS / Linux：UI 通过本地 socket 与后端通信
 - Windows：UI 通过内嵌本地 HTTP API 与后端通信
 - 内嵌 HTTP 服务监听所有网卡地址，供外部直接访问
 
-## Tauri / UI 现状
-
-当前前端已经可以构建，Tauri 侧也能通过 workspace 编译检查。
-
-当前最小前端回归命令：
+## 最小回归命令
 
 ```bash
 npm run build
 cargo check -p madao-tauri
 ```
 
-如果你问“现在能编译打开测试了吗”，答案是：
+## 国际化（i18n）
 
-- `能编译`：是。
-- `能构建前端`：是。
-- `能启动 daemon 并测试接口`：是。
-- `能打开桌面壳做完整交互验收`：代码层面已具备基础条件，但我这一轮主要验证的是编译、构建和后端 API 冒烟，不是完整桌面交互录屏式验收。
+前端使用 `i18next` + `react-i18next`，配置入口：`ui/src/app/i18n.ts`。
 
-如需继续验收，建议下一步优先做：
+当前支持语言：`en`（英文）、`zh`（中文）。翻译 key 内联在 `i18n.ts` 的 `resources` 对象中。
 
-1. 以你们内部平台真实响应样例补充 protocol contract tests。
-2. 增加桌面端手工交互验收清单。
-3. 基于 `designs/new.pen` 更新 Tailwind 迁移后的视觉对齐基线。
+添加新 key：
+
+1. 在 `resources.en.translation` 中添加英文 key
+2. 在 `resources.zh.translation` 中添加对应中文 key
+3. 组件中使用 `useTranslation()` hook 的 `t('key_name')` 调用
+
+添加新语言：
+
+1. 在 `resources` 中添加新的 locale 对象（如 `ja: { translation: { ... } }`）
+2. 在 `ui/src/app/language.tsx` 中注册语言选项
+
+运行时语言切换通过 Settings 页面完成，无需重启应用。
+
+## 相关文档
+
+- [API 联动指南](api-integration.md)
+- [OpenAPI 规范](openapi/daemon.openapi.yaml)
+- [Swagger UI](openapi/index.html)
+- [贡献指南](../CONTRIBUTING.md)
+- [发布说明](release.md)

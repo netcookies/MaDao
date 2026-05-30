@@ -1,5 +1,7 @@
 # UI 组件设计规范
 
+> **Status: Active** — 当前生效的组件约束。视觉真值仍来自 `DESIGN.md` 和 `ui/src/design-system/theme.css`。
+
 ## 目标
 
 本规范描述当前 `Tailwind + design token` 架构下的组件边界与约束。视觉真值仍来自：
