@@ -28,6 +28,16 @@
 - **自动更新** — 内置 Tauri updater，从 GitHub 拉取签名发布
 - **国际化** — UI 支持中英文，运行时切换语言
 
+## 界面截图
+
+| 总览 | 服务商 |
+|------|--------|
+| ![MaDao 总览仪表盘](./assets/screenshots/madao-overview.png) | ![MaDao 服务商管理](./assets/screenshots/madao-providers.png) |
+
+| 取码方案 | 统计面板 |
+|----------|----------|
+| ![MaDao 取码方案](./assets/screenshots/madao-routing.png) | ![MaDao 统计面板](./assets/screenshots/madao-stats-dashboard.png) |
+
 ## 架构亮点
 
 - **Rust 分层架构** — `plugin-sdk / sms-core / sms-server / apps/daemon / src-tauri`
