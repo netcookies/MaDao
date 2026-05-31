@@ -1,7 +1,7 @@
 # MaDao
 
 <p align="center">
-  <strong>A desktop console for internal SMS / OTP workflows, built with Rust, Tauri 2, and React.</strong>
+  <strong>A unified SMS verification tool built with Rust + Tauri 2.</strong>
 </p>
 
 <p align="center">
@@ -18,9 +18,7 @@
 
 ## Overview
 
-MaDao is an internal operations console that gives teams a unified desktop UI for SMS activation, OTP testing, provider management, routing plans, and runtime diagnostics.
-
-It is not a public marketplace client — it provides a configurable control plane for self-hosted or internal provider integrations.
+**MaDao** is a unified SMS verification tool built with Rust + Tauri 2. It aggregates resources from HeroSms, 5Sim, and SMSBower, lets you configure routing plans by service type, country, and operator, and uses anonymous aggregate statistics to help you find the country and route combinations with the highest success rates — no more guessing.
 
 ## Features
 
