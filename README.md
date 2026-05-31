@@ -183,3 +183,5 @@ The `MaDao` name, logo, release channels, and official project identity are cove
 ## Links
 
 - [LINUX DO](https://linux.do)
+- Thanks to [Maestro-Flow](https://github.com/catlog22/Maestro-Flow) for its workflow ideas and tooling inspiration.
+- Thanks to [FlowPilot](https://github.com/QLHazyCoder/FlowPilot) for its workflow ideas and tooling inspiration.

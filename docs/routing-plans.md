@@ -1,4 +1,4 @@
-# Routing Plans
+# 取码方案（Routing Plans）
 
 ## 目标
 
@@ -63,7 +63,7 @@ Content-Type: application/json
 
 被禁用的 routing plan 不能用于发起 acquire。
 
-## Replace 与 Failover
+## 换号（Replace）与故障转移（Failover）
 
 ### Replace — 换号并收口当前 ticket
 

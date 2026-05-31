@@ -1,4 +1,4 @@
-# SmsBower Protocol Reference
+# SmsBower 协议参考
 
 官方来源：
 

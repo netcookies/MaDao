@@ -152,21 +152,21 @@ curl http://127.0.0.1:7822/api/provider-manifests
 
 ## 文档索引
 
-- [Architecture](./architecture.md)
+- [架构说明](./architecture.md)
 - [API 联动指南](./api-integration.md)
 - [Daemon API 参考](./daemon-api.md)
 - [OpenAPI / Swagger UI](./openapi/index.html)
 - [Provider 协议兼容说明](./providers.md)
-- [Routing Plans](./routing-plans.md)
+- [取码方案（Routing Plans）](./routing-plans.md)
 - [开发与验证说明](./development.md)
 - [Docker 部署说明](./docker.zh-CN.md)
-- [Cloudflare Stats Worker](../cloudflare/stats-worker/README.md)
+- [统计聚合服务](../cloudflare/stats-worker/README.md)
 - [发布说明](./release.md)
 - [贡献指南](../CONTRIBUTING.md)
 - [安全策略](../SECURITY.md)
 - [版本历史](https://github.com/netcookies/MaDao/releases)
 
-## License 与品牌
+## 许可证与品牌
 
 本项目基于 [GNU Affero General Public License v3.0 only](../LICENSE) 发布。
 

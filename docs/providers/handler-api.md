@@ -1,4 +1,4 @@
-# handler_api Provider API Reference
+# handler_api 协议参考
 
 本协议由 sms-activate.org 制定，被 HeroSMS、SmsBower 等多家服务商兼容实现。
 

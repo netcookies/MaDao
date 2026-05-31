@@ -43,7 +43,7 @@ Daemon 使用 HTTP secret 作为唯一凭证。首次启动时自动生成并持
 
 ## 完整路由表
 
-### Auth
+### 鉴权与健康检查
 
 | 方法 | 路径 | 鉴权 | 说明 |
 |------|------|------|------|
@@ -54,7 +54,7 @@ Daemon 使用 HTTP secret 作为唯一凭证。首次启动时自动生成并持
 | `POST` | `/auth/logout` | 公开 | 销毁 session |
 | `GET` | `/api/access-info` | 公开 | 返回 HTTP secret（仅 socket） |
 
-### Runtime & Settings
+### 运行时与设置
 
 | 方法 | 路径 | 说明 |
 |------|------|------|
@@ -69,14 +69,14 @@ Daemon 使用 HTTP secret 作为唯一凭证。首次启动时自动生成并持
 | `GET` | `/api/settings/option-cache` | 读取 option cache 状态 |
 | `GET` | `/api/settings/openai-sms-regions` | 读取 OpenAI 短信区域缓存 |
 
-### Stats
+### 统计
 
 | 方法 | 路径 | 说明 |
 |------|------|------|
 | `POST` | `/api/settings/stats/sync` | 立即同步待上传的统计事件 |
 | `POST` | `/api/settings/stats/summary` | 查询远端统计汇总 |
 
-### Activation
+### 激活与验证码
 
 | 方法 | 路径 | 说明 |
 |------|------|------|
@@ -88,7 +88,7 @@ Daemon 使用 HTTP secret 作为唯一凭证。首次启动时自动生成并持
 | `GET` | `/api/tickets/{ticket_id}/callbacks` | 查询 ticket 的回调注册 |
 | `POST` | `/api/tickets/{ticket_id}/callbacks` | 为 ticket 注册回调 |
 
-### Provider Resources
+### 服务商资源
 
 | 方法 | 路径 | 说明 |
 |------|------|------|
@@ -103,7 +103,7 @@ Daemon 使用 HTTP secret 作为唯一凭证。首次启动时自动生成并持
 | `PUT` | `/api/providers/{provider}/manifest` | 更新单个 manifest |
 | `POST` | `/api/providers/{provider}/reuse-pool` | 清空复用池 |
 
-### Routing Plan
+### 取码方案
 
 | 方法 | 路径 | 说明 |
 |------|------|------|
