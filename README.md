@@ -35,6 +35,16 @@ It is not a public marketplace client — it provides a configurable control pla
 - **Auto-update** — built-in Tauri updater with signed releases from GitHub
 - **i18n** — UI supports English and Chinese with runtime language switching
 
+## Screenshots
+
+| Overview | Providers |
+|----------|-----------|
+| ![MaDao overview dashboard](./docs/assets/screenshots/madao-overview.png) | ![MaDao provider management](./docs/assets/screenshots/madao-providers.png) |
+
+| Routing | Stats Dashboard |
+|---------|-----------------|
+| ![MaDao routing plans](./docs/assets/screenshots/madao-routing.png) | ![MaDao stats dashboard](./docs/assets/screenshots/madao-stats-dashboard.png) |
+
 ## Architecture Highlights
 
 - **Layered Rust workspace** — `plugin-sdk`, `sms-core`, `sms-server`, `apps/daemon`, `src-tauri`
